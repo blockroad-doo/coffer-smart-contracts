@@ -7,10 +7,7 @@ pragma solidity 0.8.30;
  * @notice Coffer contracts use this interface to interact with the shared NFT contract
  */
 interface ICofferReceivableNFT {
-
-    function mintNFTForCoffer(address user) external returns (uint256 tokenId);
-    function burnNFTForCoffer(uint256 tokenId) external;
-    function getNFTContract() external view returns (address);
-    function getUserAddress(uint256 tokenId) external view returns (address);
-
+    function mintCofferReceivable(address holderAddress) external returns (uint256 holderId);
+    function burnCofferReceivable(uint256 holderId) external;
+    function getHolderAddress(uint256 holderId) external view returns (address);
 }
