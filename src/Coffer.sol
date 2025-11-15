@@ -1,3 +1,24 @@
+// Layout of Contract:
+// version
+// imports
+// interfaces, libraries, contracts
+// errors
+// Type declarations
+// State variables
+// Events
+// Modifiers
+// Functions
+
+// Layout of Functions:
+// constructor
+// receive function (if exists)
+// fallback function (if exists)
+// external
+// public
+// internal
+// private
+// view & pure functions
+
 //SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
@@ -8,10 +29,11 @@ import {ICofferReceivableNFT} from "./interfaces/ICofferReceivableNFT.sol";
 /**
  * @title Coffer
  * @notice Created by a validator, using CofferFactory smart contract
- * @notice Supports multiple users per validator with transferable receivable NFT instruments
- * @notice Integrates with EIP-7002 for consensus layer withdrawals
+ * @notice Supports multiple holders per validator with transferable receivable NFT instruments representing ownership of offer
+ * @notice Integrates with EIP-7002 for withdrawals from consensus layer to an address and EIP???? for adding more stake to consensus layer
  */
 contract Coffer is Ownable, ReentrancyGuard {
+    error ZeroAmount();
     error AmountToSmallToAccept();
     error InvalidDuration();
     error InvalidRate();
@@ -22,6 +44,7 @@ contract Coffer is Ownable, ReentrancyGuard {
     error ValidatorIsNotActive();
     error ValidatorIsActive();
     error ValidatorHasOpenOffers();
+    error ValidatorInsufficientAmountForClosingOffer(address holderAddress, uint256 amountOwed);
     error ValidatorDoesntHaveEnoughAvailableAmount(uint256 amountWithInterest);
 
     error HolderDoesntExistOrAlreadyWithdrawnWholeAmount();
@@ -69,6 +92,7 @@ contract Coffer is Ownable, ReentrancyGuard {
     mapping(uint256 => HolderConditions) s_holderConditions;
 
     event HolderAcceptedOffer(address indexed holderAddress);
+    event OfferClosed(address indexed holderAddress, uint256 amountOwed);
 
     modifier deactivatedAndNoAceptedOffers() {
         if (s_validatorConditions.isActive == true) revert ValidatorIsActive();
@@ -111,18 +135,14 @@ contract Coffer is Ownable, ReentrancyGuard {
         });
     }
 
-    /// @dev Private function to remove holder
-    /// @dev used in:
-    /// @param _holderId Holder ID of the loan to remove
-    function removeCreditor(uint256 _holderId) private {
-        // Burn the NFT after offer is expired or closed earlier
-        i_cofferReceivableNFT.burnCofferReceivable(_holderId);
-        delete s_holderConditions[_holderId];
-    }
+    ///
+    /// EXTERNAL FUNCTIONS
+    ///
 
-    /// Function which accepts offer
+    /// @notice Function in which msg.sender accepts an offer
     /// @param _duration holder defines duration which must be in validators offered interval
-    function acceptLoan(uint256 _duration) external payable nonReentrant {
+    /// @notice Function creates NFT which gives msg.sender ownership of accepted offer
+    function acceptOffer(uint256 _duration) external payable nonReentrant {
         // The creditor must send the exact amount of ether to the contract
         if (msg.value < s_validatorConditions.minimumAmountToAccept) revert AmountToSmallToAccept();
         if (s_validatorConditions.isActive == false) revert ValidatorIsNotActive();
@@ -139,8 +159,6 @@ contract Coffer is Ownable, ReentrancyGuard {
             revert ValidatorDoesntHaveEnoughAvailableAmount(amountWithInterest);
         }
 
-        s_validatorConditions.availableAmount -= amountWithInterest;
-
         // Mint NFT representing the offer ownership and receivables
         uint256 holderId = i_cofferReceivableNFT.mintCofferReceivable(msg.sender);
 
@@ -152,11 +170,165 @@ contract Coffer is Ownable, ReentrancyGuard {
             startingAmount: amountWithInterest
         });
 
+        s_validatorConditions.availableAmount -= amountWithInterest;
+
         emit HolderAcceptedOffer(msg.sender);
 
         (bool success,) = i_validatorAddress.call{value: msg.value}("");
         if (!success) revert SendAmountFailed();
     }
+
+    /// @notice Close an offer by repaying the full amount early
+    /// @notice Can only be called by the validator
+    /// @param _holderId Holder ID which offer validator is closing
+    function closeOffer(uint256 _holderId) external payable onlyOwner nonReentrant holderExists(_holderId) {
+        address holderAddress = i_cofferReceivableNFT.getHolderAddress(_holderId);
+        uint256 amountOwed = s_holderConditions[_holderId].remainingAmount;
+
+        if (msg.value != amountOwed) {
+            revert ValidatorInsufficientAmountForClosingOffer(holderAddress, amountOwed);
+        }
+
+        i_cofferReceivableNFT.burnCofferReceivable(_holderId);
+        delete s_holderConditions[_holderId];
+
+        emit OfferClosed(holderAddress, amountOwed);
+
+        (bool success,) = holderAddress.call{value: amountOwed}("");
+        if (!success) revert SendAmountFailed();
+    }
+
+    /// @notice This function is called by the validator to deactivate the validator
+    /// @notice After deactivation, the validator cannot accept new offers
+    function deactivateValidator() external onlyOwner {
+        if (s_validatorConditions.isActive == false) revert ValidatorIsNotActive();
+        s_validatorConditions.isActive = false;
+    }
+
+    /// @notice This function is called by the validator to activate the validator
+    /// @notice After activation, the validator can accept new offers
+    function activateValidator() external onlyOwner {
+        if (s_validatorConditions.isActive == true) revert ValidatorIsActive();
+        s_validatorConditions.isActive = true;
+    }
+
+    /// @notice function can be called only when validator is deactivated and has no acepted offers
+    function changeMaximumSlashingPenalty(uint256 _maximumSlashingPenalty)
+        external
+        onlyOwner
+        deactivatedAndNoAceptedOffers()
+    {
+        if (_maximumSlashingPenalty == 0) revert InvalidSlashingPenalty();
+        s_validatorConditions.maximumSlashingPenalty = _maximumSlashingPenalty;
+    }
+
+    /// @notice function can be called only when validator is deactivated and has no acepted offers
+    function changeInterestRate(uint256 _interestRate) external onlyOwner deactivatedAndNoAceptedOffers {
+        if (_interestRate == 0 || _interestRate > RATE_DIVISOR) revert InvalidRate();
+        s_validatorConditions.interestRate = _interestRate;
+    }
+
+    /// @notice function can be called only when validator is deactivated and has no acepted offers
+    function changeMinimumAndMaximumDuration(uint256 _minimumDuration, uint256 _maximumDuration)
+        external
+        onlyOwner
+        deactivatedAndNoAceptedOffers
+    {
+        if ((_maximumDuration <= _minimumDuration) || _minimumDuration == 0) revert InvalidDuration();
+        s_validatorConditions.minimumDuration = _minimumDuration;
+        s_validatorConditions.maximumDuration = _maximumDuration;
+    }
+
+    /// @notice This function is called by the validator to increase the available loan amount
+    /// @notice Validator should consider not to increase too much the available loan amout so that it satisfies at least the condition: effective balance on cosensus layer - slashing penalty >= available amount
+    function changeAvailableLoanAmount(uint256 _amount) external onlyOwner deactivatedAndNoAceptedOffers {
+        if (_amount < s_validatorConditions.minimumAmountToAccept) revert AmountToSmallToAccept();
+        s_validatorConditions.availableAmount = _amount;
+    }
+
+    /// @notice function can be called only when validator is deactivated and has no acepted offers
+    function changeMinimumAmountToAccept(uint256 _amount) external onlyOwner deactivatedAndNoAceptedOffers {
+        if (_amount == 0) revert ZeroAmount();
+        s_validatorConditions.minimumAmountToAccept = _amount;
+    }
+
+    ///
+    /// PUBLIC VIEW FUNCTIONS
+    ///
+
+    /// @notice Public function which returns how much ETH can holder withdraw at the moment of calling
+    function getCreditorsAvailableWithdrawlAmount(uint256 _holderId)
+        public
+        view
+        holderExists(_holderId)
+        returns (uint256 availableAmount)
+    {
+        HolderConditions storage holderConditions = s_holderConditions[_holderId];
+
+        if (holderConditions.lastWithdrawTimestamp + holderConditions.durationLeft > block.timestamp) {
+            // If the duration hasn't passed yet, we can only withdraw the amount with interest scaled by time passed since the last withdraw
+            availableAmount = (holderConditions.remainingAmount / holderConditions.durationLeft)
+                * (block.timestamp - holderConditions.lastWithdrawTimestamp);
+        } else {
+            // If the duration has passed, we can withdraw the total remaining amount
+            availableAmount = holderConditions.remainingAmount;
+        }
+    }
+
+    ///
+    /// VIEW FUNCTIONS
+    ///
+
+    function getValidatorConditions()
+        external
+        view
+        returns (
+            bool isActive,
+            uint256 maximumSlashingPenalty,
+            uint256 interestRate,
+            uint256 minimumDuration,
+            uint256 maximumDuration,
+            uint256 availableAmount,
+            uint256 startingAmount,
+            uint256 minimumAmountToAccept
+        )
+    {
+        ValidatorConditions storage conditions = s_validatorConditions;
+        return (
+            conditions.isActive,
+            conditions.maximumSlashingPenalty,
+            conditions.interestRate,
+            conditions.minimumDuration,
+            conditions.maximumDuration,
+            conditions.availableAmount,
+            conditions.startingAmount,
+            conditions.minimumAmountToAccept
+        );
+    }
+
+    function getHolderConditions(uint256 _holderId)
+        external
+        view
+        holderExists(_holderId)
+        returns (
+            uint256 durationLeftSinceLastWithdraw,
+            uint256 lastWithdrawTimestamp,
+            uint256 remainingPrincipal,
+            uint256 startingAmount
+        )
+    {
+        HolderConditions storage conditions = s_holderConditions[_holderId];
+        return (
+            conditions.durationLeft,
+            conditions.lastWithdrawTimestamp,
+            conditions.remainingAmount,
+            conditions.startingAmount
+        );
+    }
+
+    ///
+    /// PURE FUNCTIONS
+    ///
 
     /// @notice Function to calculate the interest based on the amount, duration and interest rate
     /// @notice We use simple interest calulation with timestamp to calculate the interest
