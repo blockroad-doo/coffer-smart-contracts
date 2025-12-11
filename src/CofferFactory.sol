@@ -21,7 +21,6 @@ contract CofferFactory {
 
     uint256 private constant MAX_RATE = 1e18; // Rate divisor for 100% interest rate
 
-    // Consider to deploy contract separately and then just use constant address at each Coffer?
     CofferReceivableNFT immutable i_CofferReceivableNFT;
 
     mapping(address => address) s_coffersAddresses;

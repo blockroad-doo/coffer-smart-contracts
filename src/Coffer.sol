@@ -71,6 +71,7 @@ contract Coffer is Ownable, ReentrancyGuard {
     /// @notice 100% interest rate is the maximum allowed, it can have up to 16 decimal places, for example, 10% interest rate is represented as 1e17
     uint256 private constant RATE_DIVISOR = 1e18; // Divisor for calculating rate
 
+    // we should probably make validator address not immutable so validator can change it at will.
     address immutable i_validatorAddress;
     address immutable i_cofferReceivableNFTAddress;
     // make those two parts to be only one bytes
