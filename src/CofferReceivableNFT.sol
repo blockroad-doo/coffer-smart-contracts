@@ -9,7 +9,7 @@ import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
  * @notice When a holder accepts Coffer offer, they receive an NFT representing ownership rights to repayments
  * @notice The NFT can be transferred to sell the receivables to another party
  */
-abstract contract CofferReceivableNFT is ERC721 {
+contract CofferReceivableNFT is ERC721 {
     error ZeroAddress();
     error TokenDoesNotExist();
     error UnauthorizedMinter();
@@ -21,14 +21,14 @@ abstract contract CofferReceivableNFT is ERC721 {
 
     constructor() ERC721("Coffer Receivable", "CR") {}
 
-    function mintCofferReceivable(address _holderAddress) internal returns (uint256) {
+    function mintCofferReceivable(address _holderAddress) external returns (uint256) {
         uint256 holderId = s_holderIdCounter++;
         _mint(_holderAddress, holderId);
         emit CofferReceivableTokenMinted(holderId, _holderAddress);
         return holderId;
     }
 
-    function burnCofferReceivable(uint256 _holderId) internal {
+    function burnCofferReceivable(uint256 _holderId) external {
         if (_ownerOf(_holderId) == address(0)) revert TokenDoesNotExist();
         _burn(_holderId);
         emit CofferReceivableTokenBurned(_holderId);
