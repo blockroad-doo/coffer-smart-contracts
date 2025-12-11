@@ -29,6 +29,3 @@ A detailed description of the protocol can be found in the [Coffer Whitepaper](h
 
 1. Validators
 2. Holders
-
-### Critical considirations
-
