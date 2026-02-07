@@ -2,6 +2,7 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+ffi = true  # Enable FFI for deployment scripts to update .env file
 
 remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"]
 
