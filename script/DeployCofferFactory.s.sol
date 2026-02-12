@@ -31,17 +31,14 @@ contract DeployCofferFactory is Script {
         vm.stopBroadcast();
 
         address factoryAddress = address(cofferFactory);
-        address nftAddress = cofferFactory.getCofferReceivableNFTAddress();
 
         // Log the deployed addresses
         console.log("CofferFactory deployed at:", factoryAddress);
-        console.log("CofferReceivable deployed at:", nftAddress);
 
         // Update .env file with deployed addresses
         console.log("\nUpdating .env file...");
         updateEnvVariable("HOODI_COFFER_FACTORY_ADDRESS", addressToString(factoryAddress));
-        updateEnvVariable("HOODI_COFFER_RECEIVABLE_NFT_ADDRESS", addressToString(nftAddress));
-        console.log(".env file updated successfully!");
+        console.log(".update nft address manually!");
 
         return cofferFactory;
     }

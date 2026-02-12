@@ -9,47 +9,47 @@ pragma solidity ^0.8.30;
  * @dev This contract manages the deployment of individual Coffer contracts and shared NFT management
  */
 import {Coffer} from "./Coffer.sol";
-import {CofferReceivableNFT} from "./CofferReceivableNFT.sol";
+import {CofferBondNft} from "./CofferBondNft.sol";
 
 contract CofferFactory {
     error InvalidDuration();
     error InvalidInterestRate();
+    error MinimumAmountToAcceptIsZero();
     error MinimumAmountToAcceptGreaterThanAvailableAmount();
 
-    uint256 private constant MAX_RATE = 1e18; // Rate divisor for 100% interest rate
+    uint64 private constant MAX_RATE = 1e8; // Rate divisor for 100% interest rate
 
-    CofferReceivableNFT immutable i_CofferReceivableNFT;
+    address immutable I_COFFER_BOND_NFT_ADDRESS;
 
-    /// @notice one validators EOA can be used for multiple validators as a withdrawl credential address
-    mapping(address validatorOwner => address[] cofferAddress) public s_coffersAddresses;
-
-    event CofferCreated(address indexed validator, address indexed cofferAddress);
+    event CofferIssued(address indexed owner, address indexed cofferAddress);
 
     constructor() {
-        i_CofferReceivableNFT = new CofferReceivableNFT();
+        CofferBondNft iCofferBondNft = new CofferBondNft();
+        I_COFFER_BOND_NFT_ADDRESS = address(iCofferBondNft);
     }
 
     function createCoffer(
-        bytes32 _public_key_part1,
-        bytes16 _public_key_part2,
-        uint256 _interestRate,
-        uint256 _minimumDuration,
-        uint256 _maximumDuration,
-        uint256 _availableAmount,
-        uint256 _minimumAmountToAccept,
+        bytes32 _publicKeyPart1,
+        bytes16 _publicKeyPart2,
+        uint64 _interestRate,
+        uint32 _minimumDuration,
+        uint32 _maximumDuration,
+        uint128 _availableAmount,
+        uint128 _minimumAmountToAccept,
         bool _exitAllowed
     ) external {
-        if ((_maximumDuration <= _minimumDuration) || _minimumDuration == 0) {
+        if ((_maximumDuration < _minimumDuration) || _minimumDuration == 0) {
             revert InvalidDuration();
         }
+        if (_minimumAmountToAccept == 0) revert MinimumAmountToAcceptIsZero();
         if (_interestRate == 0 || _interestRate > MAX_RATE) revert InvalidInterestRate();
         if (_availableAmount < _minimumAmountToAccept) revert MinimumAmountToAcceptGreaterThanAvailableAmount();
 
         Coffer newCoffer = new Coffer(
             msg.sender,
-            address(i_CofferReceivableNFT),
-            _public_key_part1,
-            _public_key_part2,
+            I_COFFER_BOND_NFT_ADDRESS,
+            _publicKeyPart1,
+            _publicKeyPart2,
             _interestRate,
             _minimumDuration,
             _maximumDuration,
@@ -58,13 +58,6 @@ contract CofferFactory {
             _exitAllowed
         );
 
-        s_coffersAddresses[msg.sender].push(address(newCoffer));
-        i_CofferReceivableNFT.authorizeCofferContract(address(newCoffer));
-
-        emit CofferCreated(msg.sender, address(newCoffer));
-    }
-
-    function getCofferReceivableNFTAddress() external view returns (address) {
-        return address(i_CofferReceivableNFT);
+        emit CofferIssued(msg.sender, address(newCoffer));
     }
 }
