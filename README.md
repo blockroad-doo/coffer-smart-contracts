@@ -1,12 +1,4 @@
-# 🔐 Coffer
-
-<div align="center">
-
-[![Solidity](https://img.shields.io/badge/Solidity-%23363636.svg?style=for-the-badge&logo=solidity&logoColor=white)](https://soliditylang.org/)
-[![Ethereum](https://img.shields.io/badge/Ethereum-3C3C3D?style=for-the-badge&logo=Ethereum&logoColor=white)](https://ethereum.org/)
-[![Smart Contracts](https://img.shields.io/badge/Smart%20Contracts-P2P%20Protocol-blue?style=for-the-badge)](https://github.com/ivglavas/coffer-smart-contracts)
-
-</div>
+# Coffer
 
 ---
 
