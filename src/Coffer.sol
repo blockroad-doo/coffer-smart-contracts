@@ -108,13 +108,6 @@ contract Coffer is Ownable, ReentrancyGuard, Multicall {
     event MinimumAmountChanged(uint128 newMinimum);
     event ValidatorConvertedToCompounding();
 
-    modifier holderIsCaller(uint256 _holderId) {
-        if (msg.sender != ICofferBondNft(i_cofferBondNftAddress).getHolderAddress(_holderId)) {
-            revert CallerIsNotHolder();
-        }
-        _;
-    }
-
     ///@notice
     constructor(
         address _owner,
@@ -302,15 +295,17 @@ contract Coffer is Ownable, ReentrancyGuard, Multicall {
     /// @notice If validator allows holder to initiate full exit than it can issue bonds for (almost) all the consensus amount, even so it can drop to less than 32. Penalties should be considered only while defining availableAmount in this situation.
     /// @notice If validator doesn not allows holder to initiate full exit, a holder can withdraw from consensus only the amount validator owes them and after bond reach its maturity
     /// @notice BondNft owner can withdraw using their holderId
-    function holderWithdrawFromExecution(uint256 _holderId) external nonReentrant holderIsCaller(_holderId) {
+    function holderWithdrawFromExecution(uint256 _holderId) external nonReentrant {
         HolderConditions storage holder = s_holderConditions[_holderId];
 
         if (holder.amount == 0) {
             revert HolderDoesNotExistOrAlreadyWithdrawnAmount();
         }
 
+        holderIsCaller(_holderId);
+
         // Has time passed so holder can withdraw
-        if (holder.duration + holder.startTimestamp >= block.timestamp) {
+        if (holder.duration + holder.startTimestamp > block.timestamp) {
             revert HoldersTimeHasNotExpiredYet();
         }
 
@@ -334,12 +329,14 @@ contract Coffer is Ownable, ReentrancyGuard, Multicall {
     /// @notice if contract has enough amount to close holder's offer, holder isn't able to withdraw any amount from consensus
     /// @notice in order for validator to avoid exits by holder, toping up a contract with holder amount is neccesary
     // TODO: find out what are those exact situations in which withdrawls won't work (if any?)
-    function holderWithdrawFromConsensus(uint256 _holderId) external payable nonReentrant holderIsCaller(_holderId) {
+    function holderWithdrawFromConsensus(uint256 _holderId) external payable nonReentrant {
         HolderConditions storage holder = s_holderConditions[_holderId];
 
         if (holder.amount == 0) {
             revert HolderDoesNotExistOrAlreadyWithdrawnAmount();
         }
+
+        holderIsCaller(_holderId);
 
         if (address(this).balance >= holder.amount) {
             revert HolderConsensusWithdrawNotPossibleContractHasEnoughBalance();
@@ -352,7 +349,7 @@ contract Coffer is Ownable, ReentrancyGuard, Multicall {
 
         // Has time passed so holder can withdraw
 
-        if (holder.duration + holder.startTimestamp >= block.timestamp) {
+        if (holder.duration + holder.startTimestamp > block.timestamp) {
             revert HoldersTimeHasNotExpiredYet();
         }
 
@@ -503,5 +500,11 @@ contract Coffer is Ownable, ReentrancyGuard, Multicall {
             s_validatorConditions.unrepayedBonds--;
         }
         delete s_holderConditions[_holderId];
+    }
+
+    function holderIsCaller(uint256 _holderId) private {
+        if (msg.sender != ICofferBondNft(i_cofferBondNftAddress).getHolderAddress(_holderId)) {
+            revert CallerIsNotHolder();
+        }
     }
 }

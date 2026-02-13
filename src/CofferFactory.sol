@@ -19,7 +19,7 @@ contract CofferFactory {
 
     uint64 private constant MAX_RATE = 1e8; // Rate divisor for 100% interest rate
 
-    address immutable I_COFFER_BOND_NFT_ADDRESS;
+    address public immutable I_COFFER_BOND_NFT_ADDRESS;
 
     event CofferIssued(address indexed owner, address indexed cofferAddress);
 
