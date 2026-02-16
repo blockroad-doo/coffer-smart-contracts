@@ -8,7 +8,7 @@ import {console} from "forge-std/console.sol";
 /**
  * @title DeployCofferFactory
  * @notice Deployment script for CofferFactory contract
- * @dev CofferFactory constructor automatically deploys CofferReceivableNFT internally
+ * @dev CofferFactory constructor automatically deploys CofferBondNft internally
  * @dev Automatically updates .env file with deployed contract addresses
  *
  * Usage:

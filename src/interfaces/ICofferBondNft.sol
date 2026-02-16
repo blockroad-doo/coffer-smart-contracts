@@ -8,5 +8,6 @@ pragma solidity 0.8.30;
  */
 interface ICofferBondNft {
     function mintCofferBond(address holderAddress) external returns (uint256 holderId);
+    function burnCofferBond(uint256 holderId) external;
     function getHolderAddress(uint256 holderId) external view returns (address);
 }

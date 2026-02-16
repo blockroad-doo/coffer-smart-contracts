@@ -57,13 +57,13 @@ contract CofferHolderWithdrawTest is BaseTest {
         assertEq(holder1.balance, holderBalanceBefore + totalAmount, "Holder should receive full amount");
 
         // Verify holder conditions cleared
-        (uint128 amount, , ) = targetCoffer.s_holderConditions(holderId1);
+        (uint128 amount,,) = targetCoffer.s_holderConditions(holderId1);
         assertEq(amount, 0, "Holder conditions should be cleared");
 
         // Verify validator conditions updated
-        (uint128 availableAmount, , , , , , uint32 unrepayedBonds, , ) = targetCoffer.s_validatorConditions();
+        (uint128 availableAmount,,,,,, uint32 unrepaidBonds,,,) = targetCoffer.s_validatorConditions();
         assertTrue(availableAmount > 0, "Available amount should be restored");
-        assertEq(unrepayedBonds, 1, "Should have 1 remaining unpayed bond");
+        assertEq(unrepaidBonds, 1, "Should have 1 remaining unpayed bond");
     }
 
     function test_HolderWithdrawFromExecution_Success_ExactlyAtMaturity() public {
@@ -81,7 +81,7 @@ contract CofferHolderWithdrawTest is BaseTest {
         vm.stopPrank();
 
         // Assert
-        (uint128 amount, , ) = targetCoffer.s_holderConditions(holderId1);
+        (uint128 amount,,) = targetCoffer.s_holderConditions(holderId1);
         assertEq(amount, 0, "Should be able to withdraw exactly at maturity");
     }
 
@@ -100,7 +100,7 @@ contract CofferHolderWithdrawTest is BaseTest {
         vm.stopPrank();
 
         // Assert
-        (uint128 amount, , ) = targetCoffer.s_holderConditions(holderId1);
+        (uint128 amount,,) = targetCoffer.s_holderConditions(holderId1);
         assertEq(amount, 0, "Should be able to withdraw long after maturity");
     }
 
@@ -185,7 +185,12 @@ contract CofferHolderWithdrawTest is BaseTest {
         // Act
         vm.startPrank(holder1);
         vm.expectEmit(true, true, false, true);
-        emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, holderId1, bondAmount + calculateExpectedInterest(bondAmount, bondDuration, defaultInterestRate), false);
+        emit CofferEvents.HolderWithdrawFromConsensusSuccess(
+            holder1,
+            holderId1,
+            bondAmount + calculateExpectedInterest(bondAmount, bondDuration, defaultInterestRate),
+            false
+        );
         targetCoffer.holderWithdrawFromConsensus{value: 1}(holderId1); // Send 1 gwei for precompile
         vm.stopPrank();
 
@@ -204,6 +209,7 @@ contract CofferHolderWithdrawTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             true // exitAllowed = true
         );
 
@@ -250,7 +256,9 @@ contract CofferHolderWithdrawTest is BaseTest {
 
         // Act & Assert
         vm.startPrank(holder1);
-        vm.expectRevert(abi.encodeWithSelector(Coffer.HolderConsensusWithdrawNotPossibleContractHasEnoughBalance.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(Coffer.HolderConsensusWithdrawNotPossibleContractHasEnoughBalance.selector)
+        );
         targetCoffer.holderWithdrawFromConsensus{value: 1}(holderId1);
         vm.stopPrank();
     }
@@ -371,8 +379,8 @@ contract CofferHolderWithdrawTest is BaseTest {
 
         // Assert
         assertEq(cofferAddress.balance, 0, "Contract should be empty after all withdrawals");
-        (uint128 availableAmount, , , , , , uint32 unrepayedBonds, , ) = targetCoffer.s_validatorConditions();
-        assertEq(unrepayedBonds, 0, "Should have no unpayed bonds");
+        (uint128 availableAmount,,,,,, uint32 unrepaidBonds,,,) = targetCoffer.s_validatorConditions();
+        assertEq(unrepaidBonds, 0, "Should have no unpayed bonds");
         assertEq(availableAmount, defaultAvailableAmount, "Available amount should be fully restored");
     }
 
@@ -387,6 +395,7 @@ contract CofferHolderWithdrawTest is BaseTest {
             1,
             1 ether,
             MIN_AMOUNT, // 0.01 ether minimum
+            defaultSafeTotalStake,
             false
         );
 

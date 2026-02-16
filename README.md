@@ -96,6 +96,10 @@ The signing keys must be created before the Coffer contract itself. Yet we need 
 > - Cold SLOAD would cost 2100 gas (or 100 gas if warm)
 > - **Savings:** ~2090 gas per cold read
 
+## Safety Guidelines
+
+There are possible attempts in which a bad actor could create malicious Coffer contracts. The most obvious example is setting `availableAmount` greater than the effective balance of the validator on the beacon chain. Below are various scenarios and their safety levels:
+
 ### Initialization
 
 #### 🔄 Starting with Inactive Validator
@@ -104,11 +108,11 @@ Since setting up a Coffer contract takes multiple steps (multiple transactions a
 
 **Why?** If a validator is active at creation and some holder buys a bond right away, the validator cannot increase its `availableAmount` while there is an unmatured bond. There is a higher chance that the validator would like to increase `availableAmount` since the validator starts with 32 ETH.
 
-> ✅ **Benefit:** When a validator initiates `validatorAddFundsToConsensus(bytes32, uint128)`, it doesn't have to wait for the amount to be deposited to the validator on the beacon chain since the contract increases `availableAmount` right away if the deposit is successful.
+> ✅ **Good thing is:** When a validator initiates `validatorAddFundsToConsensus(bytes32, uint128)`, it doesn't have to wait for the amount to be deposited to the validator on the beacon chain since the contract increases `availableAmount` right away if the deposit is successful.
 
-### Safety Guidelines
+### Validator status
 
-There are possible attempts in which a bad actor could create malicious Coffer contracts. The most obvious example is setting `availableAmount` greater than the effective balance of the validator on the beacon chain. Below are various scenarios and their safety levels:
+Before buying a bond ceratin conditions must be thoroughly checked both on execution and consensus layer in order for that bond to be safe and be able to repay at maturity.
 
 #### 🔴 **UNSAFE Scenarios**
 
@@ -125,10 +129,10 @@ There are possible attempts in which a bad actor could create malicious Coffer c
 > [!CAUTION]
 > **Unfinished setup of validator**
 >
-> Validator should end up with `0x02` credentials so it's safe to interact.
+> Validator should set up `0x02` withdrawal credentials so that all Coffer functions are able to execute properly.
 
 > [!CAUTION]
-> **`availableAmount` in Coffer contract is not enough**
+> **`availableAmount` in Coffer contract is too low**
 >
 > Validator can set up `availableAmount` so it's greater than effective balance minus possible penalties that could happen before **minimum** duration has passed. Slashing and leaking for not performing duties should be considered.
 
@@ -137,7 +141,7 @@ There are possible attempts in which a bad actor could create malicious Coffer c
 > [!WARNING]
 > **`availableAmount` in Coffer contract is sometimes enough**
 >
-> Validator can set up `availableAmount` so it's greater than effective balance minus possible penalties that could happen before **maximum** duration has passed.
+> Validator can set up `availableAmount` so it's greater than effective balance minus possible penalties that could happen before **maximum** duration has passed, but are less than effective balance minus possible penalties that could happen before **minimum** duration has passed.
 
 #### 🟢 **SAFE Scenarios**
 
@@ -146,6 +150,10 @@ There are possible attempts in which a bad actor could create malicious Coffer c
 >
 > Validator can set up `availableAmount` less than effective balance minus possible penalties that could happen before **maximum** duration has passed. When this validator issues the first bond, `availableAmount` locks up and cannot be changed until all bonds are repaid.
 
+### Reasnonable holder risk
+
+TODO
+
 ---
 
 ## 🚫 Restrictions
@@ -153,7 +161,7 @@ There are possible attempts in which a bad actor could create malicious Coffer c
 ### Changing Offer Parameters
 
 > [!IMPORTANT]
-> Validators **CANNOT** change `availableAmount` in the Coffer contract while some bonds are not matured. This would give the validator the ability to manipulate amounts Coffer is responsible to handle for its own benefit at the expense of a holder.
+> Validators **CANNOT** change `availableAmount` and `exitsAllowed` in the Coffer contract and it cannot **INCREASE** `interestRate` while some bonds are not matured. This would give the validator the ability to manipulate amounts Coffer is responsible to handle for its own benefit at the expense of a holder.
 
 ### Granting Full Exit to Holders
 
@@ -171,6 +179,12 @@ There are possible attempts in which a bad actor could create malicious Coffer c
 - ✅ Allowing full exit is an option that can be changed (only when validator has no unmatured bonds)
 - ✅ Validators with larger stakes (available balance exceeds validator's effective balance by at least 32 ETH) can make full exits forbidden
 - ✅ In restricted scenarios, holders can only initiate partial withdrawals with the amount needed to fulfill bond conditions at maturity
+
+---
+
+## Invariants
+
+TODO
 
 ---
 

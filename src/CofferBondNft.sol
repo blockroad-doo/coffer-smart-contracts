@@ -26,7 +26,12 @@ contract CofferBondNft is ERC721 {
         return holderId;
     }
 
-    // @notice Get the address of the holder for a given token ID
+    function burnCofferBond(uint256 _holderId) external {
+        _burn(_holderId);
+        emit CofferBondTokenBurned(_holderId);
+    }
+
+    ///@notice Get the address of the holder for a given token ID
     function getHolderAddress(uint256 _holderId) external view virtual returns (address) {
         return ownerOf(_holderId);
     }

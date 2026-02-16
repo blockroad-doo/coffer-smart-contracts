@@ -103,8 +103,8 @@ contract CofferBuyBondTest is BaseTest {
         assertEq(bondNft.ownerOf(holderId3), holder3, "Holder3 should own third NFT");
 
         // Check validator conditions
-        (uint128 availableAmount, , , , , , uint32 unrepayedBonds, , ) = targetCoffer.s_validatorConditions();
-        assertEq(unrepayedBonds, 3, "Should have 3 unrepayed bonds");
+        (uint128 availableAmount,,,,,, uint32 unrepaidBonds,,,) = targetCoffer.s_validatorConditions();
+        assertEq(unrepaidBonds, 3, "Should have 3 unrepaid bonds");
         assertTrue(availableAmount < defaultAvailableAmount, "Available amount should be reduced");
     }
 
@@ -148,7 +148,7 @@ contract CofferBuyBondTest is BaseTest {
         vm.prank(validator);
         targetCoffer.changeInterestRate(LOW_RATE);
 
-        (uint128 availableAmount, , , , uint32 newVersion, , , , ) = targetCoffer.s_validatorConditions();
+        (uint128 availableAmount,,,,, uint32 newVersion,,,,) = targetCoffer.s_validatorConditions();
 
         // Act - Use new version
         uint256 holderId = buyBond(cofferAddress, holder1, 5 ether, SIX_MONTHS, newVersion);
@@ -192,12 +192,7 @@ contract CofferBuyBondTest is BaseTest {
 
         // Act & Assert
         buyBondExpectRevert(
-            cofferAddress,
-            holder1,
-            5 ether,
-            SIX_MONTHS,
-            0,
-            abi.encodeWithSelector(Coffer.ValidatorIsNotActive.selector)
+            cofferAddress, holder1, 5 ether, SIX_MONTHS, 0, abi.encodeWithSelector(Coffer.ValidatorIsNotActive.selector)
         );
     }
 
@@ -291,7 +286,7 @@ contract CofferBuyBondTest is BaseTest {
         assertTrue(holderId > 0, "Bond should be created");
 
         // Verify available amount is reduced appropriately
-        (uint128 newAvailable, , , , , , , , ) = targetCoffer.s_validatorConditions();
+        (uint128 newAvailable,,,,,,,,,) = targetCoffer.s_validatorConditions();
         assertEq(newAvailable, defaultAvailableAmount - (maxPrincipal + interest), "Available amount should be reduced");
     }
 
@@ -369,6 +364,7 @@ contract CofferBuyBondTest is BaseTest {
                     FIVE_YEARS,
                     1000 ether, // Large available amount
                     1 ether,
+                    defaultSafeTotalStake,
                     false
                 );
 
@@ -382,7 +378,7 @@ contract CofferBuyBondTest is BaseTest {
                 vm.stopPrank();
 
                 // Check stored amount
-                (uint128 storedAmount, , ) = Coffer(payable(testCoffer)).s_holderConditions(i * 3 + j + 1);
+                (uint128 storedAmount,,) = Coffer(payable(testCoffer)).s_holderConditions(i * 3 + j + 1);
                 assertEq(storedAmount, amount + expectedInterest, "Interest calculation mismatch");
             }
         }

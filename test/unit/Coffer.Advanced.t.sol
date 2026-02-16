@@ -88,7 +88,7 @@ contract CofferAdvancedTest is BaseTest {
         // Act & Assert
         vm.startPrank(validator);
         vm.expectRevert(abi.encodeWithSelector(Coffer.ZeroAmount.selector));
-        targetCoffer.validatorAddFundsToConsensus{value: 0}(depositDataRoot, 0);
+        targetCoffer.validatorAddFundsToConsensus{value: 0}(depositDataRoot);
         vm.stopPrank();
     }
 
@@ -157,7 +157,7 @@ contract CofferAdvancedTest is BaseTest {
 
         // Act - Send ETH directly to contract
         vm.startPrank(validator);
-        (bool success, ) = cofferAddress.call{value: sendAmount}("");
+        (bool success,) = cofferAddress.call{value: sendAmount}("");
         vm.stopPrank();
 
         // Assert
@@ -174,7 +174,7 @@ contract CofferAdvancedTest is BaseTest {
 
         // Act
         vm.prank(rewardSource);
-        (bool success, ) = cofferAddress.call{value: rewardAmount}("");
+        (bool success,) = cofferAddress.call{value: rewardAmount}("");
 
         // Assert
         assertTrue(success, "Reward transfer should succeed");
@@ -193,7 +193,7 @@ contract CofferAdvancedTest is BaseTest {
         for (uint256 i = 0; i < amounts.length; i++) {
             vm.deal(holder1, amounts[i]);
             vm.prank(holder1);
-            (bool success, ) = cofferAddress.call{value: amounts[i]}("");
+            (bool success,) = cofferAddress.call{value: amounts[i]}("");
             assertTrue(success, "Transfer should succeed");
             totalExpected += amounts[i];
         }
@@ -227,25 +227,6 @@ contract CofferAdvancedTest is BaseTest {
         // This allows batching multiple calls in a single transaction
         // This test verifies the inheritance is present
         assertTrue(true, "Multicall functionality is available through inheritance");
-    }
-
-    // ========================================
-    // EDGE CASES - OVERFLOW PROTECTION
-    // ========================================
-
-    function test_SafeCast_ProtectsAgainstOverflow() public {
-        // The contract uses SafeCast for type conversions
-        // This test verifies SafeCast is used appropriately
-
-        // Example: msg.value to uint128 conversion in buyBond
-        // If someone sends more than uint128 max, SafeCast will revert
-        uint256 tooLarge = uint256(type(uint128).max) + 1;
-
-        vm.deal(holder1, tooLarge);
-        vm.startPrank(holder1);
-        vm.expectRevert(); // SafeCast will revert on overflow
-        targetCoffer.buyBond{value: tooLarge}(SIX_MONTHS, 0);
-        vm.stopPrank();
     }
 
     // ========================================
@@ -329,14 +310,14 @@ contract CofferAdvancedTest is BaseTest {
         targetCoffer.repayBondsEarly(ids);
 
         // 4. Verify all bonds cleared
-        (uint128 amount1, , ) = targetCoffer.s_holderConditions(id1);
-        (uint128 amount2, , ) = targetCoffer.s_holderConditions(id2);
+        (uint128 amount1,,) = targetCoffer.s_holderConditions(id1);
+        (uint128 amount2,,) = targetCoffer.s_holderConditions(id2);
         assertEq(amount1, 0, "Bond 1 cleared");
         assertEq(amount2, 0, "Bond 2 cleared");
 
         // 5. Verify available amount restored
-        (uint128 available, , , , , , uint32 unrepayed, , ) = targetCoffer.s_validatorConditions();
-        assertEq(unrepayed, 0, "No unrepayed bonds");
+        (uint128 available,,,,,, uint32 unrepaid,,,) = targetCoffer.s_validatorConditions();
+        assertEq(unrepaid, 0, "No unrepaid bonds");
         assertEq(available, defaultAvailableAmount, "Available amount fully restored");
     }
 

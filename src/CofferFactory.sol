@@ -17,7 +17,7 @@ contract CofferFactory {
     error MinimumAmountToAcceptIsZero();
     error MinimumAmountToAcceptGreaterThanAvailableAmount();
 
-    uint64 private constant MAX_RATE = 1e8; // Rate divisor for 100% interest rate
+    uint32 private constant MAX_RATE = 1e8; // Represents 100% interest rate, so 1e6 is 1%
 
     address public immutable I_COFFER_BOND_NFT_ADDRESS;
 
@@ -31,11 +31,12 @@ contract CofferFactory {
     function createCoffer(
         bytes32 _publicKeyPart1,
         bytes16 _publicKeyPart2,
-        uint64 _interestRate,
+        uint32 _interestRate,
         uint32 _minimumDuration,
         uint32 _maximumDuration,
         uint128 _availableAmount,
         uint128 _minimumAmountToAccept,
+        uint32 _safeTotalStake,
         bool _exitAllowed
     ) external {
         if ((_maximumDuration < _minimumDuration) || _minimumDuration == 0) {
@@ -55,6 +56,7 @@ contract CofferFactory {
             _maximumDuration,
             _availableAmount,
             _minimumAmountToAccept,
+            _safeTotalStake,
             _exitAllowed
         );
 

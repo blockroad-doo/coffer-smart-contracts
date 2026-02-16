@@ -323,9 +323,7 @@ contract CofferBondNftTest is BaseTest {
 
     function test_SupportsInterface_ERC721Metadata() public {
         // Assert
-        assertTrue(
-            nft.supportsInterface(type(IERC721Metadata).interfaceId), "Should support ERC721Metadata interface"
-        );
+        assertTrue(nft.supportsInterface(type(IERC721Metadata).interfaceId), "Should support ERC721Metadata interface");
     }
 
     function test_SupportsInterface_ERC165() public {

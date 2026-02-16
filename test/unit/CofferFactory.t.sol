@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
-import {BaseTest, CofferFactoryEvents} from "./BaseTest.sol";
+import {BaseTest} from "./BaseTest.sol";
 import {CofferFactory} from "../../src/CofferFactory.sol";
 import {Coffer} from "../../src/Coffer.sol";
 
@@ -40,12 +40,13 @@ contract CofferFactoryTest is BaseTest {
         // Verify validator conditions
         (
             uint128 availableAmount,
-            uint64 interestRate,
+            uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
-            uint32 version,
             uint128 minimumAmountToAccept,
-            uint32 unrepayedBonds,
+            uint32 version,
+            uint32 unrepaidBonds,
+            uint32 safeTotalStake,
             bool isActive,
             bool exitAllowed
         ) = createdCoffer.s_validatorConditions();
@@ -56,7 +57,7 @@ contract CofferFactoryTest is BaseTest {
         assertEq(maximumDuration, defaultMaxDuration, "Max duration mismatch");
         assertEq(version, 0, "Initial version should be 0");
         assertEq(minimumAmountToAccept, defaultMinimumAmount, "Min amount to accept mismatch");
-        assertEq(unrepayedBonds, 0, "Should have no unpayed bonds initially");
+        assertEq(unrepaidBonds, 0, "Should have no unpayed bonds initially");
         assertTrue(isActive, "Coffer should be active initially");
         assertEq(exitAllowed, defaultExitAllowed, "Exit allowed mismatch");
     }
@@ -79,6 +80,7 @@ contract CofferFactoryTest is BaseTest {
             SIX_MONTHS,
             50 ether,
             0.5 ether,
+            defaultSafeTotalStake,
             true
         );
 
@@ -99,6 +101,7 @@ contract CofferFactoryTest is BaseTest {
             1, // 1 second maximum duration
             MIN_AMOUNT, // 0.01 ether available
             MIN_AMOUNT, // 0.01 ether minimum
+            defaultSafeTotalStake,
             false
         );
 
@@ -108,14 +111,10 @@ contract CofferFactoryTest is BaseTest {
         Coffer createdCoffer = Coffer(payable(cofferAddr));
         (
             uint128 availableAmount,
-            uint64 interestRate,
+            uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
-            ,
-            uint128 minimumAmountToAccept,
-            ,
-            ,
-
+            uint128 minimumAmountToAccept,,,,,
         ) = createdCoffer.s_validatorConditions();
 
         assertEq(availableAmount, MIN_AMOUNT, "Available amount should be minimum");
@@ -136,6 +135,7 @@ contract CofferFactoryTest is BaseTest {
             MAX_REALISTIC_DURATION, // 50 years
             MAX_REALISTIC_AMOUNT, // 1 million ETH
             MIN_AMOUNT,
+            defaultSafeTotalStake,
             true
         );
 
@@ -145,13 +145,9 @@ contract CofferFactoryTest is BaseTest {
         Coffer createdCoffer = Coffer(payable(cofferAddr));
         (
             uint128 availableAmount,
-            uint64 interestRate,
+            uint32 interestRate,
             uint32 minimumDuration,
-            uint32 maximumDuration,
-            ,
-            ,
-            ,
-            ,
+            uint32 maximumDuration,,,,,,
             bool exitAllowed
         ) = createdCoffer.s_validatorConditions();
 
@@ -177,6 +173,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             defaultExitAllowed
         );
         vm.stopPrank();
@@ -193,6 +190,7 @@ contract CofferFactoryTest is BaseTest {
             ONE_MONTH, // maximum: 1 month (less than minimum)
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             defaultExitAllowed
         );
         vm.stopPrank();
@@ -213,6 +211,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             defaultExitAllowed
         );
         vm.stopPrank();
@@ -229,6 +228,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             defaultExitAllowed
         );
         vm.stopPrank();
@@ -249,6 +249,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             0, // Invalid: zero minimum amount
+            defaultSafeTotalStake,
             defaultExitAllowed
         );
         vm.stopPrank();
@@ -265,6 +266,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             10 ether, // available amount
             11 ether, // minimum amount (greater than available)
+            defaultSafeTotalStake,
             defaultExitAllowed
         );
         vm.stopPrank();
@@ -288,22 +290,13 @@ contract CofferFactoryTest is BaseTest {
             singleDuration, // Same as minimum
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             defaultExitAllowed
         );
 
         // Assert
         Coffer createdCoffer = Coffer(payable(cofferAddr));
-        (
-            ,
-            ,
-            uint32 minimumDuration,
-            uint32 maximumDuration,
-            ,
-            ,
-            ,
-            ,
-
-        ) = createdCoffer.s_validatorConditions();
+        (,, uint32 minimumDuration, uint32 maximumDuration,,,,,,) = createdCoffer.s_validatorConditions();
 
         assertEq(minimumDuration, singleDuration, "Min duration mismatch");
         assertEq(maximumDuration, singleDuration, "Max duration mismatch");
@@ -323,22 +316,13 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             singleAmount, // available amount
             singleAmount, // Same as available
+            defaultSafeTotalStake,
             defaultExitAllowed
         );
 
         // Assert
         Coffer createdCoffer = Coffer(payable(cofferAddr));
-        (
-            uint128 availableAmount,
-            ,
-            ,
-            ,
-            ,
-            uint128 minimumAmountToAccept,
-            ,
-            ,
-
-        ) = createdCoffer.s_validatorConditions();
+        (uint128 availableAmount,,,, uint128 minimumAmountToAccept,,,,,) = createdCoffer.s_validatorConditions();
 
         assertEq(availableAmount, singleAmount, "Available amount mismatch");
         assertEq(minimumAmountToAccept, singleAmount, "Min amount to accept mismatch");
@@ -355,22 +339,13 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             defaultExitAllowed
         );
 
         // Assert
         Coffer createdCoffer = Coffer(payable(cofferAddr));
-        (
-            ,
-            uint64 interestRate,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-
-        ) = createdCoffer.s_validatorConditions();
+        (, uint32 interestRate,,,,,,,,) = createdCoffer.s_validatorConditions();
 
         assertEq(interestRate, HIGH_RATE, "Interest rate should be exactly 100%");
     }
@@ -392,6 +367,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             defaultExitAllowed
         );
         uint256 gasUsed = gasBefore - gasleft();

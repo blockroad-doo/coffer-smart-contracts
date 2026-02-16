@@ -49,7 +49,7 @@ contract CofferValidatorOpsTest is BaseTest {
         // Act
         vm.startPrank(validator);
         vm.expectEmit(true, true, false, true);
-        emit CofferEvents.ValidatorBondRepayed(holder1, holderId1, totalAmount);
+        emit CofferEvents.ValidatorBondRepaid(holder1, holderId1, totalAmount);
         targetCoffer.repayBondsEarly(holderIds);
         vm.stopPrank();
 
@@ -57,12 +57,12 @@ contract CofferValidatorOpsTest is BaseTest {
         assertEq(holder1.balance, holderBalanceBefore + totalAmount, "Holder should receive full amount");
 
         // Verify holder conditions cleared
-        (uint128 amount, , ) = targetCoffer.s_holderConditions(holderId1);
+        (uint128 amount,,) = targetCoffer.s_holderConditions(holderId1);
         assertEq(amount, 0, "Holder conditions should be cleared");
 
         // Verify validator conditions updated
-        (uint128 availableAmount, , , , , , uint32 unrepayedBonds, , ) = targetCoffer.s_validatorConditions();
-        assertEq(unrepayedBonds, 1, "Should have 1 remaining unpayed bond");
+        (uint128 availableAmount,,,,,, uint32 unrepaidBonds,,,) = targetCoffer.s_validatorConditions();
+        assertEq(unrepaidBonds, 1, "Should have 1 remaining unpayed bond");
     }
 
     function test_RepayBondsEarly_Success_MultipleBonds() public {
@@ -83,13 +83,13 @@ contract CofferValidatorOpsTest is BaseTest {
         targetCoffer.repayBondsEarly(holderIds);
 
         // Assert
-        (uint128 amount1, , ) = targetCoffer.s_holderConditions(holderId1);
-        (uint128 amount2, , ) = targetCoffer.s_holderConditions(holderId2);
+        (uint128 amount1,,) = targetCoffer.s_holderConditions(holderId1);
+        (uint128 amount2,,) = targetCoffer.s_holderConditions(holderId2);
         assertEq(amount1, 0, "Holder1 conditions should be cleared");
         assertEq(amount2, 0, "Holder2 conditions should be cleared");
 
-        (uint128 availableAmount, , , , , , uint32 unrepayedBonds, , ) = targetCoffer.s_validatorConditions();
-        assertEq(unrepayedBonds, 0, "Should have no unpayed bonds");
+        (uint128 availableAmount,,,,,, uint32 unrepaidBonds,,,) = targetCoffer.s_validatorConditions();
+        assertEq(unrepaidBonds, 0, "Should have no unpayed bonds");
         assertEq(availableAmount, defaultAvailableAmount, "Available amount should be fully restored");
     }
 
@@ -106,7 +106,7 @@ contract CofferValidatorOpsTest is BaseTest {
         targetCoffer.repayBondsEarly{value: total1}(holderIds);
 
         // Assert
-        (uint128 amount, , ) = targetCoffer.s_holderConditions(holderId1);
+        (uint128 amount,,) = targetCoffer.s_holderConditions(holderId1);
         assertEq(amount, 0, "Holder conditions should be cleared");
     }
 
@@ -167,6 +167,7 @@ contract CofferValidatorOpsTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             false
         );
         vm.deal(noBondCoffer, 50 ether);
@@ -188,7 +189,7 @@ contract CofferValidatorOpsTest is BaseTest {
     function test_ValidatorWithdrawFromExecution_Success_WithBonds_UnderAvailable() public {
         // Arrange
         vm.deal(cofferAddress, 30 ether);
-        (uint128 availableBefore, , , , , , , , ) = targetCoffer.s_validatorConditions();
+        (uint128 availableBefore,,,,,,,,,) = targetCoffer.s_validatorConditions();
 
         // Act - Withdraw less than available
         uint128 withdrawAmount = 5 ether;
@@ -196,13 +197,13 @@ contract CofferValidatorOpsTest is BaseTest {
         targetCoffer.validatorWithdrawFromExecution(withdrawAmount);
 
         // Assert
-        (uint128 availableAfter, , , , , , , , ) = targetCoffer.s_validatorConditions();
+        (uint128 availableAfter,,,,,,,,,) = targetCoffer.s_validatorConditions();
         assertEq(availableAfter, availableBefore - withdrawAmount, "Available amount should decrease");
     }
 
     function test_ValidatorWithdrawFromExecution_Success_ExactlyAvailable() public {
         // Arrange
-        (uint128 availableAmount, , , , , , , , ) = targetCoffer.s_validatorConditions();
+        (uint128 availableAmount,,,,,,,,,) = targetCoffer.s_validatorConditions();
         vm.deal(cofferAddress, availableAmount);
 
         // Act
@@ -210,7 +211,7 @@ contract CofferValidatorOpsTest is BaseTest {
         targetCoffer.validatorWithdrawFromExecution(availableAmount);
 
         // Assert
-        (uint128 newAvailable, , , , , , , , ) = targetCoffer.s_validatorConditions();
+        (uint128 newAvailable,,,,,,,,,) = targetCoffer.s_validatorConditions();
         assertEq(newAvailable, 0, "Available amount should be zero");
     }
 
@@ -220,7 +221,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
     function test_ValidatorWithdrawFromExecution_RevertIf_ExceedsAvailable() public {
         // Arrange
-        (uint128 availableAmount, , , , , , , , ) = targetCoffer.s_validatorConditions();
+        (uint128 availableAmount,,,,,,,,,) = targetCoffer.s_validatorConditions();
         vm.deal(cofferAddress, availableAmount + 10 ether);
 
         // Act & Assert
@@ -267,6 +268,7 @@ contract CofferValidatorOpsTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             false
         );
 
@@ -283,7 +285,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
     function test_ValidatorWithdrawFromConsensus_Success_WithBonds() public {
         // Arrange
-        (uint128 availableBefore, , , , , , , , ) = targetCoffer.s_validatorConditions();
+        (uint128 availableBefore,,,,,,,,,) = targetCoffer.s_validatorConditions();
         uint128 withdrawAmount = 5 ether;
 
         // Act
@@ -291,13 +293,13 @@ contract CofferValidatorOpsTest is BaseTest {
         targetCoffer.validatorWithdrawFromConsensus{value: 1}(withdrawAmount);
 
         // Assert
-        (uint128 availableAfter, , , , , , , , ) = targetCoffer.s_validatorConditions();
+        (uint128 availableAfter,,,,,,,,,) = targetCoffer.s_validatorConditions();
         assertEq(availableAfter, availableBefore - withdrawAmount, "Available should decrease");
     }
 
     function test_ValidatorWithdrawFromConsensus_RevertIf_ExceedsAvailable() public {
         // Arrange
-        (uint128 availableAmount, , , , , , , , ) = targetCoffer.s_validatorConditions();
+        (uint128 availableAmount,,,,,,,,,) = targetCoffer.s_validatorConditions();
 
         // Act & Assert
         vm.startPrank(validator);
@@ -320,7 +322,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
     function test_ChangeCofferActivity_Success_DeactivateAndReactivate() public {
         // Arrange
-        (uint128 available, , , , , , , bool isActive, ) = targetCoffer.s_validatorConditions();
+        (uint128 available,,,,,,,, bool isActive,) = targetCoffer.s_validatorConditions();
         assertTrue(isActive, "Should start active");
 
         // Act - Deactivate
@@ -331,7 +333,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.stopPrank();
 
         // Assert
-        (available, , , , , , , isActive, ) = targetCoffer.s_validatorConditions();
+        (available,,,,,,,, isActive,) = targetCoffer.s_validatorConditions();
         assertFalse(isActive, "Should be inactive");
 
         // Act - Reactivate
@@ -342,7 +344,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.stopPrank();
 
         // Assert
-        (available, , , , , , , isActive, ) = targetCoffer.s_validatorConditions();
+        (available,,,,,,,, isActive,) = targetCoffer.s_validatorConditions();
         assertTrue(isActive, "Should be active again");
     }
 
@@ -359,8 +361,8 @@ contract CofferValidatorOpsTest is BaseTest {
 
     function test_ChangeInterestRate_Success() public {
         // Arrange
-        (uint128 available, uint64 oldRate, , , uint32 oldVersion, , , , ) = targetCoffer.s_validatorConditions();
-        uint64 newRate = LOW_RATE;
+        (uint128 available, uint32 oldRate,,,, uint32 oldVersion,,,,) = targetCoffer.s_validatorConditions();
+        uint32 newRate = LOW_RATE;
 
         // Act
         vm.startPrank(validator);
@@ -370,7 +372,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.stopPrank();
 
         // Assert
-        (, uint64 currentRate, , , uint32 newVersion, , , , ) = targetCoffer.s_validatorConditions();
+        (, uint32 currentRate,,,, uint32 newVersion,,,,) = targetCoffer.s_validatorConditions();
         assertEq(currentRate, newRate, "Rate should be updated");
         assertEq(newVersion, oldVersion + 1, "Version should increment");
     }
@@ -406,7 +408,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.stopPrank();
 
         // Assert
-        (, , uint32 minDur, uint32 maxDur, , , , , ) = targetCoffer.s_validatorConditions();
+        (,, uint32 minDur, uint32 maxDur,,,,,,) = targetCoffer.s_validatorConditions();
         assertEq(minDur, newMin, "Min duration should be updated");
         assertEq(maxDur, newMax, "Max duration should be updated");
     }
@@ -441,7 +443,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.stopPrank();
 
         // Assert
-        (, , , , , uint128 minAmount, , , ) = targetCoffer.s_validatorConditions();
+        (,,,, uint128 minAmount,,,,,) = targetCoffer.s_validatorConditions();
         assertEq(minAmount, newMinimum, "Minimum amount should be updated");
     }
 
@@ -467,6 +469,7 @@ contract CofferValidatorOpsTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             false
         );
         Coffer noBondCofferContract = Coffer(payable(noBondCoffer));
@@ -481,14 +484,14 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.stopPrank();
 
         // Assert
-        (uint128 available, , , , uint32 version, , , , ) = noBondCofferContract.s_validatorConditions();
+        (uint128 available,,,,, uint32 version,,,,) = noBondCofferContract.s_validatorConditions();
         assertEq(available, newAmount, "Available amount should be updated");
         assertEq(version, 1, "Version should increment");
     }
 
     function test_ChangeAvailableAmount_RevertIf_HasUnpayedBonds() public {
         vm.startPrank(validator);
-        vm.expectRevert(abi.encodeWithSelector(Coffer.ValidatorHasUnrepayedBonds.selector));
+        vm.expectRevert(abi.encodeWithSelector(Coffer.ValidatorHasUnrepaidBonds.selector));
         targetCoffer.changeAvailableAmount(200 ether);
         vm.stopPrank();
     }
@@ -504,6 +507,7 @@ contract CofferValidatorOpsTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             10 ether, // minimum amount to accept
+            defaultSafeTotalStake,
             false
         );
 
@@ -529,6 +533,7 @@ contract CofferValidatorOpsTest is BaseTest {
             defaultMaxDuration,
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             false // starts with exit not allowed
         );
         Coffer noBondCofferContract = Coffer(payable(noBondCoffer));
@@ -541,7 +546,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.stopPrank();
 
         // Assert
-        (, , , , uint32 version, , , , bool exitAllowed) = noBondCofferContract.s_validatorConditions();
+        (,,,,, uint32 version,,,, bool exitAllowed) = noBondCofferContract.s_validatorConditions();
         assertTrue(exitAllowed, "Exit should be allowed");
         assertEq(version, 1, "Version should increment");
 
@@ -553,14 +558,14 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.stopPrank();
 
         // Assert
-        (, , , , version, , , , exitAllowed) = noBondCofferContract.s_validatorConditions();
+        (,,,,, version,,,, exitAllowed) = noBondCofferContract.s_validatorConditions();
         assertFalse(exitAllowed, "Exit should be forbidden");
         assertEq(version, 2, "Version should increment again");
     }
 
     function test_ChangeExitAllowed_RevertIf_HasUnpayedBonds() public {
         vm.startPrank(validator);
-        vm.expectRevert(abi.encodeWithSelector(Coffer.ValidatorHasUnrepayedBonds.selector));
+        vm.expectRevert(abi.encodeWithSelector(Coffer.ValidatorHasUnrepaidBonds.selector));
         targetCoffer.changeExitAllowed();
         vm.stopPrank();
     }

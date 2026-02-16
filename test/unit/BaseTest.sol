@@ -35,11 +35,11 @@ abstract contract BaseTest is Test {
     uint32 constant MAX_REALISTIC_DURATION = 1_576_800_000; // 50 years
 
     // Interest rate constants (using 1e8 divisor)
-    uint64 constant RATE_DIVISOR = 1e8;
-    uint64 constant MIN_RATE = 1e6; // 1%
-    uint64 constant LOW_RATE = 3e6; // 3%
-    uint64 constant MEDIUM_RATE = 5e6; // 5%
-    uint64 constant HIGH_RATE = 1e8; // 100%
+    uint32 constant RATE_DIVISOR = 1e8;
+    uint32 constant MIN_RATE = 1e6; // 1%
+    uint32 constant LOW_RATE = 3e6; // 3%
+    uint32 constant MEDIUM_RATE = 5e6; // 5%
+    uint32 constant HIGH_RATE = 1e8; // 100%
 
     // ========================================
     // ERROR MESSAGES
@@ -51,10 +51,11 @@ abstract contract BaseTest is Test {
     string constant ERROR_INVALID_DURATION = "InvalidDuration()";
     string constant ERROR_INVALID_RATE = "InvalidRate()";
     string constant ERROR_VALIDATOR_NOT_ACTIVE = "ValidatorIsNotActive()";
-    string constant ERROR_VALIDATOR_HAS_UNREPAYED = "ValidatorHasUnrepayedBonds()";
+    string constant ERROR_VALIDATOR_HAS_UNREPAID = "ValidatorHasUnrepaidBonds()";
     string constant ERROR_VERSION_MISMATCH = "ValidatorConditionsVersionMismatch()";
     string constant ERROR_INSUFFICIENT_AVAILABLE = "ValidatorDoesNotHaveEnoughAvailableAmount()";
-    string constant ERROR_CONSENSUS_WITHDRAW_NOT_POSSIBLE = "HolderConsensusWithdrawNotPossibleContractHasEnoughBalance()";
+    string constant ERROR_CONSENSUS_WITHDRAW_NOT_POSSIBLE =
+        "HolderConsensusWithdrawNotPossibleContractHasEnoughBalance()";
     string constant ERROR_HOLDER_DOES_NOT_EXIST = "HolderDoesNotExistOrAlreadyWithdrawnAmount()";
     string constant ERROR_TIME_NOT_EXPIRED = "HoldersTimeHasNotExpiredYet()";
     string constant ERROR_HOLDER_CANNOT_BE_VALIDATOR = "HolderCannotBeValidator()";
@@ -92,11 +93,12 @@ abstract contract BaseTest is Test {
     // Valid test parameters
     bytes32 public validPublicKeyPart1 = bytes32(uint256(1));
     bytes16 public validPublicKeyPart2 = bytes16(uint128(2));
-    uint64 public defaultInterestRate = MEDIUM_RATE; // 5%
+    uint32 public defaultInterestRate = MEDIUM_RATE; // 5%
     uint32 public defaultMinDuration = ONE_MONTH;
     uint32 public defaultMaxDuration = ONE_YEAR;
     uint128 public defaultAvailableAmount = 100 ether;
     uint128 public defaultMinimumAmount = 1 ether;
+    uint32 public defaultSafeTotalStake = 20_000_000; // 20M ETH as default total stake
     bool public defaultExitAllowed = false;
 
     // ========================================
@@ -131,6 +133,7 @@ abstract contract BaseTest is Test {
             defaultMaxDuration,
             defaultAvailableAmount,
             defaultMinimumAmount,
+            defaultSafeTotalStake,
             defaultExitAllowed
         );
     }
@@ -139,11 +142,12 @@ abstract contract BaseTest is Test {
         address owner,
         bytes32 pubKeyPart1,
         bytes16 pubKeyPart2,
-        uint64 interestRate,
+        uint32 interestRate,
         uint32 minDuration,
         uint32 maxDuration,
         uint128 availableAmount,
         uint128 minimumAmount,
+        uint32 safeTotalStake,
         bool exitAllowed
     ) public returns (address) {
         vm.startPrank(owner);
@@ -159,6 +163,7 @@ abstract contract BaseTest is Test {
             maxDuration,
             availableAmount,
             minimumAmount,
+            safeTotalStake,
             exitAllowed
         );
 
@@ -188,13 +193,10 @@ abstract contract BaseTest is Test {
         return ++holderIdCounter;
     }
 
-    function buyBond(
-        address cofferAddr,
-        address buyer,
-        uint128 amount,
-        uint32 duration,
-        uint32 version
-    ) public returns (uint256) {
+    function buyBond(address cofferAddr, address buyer, uint128 amount, uint32 duration, uint32 version)
+        public
+        returns (uint256)
+    {
         Coffer targetCoffer = Coffer(payable(cofferAddr));
 
         // Track current supply before minting
@@ -255,24 +257,25 @@ abstract contract BaseTest is Test {
     function assertValidatorConditions(
         address cofferAddr,
         uint128 expectedAvailable,
-        uint32 expectedUnrepayed,
+        uint32 expectedUnrepaid,
         bool expectedActive
     ) public {
         Coffer targetCoffer = Coffer(payable(cofferAddr));
         (
             uint128 availableAmount,
-            uint64 interestRate,
+            uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
-            uint32 version,
             uint128 minimumAmountToAccept,
-            uint32 unrepayedBonds,
+            uint32 version,
+            uint32 unrepaidBonds,
+            uint32 safeTotalStake,
             bool isActive,
             bool exitAllowed
         ) = targetCoffer.s_validatorConditions();
 
         assertEq(availableAmount, expectedAvailable, "Available amount mismatch");
-        assertEq(unrepayedBonds, expectedUnrepayed, "Unrepayed bonds mismatch");
+        assertEq(unrepaidBonds, expectedUnrepaid, "Unrepaid bonds mismatch");
         assertEq(isActive, expectedActive, "Active status mismatch");
     }
 
@@ -294,11 +297,7 @@ abstract contract BaseTest is Test {
     // HELPER FUNCTIONS - INTEREST CALCULATION
     // ========================================
 
-    function calculateExpectedInterest(
-        uint128 amount,
-        uint32 duration,
-        uint64 rate
-    ) public pure returns (uint128) {
+    function calculateExpectedInterest(uint128 amount, uint32 duration, uint32 rate) public pure returns (uint128) {
         return Interest.calculateInterest(amount, duration, rate);
     }
 
@@ -316,7 +315,6 @@ abstract contract BaseTest is Test {
         vm.expectEmit(true, true, false, true);
         emit CofferEvents.HolderAcceptedOffer(holder, holderId, amount, duration, amountWithInterest);
     }
-
 }
 
 // Event interfaces for cleaner event emission expectations
@@ -336,7 +334,7 @@ interface CofferEvents {
     event HolderWithdrawFromConsensusSuccess(
         address indexed holderAddress, uint256 indexed holderId, uint128 amount, bool isFullExit
     );
-    event ValidatorBondRepayed(address indexed holderAddress, uint256 indexed holderId, uint128 amountOwed);
+    event ValidatorBondRepaid(address indexed holderAddress, uint256 indexed holderId, uint128 amountOwed);
     event ValidatorWithdrawFromExecution(uint128 amount);
     event ValidatorWithdrawFromConsensus(uint128 amount);
     event ValidatorFundsAdded(uint128 amount);
@@ -344,7 +342,7 @@ interface CofferEvents {
     event CofferDeactivated();
     event CofferAllowsHolderToExit();
     event CofferForbidsHolderToExit();
-    event InterestRateChanged(uint64 oldRate, uint64 newRate);
+    event InterestRateChanged(uint32 oldRate, uint32 newRate);
     event DurationRangeChanged(uint32 minimumDuration, uint32 maximumDuration);
     event AvailableAmountChanged(uint128 oldAmount, uint128 newAmount);
     event MinimumAmountChanged(uint128 newMinimum);

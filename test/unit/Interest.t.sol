@@ -17,7 +17,7 @@ contract InterestTest is BaseTest {
     // Realistic maximum values as per requirements
     uint128 constant MAX_BOND_AMOUNT = 2048 ether; // 2048 million ETH max
     uint32 constant MAX_BOND_DURATION = 1_576_800_000; // 50 years max
-    uint64 constant MAX_INTEREST_RATE = 1e8; // 100% max
+    uint32 constant MAX_INTEREST_RATE = 1e8; // 100% max
 
     uint32 constant SECONDS_IN_YEAR = 31_536_000;
 
@@ -37,7 +37,7 @@ contract InterestTest is BaseTest {
         // Scenario: Standard 32 ETH validator bond for 1 year at 5%
         uint128 amount = 32 ether;
         uint32 duration = ONE_YEAR;
-        uint64 rate = MEDIUM_RATE; // 5% = 5e6
+        uint32 rate = MEDIUM_RATE; // 5% = 5e6
 
         uint128 interest = Interest.calculateInterest(amount, duration, rate);
 
@@ -50,12 +50,12 @@ contract InterestTest is BaseTest {
         // Scenario: 10 ETH for 1 month at 10%
         uint128 amount = 10 ether;
         uint32 duration = ONE_MONTH;
-        uint64 rate = 1e7; // 10%
+        uint32 rate = 1e7; // 10%
 
         uint128 interest = Interest.calculateInterest(amount, duration, rate);
 
         // Expected: 10 ETH * 10% * (30.44 days / 365 days) ≈ 0.0834 ETH
-        uint128 expectedInterest = (amount * rate * duration) / (RATE_DIVISOR * SECONDS_IN_YEAR);
+        uint128 expectedInterest = (amount * uint64(rate) * duration) / (uint64(RATE_DIVISOR) * SECONDS_IN_YEAR);
         assertEq(interest, expectedInterest, "Interest calculation for short term bond incorrect");
     }
 
@@ -63,7 +63,7 @@ contract InterestTest is BaseTest {
         // Scenario: 10,000 ETH for 2 years at 3%
         uint128 amount = 10_000 ether;
         uint32 duration = 2 * ONE_YEAR;
-        uint64 rate = 3e6; // 3%
+        uint32 rate = 3e6; // 3%
 
         uint128 interest = Interest.calculateInterest(amount, duration, rate);
 
@@ -76,7 +76,7 @@ contract InterestTest is BaseTest {
         // Scenario: 100 ETH for 6 months at 20%
         uint128 amount = 100 ether;
         uint32 duration = 15_768_000;
-        uint64 rate = 2e7; // 20%
+        uint32 rate = 2e7; // 20%
 
         uint128 interest = Interest.calculateInterest(amount, duration, rate);
 
@@ -89,12 +89,12 @@ contract InterestTest is BaseTest {
         // Scenario: 0.1 ETH for 1 week at 1%
         uint128 amount = 0.1 ether;
         uint32 duration = ONE_WEEK;
-        uint64 rate = MIN_RATE; // 1%
+        uint32 rate = MIN_RATE; // 1%
 
         uint128 interest = Interest.calculateInterest(amount, duration, rate);
 
         // Calculate expected
-        uint128 expectedInterest = (amount * rate * duration) / (RATE_DIVISOR * SECONDS_IN_YEAR);
+        uint128 expectedInterest = (amount * uint64(rate) * duration) / (uint64(RATE_DIVISOR) * SECONDS_IN_YEAR);
 
         assertEq(interest, expectedInterest, "Interest calculation for minimal bond incorrect");
         assertTrue(interest > 0, "Minimal bond should generate some interest");
@@ -158,7 +158,7 @@ contract InterestTest is BaseTest {
         uint128 interest = Interest.calculateInterest(amount, ONE_YEAR, MIN_RATE);
 
         // 999,999 ETH * 1% * 1 year = 9,999.99 ETH
-        uint128 expectedInterest = (amount * MIN_RATE * ONE_YEAR) / (RATE_DIVISOR * SECONDS_IN_YEAR);
+        uint128 expectedInterest = (amount * uint64(MIN_RATE) * ONE_YEAR) / (uint64(RATE_DIVISOR) * SECONDS_IN_YEAR);
         assertEq(interest, expectedInterest, "Near max amount interest calculation incorrect");
     }
 
@@ -171,7 +171,7 @@ contract InterestTest is BaseTest {
         uint128 interest = Interest.calculateInterest(amount, 1, MEDIUM_RATE);
 
         // Should be extremely small but non-zero
-        uint128 expectedInterest = (amount * MEDIUM_RATE * 1) / (RATE_DIVISOR * SECONDS_IN_YEAR);
+        uint128 expectedInterest = (amount * uint64(MEDIUM_RATE) * 1) / (uint64(RATE_DIVISOR) * SECONDS_IN_YEAR);
         assertEq(interest, expectedInterest, "One second interest calculation incorrect");
     }
 
@@ -180,7 +180,7 @@ contract InterestTest is BaseTest {
         uint128 interest = Interest.calculateInterest(amount, ONE_DAY, MEDIUM_RATE);
 
         // 100 ETH * 5% * (1/365) ≈ 0.0137 ETH
-        uint128 expectedInterest = (amount * MEDIUM_RATE * ONE_DAY) / (RATE_DIVISOR * SECONDS_IN_YEAR);
+        uint128 expectedInterest = (amount * uint64(MEDIUM_RATE) * ONE_DAY) / (uint64(RATE_DIVISOR) * SECONDS_IN_YEAR);
         assertEq(interest, expectedInterest, "One day interest calculation incorrect");
     }
 
@@ -220,7 +220,7 @@ contract InterestTest is BaseTest {
     function test_CalculateInterest_MinimalRate() public {
         // 0.01% rate (1e6 with 1e8 divisor)
         uint128 amount = 1000 ether;
-        uint64 rate = 1e6; // 0.01%
+        uint32 rate = 1e6; // 0.01%
         uint128 interest = Interest.calculateInterest(amount, ONE_YEAR, rate);
 
         // 1000 ETH * 0.01% * 1 year = 10 ETH
@@ -239,7 +239,7 @@ contract InterestTest is BaseTest {
 
     function test_CalculateInterest_FiftyPercent() public {
         uint128 amount = 100 ether;
-        uint64 rate = 5e7; // 50%
+        uint32 rate = 5e7; // 50%
         uint128 interest = Interest.calculateInterest(amount, ONE_YEAR, rate);
 
         // 100 ETH * 50% * 1 year = 50 ETH
@@ -249,7 +249,7 @@ contract InterestTest is BaseTest {
 
     function test_CalculateInterest_NinetyNinePercent() public {
         uint128 amount = 100 ether;
-        uint64 rate = 99e6; // 99%
+        uint32 rate = 99e6; // 99%
         uint128 interest = Interest.calculateInterest(amount, ONE_YEAR, rate);
 
         // 100 ETH * 99% * 1 year = 99 ETH
@@ -275,7 +275,7 @@ contract InterestTest is BaseTest {
         // Maximum realistic values: 1M ETH, 50 years, 100% rate
         uint128 amount = MAX_BOND_AMOUNT;
         uint32 duration = MAX_BOND_DURATION;
-        uint64 rate = MAX_INTEREST_RATE;
+        uint32 rate = MAX_INTEREST_RATE;
 
         uint128 interest = Interest.calculateInterest(amount, duration, rate);
 
@@ -291,12 +291,12 @@ contract InterestTest is BaseTest {
         // Large amount but very short duration
         uint128 amount = 500_000 ether;
         uint32 duration = ONE_DAY;
-        uint64 rate = HIGH_RATE; // 100%
+        uint32 rate = HIGH_RATE; // 100%
 
         uint128 interest = Interest.calculateInterest(amount, duration, rate);
 
         // 500,000 ETH * 100% * (1/365) ≈ 1,369.86 ETH
-        uint128 expectedInterest = (amount * rate * duration) / (RATE_DIVISOR * SECONDS_IN_YEAR);
+        uint128 expectedInterest = (amount * uint64(rate) * duration) / (uint64(RATE_DIVISOR) * SECONDS_IN_YEAR);
         assertEq(interest, expectedInterest, "Large amount short duration calculation incorrect");
     }
 
@@ -304,7 +304,7 @@ contract InterestTest is BaseTest {
         // Small amount but very long duration
         uint128 amount = 0.1 ether;
         uint32 duration = MAX_BOND_DURATION; // 50 years
-        uint64 rate = HIGH_RATE; // 100%
+        uint32 rate = HIGH_RATE; // 100%
 
         uint128 interest = Interest.calculateInterest(amount, duration, rate);
 
@@ -321,20 +321,21 @@ contract InterestTest is BaseTest {
         // Test case where precision loss might occur
         uint128 amount = 1.234567891234567891 ether;
         uint32 duration = 123_456; // ~1.4 days
-        uint64 rate = 1234567; // ~1.234567%
+        uint32 rate = 1234567; // ~1.234567%
 
         uint128 interest = Interest.calculateInterest(amount, duration, rate);
 
         // Manual calculation to verify
-        uint256 expectedInterest = (uint256(amount) * rate * duration) / (RATE_DIVISOR * SECONDS_IN_YEAR);
-        assertEq(interest, uint128(expectedInterest), "Precision calculation mismatch");
+        uint256 expectedInterest =
+            (uint256(amount) * uint64(rate) * duration) / (uint64(RATE_DIVISOR) * SECONDS_IN_YEAR);
+        assertEq(interest, expectedInterest, "Precision calculation mismatch");
     }
 
     function test_CalculateInterest_RoundingDown() public {
         // Test that rounding always goes down (no unexpected rounding up)
         uint128 amount = 1 gwei;
         uint32 duration = 1; // 1 second
-        uint64 rate = 1e6; // 1%
+        uint32 rate = 1e6; // 1%
 
         uint128 interest = Interest.calculateInterest(amount, duration, rate);
 
@@ -349,7 +350,7 @@ contract InterestTest is BaseTest {
     function test_CalculateInterest_GasUsage() public {
         uint128 amount = 100 ether;
         uint32 duration = ONE_YEAR;
-        uint64 rate = MEDIUM_RATE;
+        uint32 rate = MEDIUM_RATE;
 
         uint256 gasBefore = gasleft();
         Interest.calculateInterest(amount, duration, rate);
