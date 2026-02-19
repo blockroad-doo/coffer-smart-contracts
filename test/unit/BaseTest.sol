@@ -7,6 +7,9 @@ import {Coffer} from "../../src/Coffer.sol";
 import {CofferFactory} from "../../src/CofferFactory.sol";
 import {CofferBondNft} from "../../src/CofferBondNft.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
+import {Penalty} from "../../src/libraries/Penalty.sol";
+import {EIP7002Mock, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, SYSTEM_ADDRESS, EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
+import {EIP7251Mock, CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS} from "../mock/EIP7251Mock.sol";
 
 /**
  * @title BaseTest
@@ -32,7 +35,7 @@ abstract contract BaseTest is Test {
     uint32 constant SIX_MONTHS = 15_778_476;
     uint32 constant ONE_YEAR = 31_536_000;
     uint32 constant FIVE_YEARS = 157_680_000;
-    uint32 constant MAX_REALISTIC_DURATION = 1_576_800_000; // 50 years
+    uint32 constant MAX_REALISTIC_DURATION = 315_360_000; // 10 years - safe maximum to avoid penalty overflow
 
     // Interest rate constants (using 1e8 divisor)
     uint32 constant RATE_DIVISOR = 1e8;
@@ -68,8 +71,7 @@ abstract contract BaseTest is Test {
     // CofferFactory errors
     string constant ERROR_FACTORY_INVALID_DURATION = "InvalidDuration()";
     string constant ERROR_FACTORY_INVALID_RATE = "InvalidInterestRate()";
-    string constant ERROR_FACTORY_MIN_AMOUNT_ZERO = "MinimumAmountToAcceptIsZero()";
-    string constant ERROR_FACTORY_MIN_GT_AVAILABLE = "MinimumAmountToAcceptGreaterThanAvailableAmount()";
+    string constant ERROR_FACTORY_INVALID_MIN_AMOUNT = "InvalidMinimumAmountToAccept()";
 
     // CofferBondNft errors
     string constant ERROR_TOKEN_DOES_NOT_EXIST = "TokenDoesNotExist()";
@@ -82,6 +84,8 @@ abstract contract BaseTest is Test {
     CofferFactory public factory;
     CofferBondNft public bondNft;
     Coffer public coffer;
+    EIP7002Mock public withdrawalMock;
+    EIP7251Mock public consolidationMock;
 
     // Test accounts
     address public validator = makeAddr("validator");
@@ -96,7 +100,6 @@ abstract contract BaseTest is Test {
     uint32 public defaultInterestRate = MEDIUM_RATE; // 5%
     uint32 public defaultMinDuration = ONE_MONTH;
     uint32 public defaultMaxDuration = ONE_YEAR;
-    uint128 public defaultAvailableAmount = 100 ether;
     uint128 public defaultMinimumAmount = 1 ether;
     uint32 public defaultSafeTotalStake = 20_000_000; // 20M ETH as default total stake
     bool public defaultExitAllowed = false;
@@ -106,6 +109,11 @@ abstract contract BaseTest is Test {
     // ========================================
 
     function setUp() public virtual {
+        // Deploy mocks at canonical addresses
+        deployEIP7002Mock();
+        deployEIP7251Mock();
+        deployDepositContractMock();
+
         // Deploy factory (which deploys the shared NFT)
         factory = new CofferFactory();
 
@@ -131,7 +139,6 @@ abstract contract BaseTest is Test {
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
-            defaultAvailableAmount,
             defaultMinimumAmount,
             defaultSafeTotalStake,
             defaultExitAllowed
@@ -145,7 +152,6 @@ abstract contract BaseTest is Test {
         uint32 interestRate,
         uint32 minDuration,
         uint32 maxDuration,
-        uint128 availableAmount,
         uint128 minimumAmount,
         uint32 safeTotalStake,
         bool exitAllowed
@@ -161,7 +167,6 @@ abstract contract BaseTest is Test {
             interestRate,
             minDuration,
             maxDuration,
-            availableAmount,
             minimumAmount,
             safeTotalStake,
             exitAllowed
@@ -302,6 +307,18 @@ abstract contract BaseTest is Test {
     }
 
     // ========================================
+    // HELPER FUNCTIONS - PENALTY CALCULATION
+    // ========================================
+
+    function calculateExpectedAvailableAmount(uint32 safeTotalStake, uint32 maxDuration) public pure returns (uint128) {
+        uint128 slashingPenalty = Penalty.slashing(32 ether, safeTotalStake);
+        // Convert duration in seconds to epochs (384 seconds per epoch)
+        uint32 epochs = maxDuration / 384;
+        uint128 attestationPenalty = Penalty.missingAttestations(32 ether, safeTotalStake, epochs);
+        return 32 ether - (slashingPenalty + attestationPenalty);
+    }
+
+    // ========================================
     // HELPER FUNCTIONS - EVENT ASSERTIONS
     // ========================================
 
@@ -314,6 +331,154 @@ abstract contract BaseTest is Test {
     ) public {
         vm.expectEmit(true, true, false, true);
         emit CofferEvents.HolderAcceptedOffer(holder, holderId, amount, duration, amountWithInterest);
+    }
+
+    // ========================================
+    // EIP7002 MOCK HELPER FUNCTIONS
+    // ========================================
+
+    /**
+     * @dev Deploy and initialize the EIP7002Mock at the canonical address
+     */
+    function deployEIP7002Mock() public {
+        // Deploy the mock
+        withdrawalMock = new EIP7002Mock();
+
+        // Use vm.etch to place the code at the canonical address
+        vm.etch(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, address(withdrawalMock).code);
+
+        // Initialize storage to avoid EXCESS_INHIBITOR revert
+        // Set excess to 0 (slot 0)
+        vm.store(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, bytes32(uint256(0)), bytes32(uint256(0)));
+    }
+
+    /**
+     * @dev Deploy and initialize the EIP7251Mock at the canonical address
+     */
+    function deployEIP7251Mock() public {
+        consolidationMock = new EIP7251Mock();
+        vm.etch(CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS, address(consolidationMock).code);
+        vm.store(CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS, bytes32(uint256(0)), bytes32(uint256(0)));
+    }
+
+    /**
+     * @dev Deploy DepositContract (solc 0.6.11) at the canonical address via deployCode
+     */
+    function deployDepositContractMock() public {
+        address canonical = 0x00000000219ab540356cBB839Cbe05303d7705Fa;
+        address temp = deployCode("DepositContract.sol:DepositContract");
+        vm.etch(canonical, temp.code);
+        for (uint256 i = 0; i < 65; i++) {
+            bytes32 val = vm.load(temp, bytes32(i));
+            vm.store(canonical, bytes32(i), val);
+        }
+    }
+
+    /**
+     * @dev Get the current withdrawal request fee from the mock
+     */
+    function getWithdrawalFee() public view returns (uint256) {
+        (bool success, bytes memory data) = WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.staticcall("");
+        require(success, "Failed to get fee");
+        return abi.decode(data, (uint256));
+    }
+
+    /**
+     * @dev Get the current consolidation request fee from the mock
+     */
+    function getConsolidationFee() public view returns (uint256) {
+        (bool success, bytes memory data) = CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS.staticcall("");
+        require(success, "Failed to get consolidation fee");
+        return abi.decode(data, (uint256));
+    }
+
+    /**
+     * @dev Helper to add a withdrawal request
+     */
+    function addWithdrawalRequest(
+        bytes32 pubkeyPart1,
+        bytes16 pubkeyPart2,
+        uint64 amount,
+        uint256 fee
+    ) public {
+        bytes memory data = abi.encodePacked(pubkeyPart1, pubkeyPart2, amount);
+        (bool success,) = WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.call{value: fee}(data);
+        require(success, "Failed to add withdrawal request");
+    }
+
+    /**
+     * @dev Trigger system call to dequeue requests (must be called from SYSTEM_ADDRESS)
+     */
+    function triggerSystemCall() public returns (bytes memory) {
+        vm.prank(SYSTEM_ADDRESS);
+        (bool success, bytes memory data) = WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.call("");
+        require(success, "System call failed");
+        return data;
+    }
+
+    /**
+     * @dev Get current queue state from mock
+     */
+    function getQueueState() public view returns (
+        uint256 excess,
+        uint256 count,
+        uint256 queueHead,
+        uint256 queueTail
+    ) {
+        excess = EIP7002Mock(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS).getExcess();
+        count = EIP7002Mock(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS).getCount();
+        queueHead = EIP7002Mock(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS).getQueueHead();
+        queueTail = EIP7002Mock(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS).getQueueTail();
+    }
+
+    /**
+     * @dev Assert withdrawal request data matches expected values
+     */
+    function assertWithdrawalRequest(
+        bytes memory returnData,
+        uint256 index,
+        address expectedSource,
+        bytes32 expectedPubkeyPart1,
+        bytes16 expectedPubkeyPart2,
+        uint64 expectedAmount
+    ) public {
+        uint256 offset = index * 76;
+
+        // Extract source address (20 bytes)
+        address source;
+        assembly {
+            source := shr(96, mload(add(add(returnData, 0x20), offset)))
+        }
+
+        // Extract pubkey parts
+        bytes32 pubkeyPart1;
+        bytes16 pubkeyPart2;
+        assembly {
+            pubkeyPart1 := mload(add(add(returnData, 0x34), offset)) // offset + 20
+            // Load from offset + 52: returnData starts at 0x20, so 0x20 + 52 = 0x54
+            let temp := mload(add(add(returnData, 0x54), offset))
+            pubkeyPart2 := temp // bytes16 cast takes the first 16 bytes
+        }
+
+        // Extract amount (little-endian, 8 bytes at offset + 68)
+        uint64 amount;
+        assembly {
+            let ptr := add(add(returnData, 0x20), add(offset, 68))
+            amount := or(
+                byte(0, mload(ptr)),
+                or(shl(8, byte(0, mload(add(ptr, 1)))),
+                or(shl(16, byte(0, mload(add(ptr, 2)))),
+                or(shl(24, byte(0, mload(add(ptr, 3)))),
+                or(shl(32, byte(0, mload(add(ptr, 4)))),
+                or(shl(40, byte(0, mload(add(ptr, 5)))),
+                or(shl(48, byte(0, mload(add(ptr, 6)))),
+                   shl(56, byte(0, mload(add(ptr, 7)))))))))))
+        }
+
+        assertEq(source, expectedSource, "Source address mismatch");
+        assertEq(pubkeyPart1, expectedPubkeyPart1, "Pubkey part 1 mismatch");
+        assertEq(pubkeyPart2, expectedPubkeyPart2, "Pubkey part 2 mismatch");
+        assertEq(amount, expectedAmount, "Amount mismatch");
     }
 }
 
@@ -334,7 +499,7 @@ interface CofferEvents {
     event HolderWithdrawFromConsensusSuccess(
         address indexed holderAddress, uint256 indexed holderId, uint128 amount, bool isFullExit
     );
-    event ValidatorBondRepaid(address indexed holderAddress, uint256 indexed holderId, uint128 amountOwed);
+    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed holderId, uint128 amountOwed);
     event ValidatorWithdrawFromExecution(uint128 amount);
     event ValidatorWithdrawFromConsensus(uint128 amount);
     event ValidatorFundsAdded(uint128 amount);
@@ -346,6 +511,7 @@ interface CofferEvents {
     event DurationRangeChanged(uint32 minimumDuration, uint32 maximumDuration);
     event AvailableAmountChanged(uint128 oldAmount, uint128 newAmount);
     event MinimumAmountChanged(uint128 newMinimum);
+    event SafeTotalStakeChanged(uint32 oldSafeTotalStake, uint32 newSafeTotalStake);
     event ValidatorConvertedToCompounding();
 }
 

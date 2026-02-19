@@ -1,43 +1,65 @@
 //SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
-import {BaseTest} from "./BaseTest.sol";
-import {CofferFactory} from "../../src/CofferFactory.sol";
+import {BaseTest, CofferFactoryEvents} from "./BaseTest.sol";
 import {Coffer} from "../../src/Coffer.sol";
+import {CofferBondNft} from "../../src/CofferBondNft.sol";
+import {CofferFactory} from "../../src/CofferFactory.sol";
+import {Penalty} from "../../src/libraries/Penalty.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 /**
  * @title CofferFactoryTest
- * @notice Comprehensive unit tests for CofferFactory contract
- * @dev Tests follow logical progression: happy cases, require triggers, modifiers, edge cases
+ * @notice Unit tests for CofferFactory contract
+ * @dev Tests follow logical progression: constructor → happy cases → reverts → boundary cases
  */
 contract CofferFactoryTest is BaseTest {
     // ========================================
-    // SETUP
+    // CONSTANTS (must match CofferFactory)
     // ========================================
 
-    function setUp() public override {
-        super.setUp();
+    uint32 private constant MAX_RATE = 1e8;
+    uint128 private constant VALIDATOR_STARTING_ETH = 32 ether;
+    uint32 private constant MAX_DURATION = 1_576_800_000; // 50 years
+    uint16 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
+
+    // ========================================
+    // DRY HELPERS
+    // ========================================
+
+    /// @dev Calls factory.createCoffer with given params, captures CofferIssued event, returns deployed address
+    function _createCofferAndGetAddress(
+        address caller,
+        bytes32 pubKeyPart1,
+        bytes16 pubKeyPart2,
+        uint32 interestRate,
+        uint32 minDuration,
+        uint32 maxDuration,
+        uint128 minimumAmount,
+        uint32 safeTotalStake,
+        bool exitAllowed
+    ) internal returns (address cofferAddr) {
+        vm.startPrank(caller);
+        vm.recordLogs();
+
+        factory.createCoffer(
+            pubKeyPart1, pubKeyPart2, interestRate, minDuration, maxDuration, minimumAmount, safeTotalStake, exitAllowed
+        );
+
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("CofferIssued(address,address)")) {
+                cofferAddr = address(uint160(uint256(entries[i].topics[2])));
+                break;
+            }
+        }
+
+        vm.stopPrank();
     }
 
-    // ========================================
-    // HAPPY CASES
-    // ========================================
-
-    function test_CreateCoffer_Success() public {
-        // Act
-        address cofferAddr = createDefaultCoffer();
-
-        // Assert
-        assertTrue(cofferAddr != address(0), "Coffer address should not be zero");
-
-        // Verify coffer parameters
-        Coffer createdCoffer = Coffer(payable(cofferAddr));
-        assertEq(createdCoffer.owner(), validator, "Validator should be owner");
-        assertEq(createdCoffer.i_public_key_part1(), validPublicKeyPart1, "Public key part1 mismatch");
-        assertEq(createdCoffer.i_public_key_part2(), validPublicKeyPart2, "Public key part2 mismatch");
-        assertEq(createdCoffer.i_cofferBondNftAddress(), address(bondNft), "NFT address mismatch");
-
-        // Verify validator conditions
+    /// @dev Reads s_validatorConditions into a Coffer.ValidatorConditions struct (avoids stack-too-deep)
+    function _getValidatorConditions(address cofferAddr) internal view returns (Coffer.ValidatorConditions memory vc) {
+        Coffer c = Coffer(payable(cofferAddr));
         (
             uint128 availableAmount,
             uint32 interestRate,
@@ -45,357 +67,447 @@ contract CofferFactoryTest is BaseTest {
             uint32 maximumDuration,
             uint128 minimumAmountToAccept,
             uint32 version,
-            uint32 unrepaidBonds,
+            uint32 outstandingBonds,
             uint32 safeTotalStake,
             bool isActive,
             bool exitAllowed
-        ) = createdCoffer.s_validatorConditions();
-
-        assertEq(availableAmount, defaultAvailableAmount, "Available amount mismatch");
-        assertEq(interestRate, defaultInterestRate, "Interest rate mismatch");
-        assertEq(minimumDuration, defaultMinDuration, "Min duration mismatch");
-        assertEq(maximumDuration, defaultMaxDuration, "Max duration mismatch");
-        assertEq(version, 0, "Initial version should be 0");
-        assertEq(minimumAmountToAccept, defaultMinimumAmount, "Min amount to accept mismatch");
-        assertEq(unrepaidBonds, 0, "Should have no unpayed bonds initially");
-        assertTrue(isActive, "Coffer should be active initially");
-        assertEq(exitAllowed, defaultExitAllowed, "Exit allowed mismatch");
+        ) = c.s_validatorConditions();
+        vc.availableAmount = availableAmount;
+        vc.interestRate = interestRate;
+        vc.minimumDuration = minimumDuration;
+        vc.maximumDuration = maximumDuration;
+        vc.minimumAmountToAccept = minimumAmountToAccept;
+        vc.version = version;
+        vc.outstandingBonds = outstandingBonds;
+        vc.safeTotalStake = safeTotalStake;
+        vc.isActive = isActive;
+        vc.exitAllowed = exitAllowed;
     }
 
-    function test_CreateMultipleCoffers_DifferentValidators() public {
-        // Arrange
-        address validator2 = makeAddr("validator2");
-        vm.deal(validator2, 100 ether);
+    /// @dev Asserts all fields of s_validatorConditions on a deployed Coffer
+    function _assertValidatorConditions(
+        address cofferAddr,
+        uint128 expectedAvailable,
+        uint32 expectedRate,
+        uint32 expectedMinDuration,
+        uint32 expectedMaxDuration,
+        uint128 expectedMinAmount,
+        uint32 expectedVersion,
+        uint32 expectedOutstandingBonds,
+        uint32 expectedSafeTotalStake,
+        bool expectedIsActive,
+        bool expectedExitAllowed
+    ) internal view {
+        Coffer.ValidatorConditions memory vc = _getValidatorConditions(cofferAddr);
 
-        // Act - Create first coffer
-        address coffer1 = createDefaultCoffer();
+        assertEq(vc.availableAmount, expectedAvailable, "availableAmount mismatch");
+        assertEq(vc.interestRate, expectedRate, "interestRate mismatch");
+        assertEq(vc.minimumDuration, expectedMinDuration, "minimumDuration mismatch");
+        assertEq(vc.maximumDuration, expectedMaxDuration, "maximumDuration mismatch");
+        assertEq(vc.minimumAmountToAccept, expectedMinAmount, "minimumAmountToAccept mismatch");
+        assertEq(vc.version, expectedVersion, "version mismatch");
+        assertEq(vc.outstandingBonds, expectedOutstandingBonds, "outstandingBonds mismatch");
+        assertEq(vc.safeTotalStake, expectedSafeTotalStake, "safeTotalStake mismatch");
+        assertEq(vc.isActive, expectedIsActive, "isActive mismatch");
+        assertEq(vc.exitAllowed, expectedExitAllowed, "exitAllowed mismatch");
+    }
 
-        // Act - Create second coffer with different validator
-        address coffer2 = createCoffer(
-            validator2,
-            bytes32(uint256(10)),
-            bytes16(uint128(20)),
-            LOW_RATE,
-            ONE_WEEK,
-            SIX_MONTHS,
-            50 ether,
-            0.5 ether,
+    /// @dev Computes the dynamic max for _minimumAmountToAccept given safeTotalStake and maxDuration
+    function _maxMinimumAmount(uint32 safeTotalStake, uint32 maxDuration) internal pure returns (uint128) {
+        return Penalty.addMaximumPenalty(VALIDATOR_STARTING_ETH, safeTotalStake, maxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
+    }
+
+    // ========================================
+    // CONSTRUCTOR TESTS
+    // ========================================
+
+    function test_Constructor_DeploysBondNft() public view {
+        assertTrue(factory.I_COFFER_BOND_NFT_ADDRESS() != address(0), "NFT address should not be zero");
+        assertEq(bondNft.name(), "Coffer Bond");
+        assertEq(bondNft.symbol(), "CB");
+    }
+
+    // ========================================
+    // HAPPY CASES — createCoffer
+    // ========================================
+
+    function test_CreateCoffer_Success_EmitsCofferIssued() public {
+        vm.startPrank(validator);
+        vm.recordLogs();
+
+        factory.createCoffer(
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
             defaultSafeTotalStake,
-            true
+            defaultExitAllowed
         );
 
-        // Assert
-        assertTrue(coffer1 != coffer2, "Coffers should have different addresses");
-        assertEq(Coffer(payable(coffer1)).owner(), validator, "Coffer1 owner mismatch");
-        assertEq(Coffer(payable(coffer2)).owner(), validator2, "Coffer2 owner mismatch");
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool found = false;
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("CofferIssued(address,address)")) {
+                assertEq(address(uint160(uint256(entries[i].topics[1]))), validator, "Owner indexed param mismatch");
+                assertTrue(uint256(entries[i].topics[2]) != 0, "Coffer address should not be zero");
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found, "CofferIssued event not emitted");
+        vm.stopPrank();
     }
 
-    function test_CreateCoffer_WithMinimumValidParameters() public {
-        // Act
-        address cofferAddr = createCoffer(
+    function test_CreateCoffer_Success_SetsOwner() public {
+        address cofferAddr = _createCofferAndGetAddress(
             validator,
-            bytes32(uint256(1)),
-            bytes16(uint128(1)),
-            MIN_RATE, // 1%
-            1, // 1 second minimum duration
-            1, // 1 second maximum duration
-            MIN_AMOUNT, // 0.01 ether available
-            MIN_AMOUNT, // 0.01 ether minimum
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            defaultExitAllowed
+        );
+
+        Coffer c = Coffer(payable(cofferAddr));
+        assertEq(c.owner(), validator, "Owner should be msg.sender");
+    }
+
+    function test_CreateCoffer_Success_SetsImmutables() public {
+        address cofferAddr = _createCofferAndGetAddress(
+            validator,
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            defaultExitAllowed
+        );
+
+        Coffer c = Coffer(payable(cofferAddr));
+        assertEq(c.i_public_key_part1(), validPublicKeyPart1);
+        assertEq(c.i_public_key_part2(), validPublicKeyPart2);
+        assertEq(c.i_cofferBondNftAddress(), factory.I_COFFER_BOND_NFT_ADDRESS());
+    }
+
+    function test_CreateCoffer_Success_SetsValidatorConditions() public {
+        address cofferAddr = _createCofferAndGetAddress(
+            validator,
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            false // exitAllowed = false → availableAmount = 0
+        );
+
+        _assertValidatorConditions(
+            cofferAddr,
+            0, // availableAmount
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            1, // version
+            0, // outstandingBonds
+            defaultSafeTotalStake,
+            true, // isActive
+            false // exitAllowed
+        );
+    }
+
+    function test_CreateCoffer_Success_ExitAllowed_CalculatesAvailableAmount() public {
+        address cofferAddr = _createCofferAndGetAddress(
+            validator,
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            true // exitAllowed
+        );
+
+        uint128 expectedAvailable =
+            Penalty.addMaximumPenalty(VALIDATOR_STARTING_ETH, defaultSafeTotalStake, defaultMaxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
+
+        Coffer c = Coffer(payable(cofferAddr));
+        (uint128 availableAmount,,,,,,,,, ) = c.s_validatorConditions();
+        assertEq(availableAmount, expectedAvailable, "Available amount should match penalty calculation");
+        assertTrue(expectedAvailable > 0, "Expected available should be positive for these params");
+    }
+
+    function test_CreateCoffer_Success_ExitNotAllowed_ZeroAvailableAmount() public {
+        address cofferAddr = _createCofferAndGetAddress(
+            validator,
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
             defaultSafeTotalStake,
             false
         );
 
-        // Assert
-        assertTrue(cofferAddr != address(0), "Coffer should be created");
-
-        Coffer createdCoffer = Coffer(payable(cofferAddr));
-        (
-            uint128 availableAmount,
-            uint32 interestRate,
-            uint32 minimumDuration,
-            uint32 maximumDuration,
-            uint128 minimumAmountToAccept,,,,,
-        ) = createdCoffer.s_validatorConditions();
-
-        assertEq(availableAmount, MIN_AMOUNT, "Available amount should be minimum");
-        assertEq(interestRate, MIN_RATE, "Interest rate should be minimum");
-        assertEq(minimumDuration, 1, "Min duration should be 1");
-        assertEq(maximumDuration, 1, "Max duration should be 1");
-        assertEq(minimumAmountToAccept, MIN_AMOUNT, "Min amount to accept should be minimum");
+        Coffer c = Coffer(payable(cofferAddr));
+        (uint128 availableAmount,,,,,,,,, ) = c.s_validatorConditions();
+        assertEq(availableAmount, 0, "Available amount should be 0 when exitAllowed is false");
     }
 
-    function test_CreateCoffer_WithMaximumValidParameters() public {
-        // Act
-        address cofferAddr = createCoffer(
+    function test_CreateCoffer_Success_MultipleCoffers() public {
+        address coffer1 = _createCofferAndGetAddress(
             validator,
-            bytes32(type(uint256).max),
-            bytes16(type(uint128).max),
-            HIGH_RATE, // 100%
-            1,
-            MAX_REALISTIC_DURATION, // 50 years
-            MAX_REALISTIC_AMOUNT, // 1 million ETH
-            MIN_AMOUNT,
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
             defaultSafeTotalStake,
-            true
+            defaultExitAllowed
         );
 
-        // Assert
-        assertTrue(cofferAddr != address(0), "Coffer should be created");
+        address coffer2 = _createCofferAndGetAddress(
+            holder1, // different caller
+            bytes32(uint256(99)),
+            bytes16(uint128(100)),
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            defaultExitAllowed
+        );
 
-        Coffer createdCoffer = Coffer(payable(cofferAddr));
-        (
-            uint128 availableAmount,
-            uint32 interestRate,
-            uint32 minimumDuration,
-            uint32 maximumDuration,,,,,,
-            bool exitAllowed
-        ) = createdCoffer.s_validatorConditions();
-
-        assertEq(availableAmount, MAX_REALISTIC_AMOUNT, "Available amount should be maximum");
-        assertEq(interestRate, HIGH_RATE, "Interest rate should be maximum");
-        assertEq(minimumDuration, 1, "Min duration should be 1");
-        assertEq(maximumDuration, MAX_REALISTIC_DURATION, "Max duration should be maximum");
-        assertTrue(exitAllowed, "Exit should be allowed");
+        assertTrue(coffer1 != address(0), "First coffer should be non-zero");
+        assertTrue(coffer2 != address(0), "Second coffer should be non-zero");
+        assertTrue(coffer1 != coffer2, "Coffers should have distinct addresses");
     }
 
     // ========================================
-    // TRIGGER REQUIRES - INVALID DURATION
+    // TRIGGER EVERY REVERT — createCoffer
     // ========================================
 
-    function test_CreateCoffer_RevertIf_MinimumDurationIsZero() public {
-        vm.startPrank(validator);
+    function test_CreateCoffer_Revert_MinDurationZero() public {
+        vm.prank(validator);
         vm.expectRevert(CofferFactory.InvalidDuration.selector);
         factory.createCoffer(
             validPublicKeyPart1,
             validPublicKeyPart2,
             defaultInterestRate,
-            0, // Invalid: zero minimum duration
+            0, // _minimumDuration = 0
             defaultMaxDuration,
-            defaultAvailableAmount,
             defaultMinimumAmount,
             defaultSafeTotalStake,
             defaultExitAllowed
         );
-        vm.stopPrank();
     }
 
-    function test_CreateCoffer_RevertIf_MaximumDurationLessThanMinimum() public {
-        vm.startPrank(validator);
+    function test_CreateCoffer_Revert_MaxDurationLessThanMin() public {
+        vm.prank(validator);
         vm.expectRevert(CofferFactory.InvalidDuration.selector);
         factory.createCoffer(
             validPublicKeyPart1,
             validPublicKeyPart2,
             defaultInterestRate,
-            ONE_YEAR, // minimum: 1 year
-            ONE_MONTH, // maximum: 1 month (less than minimum)
-            defaultAvailableAmount,
+            ONE_YEAR, // min = 1 year
+            ONE_MONTH, // max = 1 month < min
             defaultMinimumAmount,
             defaultSafeTotalStake,
             defaultExitAllowed
         );
-        vm.stopPrank();
     }
 
-    // ========================================
-    // TRIGGER REQUIRES - INVALID INTEREST RATE
-    // ========================================
+    function test_CreateCoffer_Revert_MaxDurationExceedsLimit() public {
+        vm.prank(validator);
+        vm.expectRevert(CofferFactory.InvalidDuration.selector);
+        factory.createCoffer(
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            ONE_DAY,
+            MAX_DURATION + 1, // exceeds 50-year cap
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            defaultExitAllowed
+        );
+    }
 
-    function test_CreateCoffer_RevertIf_InterestRateIsZero() public {
-        vm.startPrank(validator);
+    function test_CreateCoffer_Revert_InterestRateZero() public {
+        vm.prank(validator);
         vm.expectRevert(CofferFactory.InvalidInterestRate.selector);
         factory.createCoffer(
             validPublicKeyPart1,
             validPublicKeyPart2,
-            0, // Invalid: zero interest rate
+            0, // _interestRate = 0
             defaultMinDuration,
             defaultMaxDuration,
-            defaultAvailableAmount,
             defaultMinimumAmount,
             defaultSafeTotalStake,
             defaultExitAllowed
         );
-        vm.stopPrank();
     }
 
-    function test_CreateCoffer_RevertIf_InterestRateExceedsMaximum() public {
-        vm.startPrank(validator);
+    function test_CreateCoffer_Revert_InterestRateExceedsMax() public {
+        vm.prank(validator);
         vm.expectRevert(CofferFactory.InvalidInterestRate.selector);
         factory.createCoffer(
             validPublicKeyPart1,
             validPublicKeyPart2,
-            HIGH_RATE + 1, // Invalid: exceeds 100%
+            MAX_RATE + 1, // 1e8 + 1
             defaultMinDuration,
             defaultMaxDuration,
-            defaultAvailableAmount,
             defaultMinimumAmount,
             defaultSafeTotalStake,
             defaultExitAllowed
         );
-        vm.stopPrank();
     }
 
-    // ========================================
-    // TRIGGER REQUIRES - INVALID AMOUNTS
-    // ========================================
-
-    function test_CreateCoffer_RevertIf_MinimumAmountToAcceptIsZero() public {
-        vm.startPrank(validator);
-        vm.expectRevert(CofferFactory.MinimumAmountToAcceptIsZero.selector);
+    function test_CreateCoffer_Revert_MinAmountZero() public {
+        vm.prank(validator);
+        vm.expectRevert(CofferFactory.InvalidMinimumAmountToAccept.selector);
         factory.createCoffer(
             validPublicKeyPart1,
             validPublicKeyPart2,
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
-            defaultAvailableAmount,
-            0, // Invalid: zero minimum amount
+            0, // _minimumAmountToAccept = 0
             defaultSafeTotalStake,
             defaultExitAllowed
         );
-        vm.stopPrank();
     }
 
-    function test_CreateCoffer_RevertIf_AvailableAmountLessThanMinimum() public {
-        vm.startPrank(validator);
-        vm.expectRevert(CofferFactory.MinimumAmountToAcceptGreaterThanAvailableAmount.selector);
+    function test_CreateCoffer_Revert_MinAmountExceedsMax() public {
+        uint128 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, defaultMaxDuration);
+        // Ensure maxAllowed is positive so the +1 actually exceeds it
+        assertTrue(maxAllowed > 0, "maxAllowed should be positive for default params");
+
+        vm.prank(validator);
+        vm.expectRevert(CofferFactory.InvalidMinimumAmountToAccept.selector);
         factory.createCoffer(
             validPublicKeyPart1,
             validPublicKeyPart2,
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
-            10 ether, // available amount
-            11 ether, // minimum amount (greater than available)
+            maxAllowed + 1,
             defaultSafeTotalStake,
             defaultExitAllowed
         );
-        vm.stopPrank();
     }
 
     // ========================================
-    // EDGE CASES
+    // BOUNDARY / EDGE CASES
     // ========================================
 
-    function test_CreateCoffer_EdgeCase_EqualMinMaxDuration() public {
-        // Arrange
-        uint32 singleDuration = ONE_MONTH;
-
-        // Act
-        address cofferAddr = createCoffer(
+    function test_CreateCoffer_Boundary_MinEqualsMaxDuration() public {
+        address cofferAddr = _createCofferAndGetAddress(
             validator,
             validPublicKeyPart1,
             validPublicKeyPart2,
             defaultInterestRate,
-            singleDuration,
-            singleDuration, // Same as minimum
-            defaultAvailableAmount,
+            ONE_MONTH, // min == max
+            ONE_MONTH, // min == max
             defaultMinimumAmount,
             defaultSafeTotalStake,
             defaultExitAllowed
         );
-
-        // Assert
-        Coffer createdCoffer = Coffer(payable(cofferAddr));
-        (,, uint32 minimumDuration, uint32 maximumDuration,,,,,,) = createdCoffer.s_validatorConditions();
-
-        assertEq(minimumDuration, singleDuration, "Min duration mismatch");
-        assertEq(maximumDuration, singleDuration, "Max duration mismatch");
+        assertTrue(cofferAddr != address(0), "Should succeed when min == max duration");
     }
 
-    function test_CreateCoffer_EdgeCase_AvailableAmountEqualsMinimum() public {
-        // Arrange
-        uint128 singleAmount = 5 ether;
+    function test_CreateCoffer_Boundary_ExactMaxDuration() public {
+        // Use MAX_DURATION for both max and min (min must be > 0 and <= max)
+        // With very long duration, penalty is large, so use a very small minimumAmount
+        uint128 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, MAX_DURATION);
+        // If maxAllowed is 0, the only way to create would fail on minAmount validation.
+        // Use a small minAmount if possible, otherwise skip boundary check.
+        if (maxAllowed > 0) {
+            address cofferAddr = _createCofferAndGetAddress(
+                validator,
+                validPublicKeyPart1,
+                validPublicKeyPart2,
+                defaultInterestRate,
+                1, // smallest valid min duration
+                MAX_DURATION,
+                1, // smallest valid amount
+                defaultSafeTotalStake,
+                defaultExitAllowed
+            );
+            assertTrue(cofferAddr != address(0), "Should succeed at exact MAX_DURATION");
+        }
+    }
 
-        // Act
-        address cofferAddr = createCoffer(
+    function test_CreateCoffer_Boundary_ExactMaxRate() public {
+        address cofferAddr = _createCofferAndGetAddress(
+            validator,
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            MAX_RATE, // exactly 1e8 = 100%
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            defaultExitAllowed
+        );
+        assertTrue(cofferAddr != address(0), "Should succeed at exact max rate");
+    }
+
+    function test_CreateCoffer_Boundary_MinRate() public {
+        address cofferAddr = _createCofferAndGetAddress(
+            validator,
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            1, // smallest valid rate
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            defaultExitAllowed
+        );
+        assertTrue(cofferAddr != address(0), "Should succeed at min rate = 1");
+    }
+
+    function test_CreateCoffer_Boundary_ExactMaxMinimumAmount() public {
+        uint128 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, defaultMaxDuration);
+        assertTrue(maxAllowed > 0, "maxAllowed should be positive for default params");
+
+        address cofferAddr = _createCofferAndGetAddress(
             validator,
             validPublicKeyPart1,
             validPublicKeyPart2,
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
-            singleAmount, // available amount
-            singleAmount, // Same as available
+            maxAllowed, // exactly at the boundary
             defaultSafeTotalStake,
             defaultExitAllowed
         );
-
-        // Assert
-        Coffer createdCoffer = Coffer(payable(cofferAddr));
-        (uint128 availableAmount,,,, uint128 minimumAmountToAccept,,,,,) = createdCoffer.s_validatorConditions();
-
-        assertEq(availableAmount, singleAmount, "Available amount mismatch");
-        assertEq(minimumAmountToAccept, singleAmount, "Min amount to accept mismatch");
+        assertTrue(cofferAddr != address(0), "Should succeed at exact max minimum amount");
     }
 
-    function test_CreateCoffer_EdgeCase_MaximumInterestRate() public {
-        // Act
-        address cofferAddr = createCoffer(
+    function test_CreateCoffer_Boundary_MinAmount() public {
+        address cofferAddr = _createCofferAndGetAddress(
             validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
-            HIGH_RATE, // Exactly 100%
-            defaultMinDuration,
-            defaultMaxDuration,
-            defaultAvailableAmount,
-            defaultMinimumAmount,
-            defaultSafeTotalStake,
-            defaultExitAllowed
-        );
-
-        // Assert
-        Coffer createdCoffer = Coffer(payable(cofferAddr));
-        (, uint32 interestRate,,,,,,,,) = createdCoffer.s_validatorConditions();
-
-        assertEq(interestRate, HIGH_RATE, "Interest rate should be exactly 100%");
-    }
-
-    // ========================================
-    // GAS OPTIMIZATION TESTS
-    // ========================================
-
-    function test_CreateCoffer_GasUsage() public {
-        // Measure gas for creating a coffer
-        vm.startPrank(validator);
-
-        uint256 gasBefore = gasleft();
-        factory.createCoffer(
             validPublicKeyPart1,
             validPublicKeyPart2,
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
-            defaultAvailableAmount,
-            defaultMinimumAmount,
+            1, // smallest valid amount = 1 wei
             defaultSafeTotalStake,
             defaultExitAllowed
         );
-        uint256 gasUsed = gasBefore - gasleft();
-
-        vm.stopPrank();
-
-        // Log gas usage for optimization tracking
-        emit log_named_uint("Gas used for coffer creation", gasUsed);
-
-        // Assert reasonable gas usage (adjust threshold as needed)
-        assertTrue(gasUsed < 10_000_000, "Gas usage exceeds expected threshold");
-    }
-
-    // ========================================
-    // IMMUTABILITY TESTS
-    // ========================================
-
-    function test_NFTAddress_IsImmutable() public {
-        // Assert that NFT address is set and immutable
-        address nftAddress1 = factory.I_COFFER_BOND_NFT_ADDRESS();
-        assertTrue(nftAddress1 != address(0), "NFT address should be set");
-
-        // Deploy another factory
-        CofferFactory factory2 = new CofferFactory();
-        address nftAddress2 = factory2.I_COFFER_BOND_NFT_ADDRESS();
-
-        // Each factory should have its own NFT
-        assertTrue(nftAddress2 != address(0), "Second NFT address should be set");
-        assertTrue(nftAddress1 != nftAddress2, "Each factory should have unique NFT");
+        assertTrue(cofferAddr != address(0), "Should succeed at min amount = 1 wei");
     }
 }

@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.30;
+pragma solidity ^0.8.34;
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
@@ -14,7 +14,10 @@ contract CofferBondNft is ERC721 {
 
     uint256 private s_holderIdCounter;
 
-    event CofferBondTokenMinted(uint256 indexed holderId, address indexed holder);
+    event CofferBondTokenMinted(
+        uint256 indexed holderId,
+        address indexed holder
+    );
     event CofferBondTokenBurned(uint256 indexed holderId);
 
     constructor() ERC721("Coffer Bond", "CB") {}
@@ -32,7 +35,9 @@ contract CofferBondNft is ERC721 {
     }
 
     ///@notice Get the address of the holder for a given token ID
-    function getHolderAddress(uint256 _holderId) external view virtual returns (address) {
+    function getHolderAddress(
+        uint256 _holderId
+    ) external view virtual returns (address) {
         return ownerOf(_holderId);
     }
 }

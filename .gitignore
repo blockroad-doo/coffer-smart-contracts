@@ -5,6 +5,7 @@ out/
 # Ignores development broadcast logs
 broadcast/
 ai_conversations/
+beaconProofVerifier/
 
 # Docs
 docs/

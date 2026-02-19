@@ -23,13 +23,7 @@
 
 ## 🔍 Quick Overview
 
-Coffer is a **decentralized and trustless P2P protocol** that allows validators to issue bonds for ETH holders to earn interest on their ETH securely, backed by the validator's stake. A holder gets a fixed rate from the validator and locks their ETH in for an upfront agreed period. At the maturity of the offer, the holder can claim their amount with interest. This enables validators to unlock liquidity from a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted so the holder can effectively transfer its bond to a third party.
-
-> 💡 **Key Features:**
-> - Decentralized & trustless
-> - Fixed-rate bonds
-> - NFT-based transferable bonds
-> - Validator stake-backed security
+Coffer is a **decentralized and trustless peer-to-pool protocol** that allows validators to issue bonds for ETH holders to earn interest on their ETH securely, backed by the validator's stake. A holder gets a fixed rate from the validator and locks their ETH in for an upfront agreed period. At the maturity of the offer, the holder can claim their amount with interest. This enables validators to unlock liquidity from a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted so the holder can effectively transfer its bond to a third party.
 
 ---
 
@@ -54,6 +48,7 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 | Library | Purpose |
 |---------|---------|
 | **`Interest.sol`** | Pure function for calculating interest given amount, duration, and interest rate |
+| **`Penalty.sol`** | Pure function for calculating penalties for slashing and missing attestations |
 
 ### Interfaces
 
@@ -70,9 +65,9 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 
 #### 💰 **Holders**
 Can call the following functions:
-- `acceptOffer(uint256)`
-- `holderWithdrawFromExecution(uint256)`
-- `holderWithdrawFromConsensus(uint256)`
+- `buyBond(uint128)`
+- `holderWithdrawFromExecution(uint128)`
+- `holderWithdrawFromConsensus(uint128)`
 
 ---
 
@@ -117,14 +112,9 @@ Before buying a bond ceratin conditions must be thoroughly checked both on execu
 #### 🔴 **UNSAFE Scenarios**
 
 > [!CAUTION]
-> **Wrong consensus public key passed while creating Coffer contract**
+> **Missmatch consensus public and withdrawal credentials**
 >
-> A malicious actor can create a Coffer contract and assign a wrong public key (could be a key of a random honest validator). This should always be checked on execution and consensus layer before any interactions.
-
-> [!CAUTION]
-> **Assigning wrong Coffer address to freshly created validator**
->
-> When a validator with `0x00` credentials is created, it can assign a wrong address. This should always be checked on execution and consensus layer before any interactions.
+> A malicious actor can create a Coffer contract and assign a wrong public key (could be a key of a random honest validator). Or when a validator with `0x00` credentials is created, it can assign a wrong address. This should always be checked on execution and consensus layer before any interactions.
 
 > [!CAUTION]
 > **Unfinished setup of validator**
@@ -141,14 +131,14 @@ Before buying a bond ceratin conditions must be thoroughly checked both on execu
 > [!WARNING]
 > **`availableAmount` in Coffer contract is sometimes enough**
 >
-> Validator can set up `availableAmount` so it's greater than effective balance minus possible penalties that could happen before **maximum** duration has passed, but are less than effective balance minus possible penalties that could happen before **minimum** duration has passed.
+> Validator can have `availableAmount` so it's greater than effective balance minus possible penalties that could happen before **maximum** duration has passed, but are less than effective balance minus possible penalties that could happen before **minimum** duration has passed.
 
 #### 🟢 **SAFE Scenarios**
 
 > [!NOTE]
 > **`availableAmount` in Coffer contract covers all penalties**
 >
-> Validator can set up `availableAmount` less than effective balance minus possible penalties that could happen before **maximum** duration has passed. When this validator issues the first bond, `availableAmount` locks up and cannot be changed until all bonds are repaid.
+> Validator should have `availableAmount` less than effective balance minus possible penalties that could happen before **maximum** duration has passed. When this validator issues the first bond, `availableAmount` locks up and cannot be changed until all bonds are repaid.
 
 ### Reasnonable holder risk
 

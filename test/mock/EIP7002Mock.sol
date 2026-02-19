@@ -3,8 +3,8 @@ pragma solidity ^0.8.24;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-address constant WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS = 0x00000961Ef480Eb55e80D19ad83579A64c007002;
-address constant SYSTEM_ADDRESS = 0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF; // 0xff...fe but in solidity checksummed
+address payable constant WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS = payable(0x00000961Ef480Eb55e80D19ad83579A64c007002);
+address constant SYSTEM_ADDRESS = 0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE;
 
 // Storage layout
 uint256 constant EXCESS_WITHDRAWAL_REQUESTS_STORAGE_SLOT = 0;
@@ -64,6 +64,33 @@ interface IEIP7002Mock {
  *           3. calldatasize == 0 && msg.value > 0
  *           4. calldatasize == 56 && msg.value < fee
  *
+ *         IMPORTANT CONSENSUS LAYER BEHAVIOR:
+ *         ====================================
+ *         This contract is a "dumb queue" - it does NOT validate:
+ *           - Whether the pubkey corresponds to a real validator
+ *           - Whether msg.sender matches the validator's withdrawal credentials
+ *           - Whether the amount is valid or sensible
+ *           - Whether partial withdrawals are allowed for the validator type
+ *
+ *         The consensus layer handles all validation after dequeuing:
+ *
+ *         For validators with 0x01 credentials (regular validators):
+ *           - Partial withdrawals are SILENTLY IGNORED
+ *           - Only full exits (amount = 0) are processed
+ *           - The fee is consumed but nothing happens
+ *
+ *         For validators with 0x02 credentials (compounding validators):
+ *           - Partial withdrawals are allowed
+ *           - Amount is CLAMPED to maintain MIN_ACTIVATION_BALANCE (32 ETH)
+ *           - Example: 40 ETH validator requesting 10 ETH withdrawal
+ *             → Only 8 ETH withdrawn (40 - 32 = 8), keeping exactly 32 ETH
+ *           - If balance <= 32 ETH, partial withdrawal is ignored entirely
+ *
+ *         For invalid requests (wrong pubkey, wrong credentials, etc):
+ *           - Request is dequeued and discarded
+ *           - Fee is NOT refunded
+ *           - No error is raised
+ *
  * @dev    Deploy this at the canonical address 0x00000961Ef480Eb55e80D19ad83579A64c007002
  *         in your test setup using vm.etch() (Foundry) or hardhat_setCode (Hardhat).
  *
@@ -106,13 +133,6 @@ contract EIP7002Mock {
         uint256 fee = _getFee();
 
         // Path 2: Fee getter (calldatasize == 0)
-        if (msg.data.length == 56) {
-            // Path 3: Add withdrawal request
-            require(msg.value >= fee); // Revert condition #4
-            _addWithdrawalRequest();
-            return;
-        }
-
         if (msg.data.length == 0) {
             require(msg.value == 0); // Revert condition #3
             // Return fee as uint256
@@ -120,6 +140,14 @@ contract EIP7002Mock {
                 mstore(0x00, fee)
                 return(0x00, 0x20)
             }
+        }
+
+        // Path 3: Add withdrawal request (calldatasize == 56)
+        // Format: 32 bytes pubkey1 + 16 bytes pubkey2 + 8 bytes amount
+        if (msg.data.length == 56) {
+            require(msg.value >= fee); // Revert condition #4
+            _addWithdrawalRequest();
+            return;
         }
 
         // Revert condition #2: invalid calldatasize
@@ -188,7 +216,7 @@ contract EIP7002Mock {
 
         // Store source_address (msg.sender) in first slot
         // Store pubkey[0:32] in second slot
-        // Store pubkey[32:48] ++ little_endian(amount) in third slot
+        // Store pubkey[32:48] ++ amount (big-endian uint64) in third slot
         //
         // calldata layout: [0:48] = pubkey, [48:56] = amount (big-endian uint64)
 
@@ -197,9 +225,8 @@ contract EIP7002Mock {
         assembly {
             pubkeyFirst32 := calldataload(0)
             // calldataload(32) gives us bytes [32:64] of calldata
-            // but calldata is only 56 bytes, so bytes [56:64] are zero-padded
-            // pubkey[32:48] is the top 16 bytes of calldataload(32)
-            // amount (big-endian) is bytes [48:56] = next 8 bytes
+            // For 56-byte calldata: bytes [32:48] = pubkey part 2, [48:56] = amount
+            // Bytes [56:64] are zero-padded since calldata is only 56 bytes
             pubkeySecondAndAmount := calldataload(32)
         }
 
@@ -221,16 +248,17 @@ contract EIP7002Mock {
             sstore(WITHDRAWAL_REQUEST_QUEUE_TAIL_STORAGE_SLOT, add(queueTailIndex, 1))
         }
 
-        // Emit LOG0 matching the real contract: 76 bytes = sender(20) ++ calldata(56)
-        // The real bytecode does: caller pushed to mem[0:20] as 60-shl, then calldatacopy 56 bytes at offset 20
-        // Totaling 76 bytes for LOG0.
+        // Emit LOG0 matching the real contract: 76 bytes = sender(20) ++ pubkey(48) ++ amount(8)
         // We also emit a typed event for convenience.
         bytes32 pubkeyPart1;
         bytes16 pubkeyPart2;
         uint64 amount;
         assembly {
             pubkeyPart1 := calldataload(0)
-            pubkeyPart2 := calldataload(32)
+            // For bytes16, we want the first 16 bytes of calldataload(32)
+            // calldataload(32) already gives us pubkeyPart2 in the high-order 16 bytes
+            let temp := calldataload(32)
+            pubkeyPart2 := temp  // implicit truncation to bytes16 takes the first 16 bytes
             // amount is big-endian uint64 at calldata offset 48
             amount := shr(192, calldataload(48))
         }
@@ -240,7 +268,7 @@ contract EIP7002Mock {
         assembly {
             // Store sender address at logData+32 (first 20 bytes of data portion)
             mstore(add(logData, 32), shl(96, caller()))
-            // Copy calldata (56 bytes) starting at logData+32+20 = logData+52
+            // Copy only first 56 bytes of calldata (exclude source suffix)
             calldatacopy(add(logData, 52), 0, 56)
             log0(add(logData, 32), 76)
         }
@@ -288,11 +316,15 @@ contract EIP7002Mock {
             // Extract amount (big-endian uint64) from slot2Val bytes [16:24]
             uint64 amountBE;
             assembly {
+                // slot2Val has: pubkey[32:48] (16 bytes) ++ amount_be (8 bytes) ++ zeros (8 bytes)
+                // We want bytes [16:24] which contain the amount
+                // First shift left by 128 bits to remove first 16 bytes
+                // Then shift right by 192 bits to get the 8 bytes we want as uint64
                 amountBE := shr(192, shl(128, slot2Val))
             }
 
-            // Convert to little-endian
-            uint64 amountLE = _swapEndian64(amountBE);
+            // We'll write this amount in little-endian byte order
+            // No need to swap - we'll just write the bytes in reverse order
 
             // Write to returnData
             assembly {
@@ -301,20 +333,35 @@ contract EIP7002Mock {
                 mstore(ptr, shl(96, sourceAddr))
                 // pubkey first 32 bytes at offset+20
                 mstore(add(ptr, 20), pubkeyFirst)
-                // pubkey second 16 bytes at offset+52
-                // We need to write 16 bytes of pubkeySecond then 8 bytes of amountLE
-                mstore(add(ptr, 52), pubkeySecond)
-                // amount LE at offset+68 (overwrite the zeros after pubkeySecond)
-                // pubkeySecond wrote 16 bytes starting at 52, so next 16 bytes are zeros
-                // We need to place amountLE (8 bytes) at offset+68
-                mstore8(add(ptr, 68), and(amountLE, 0xff))
-                mstore8(add(ptr, 69), and(shr(8, amountLE), 0xff))
-                mstore8(add(ptr, 70), and(shr(16, amountLE), 0xff))
-                mstore8(add(ptr, 71), and(shr(24, amountLE), 0xff))
-                mstore8(add(ptr, 72), and(shr(32, amountLE), 0xff))
-                mstore8(add(ptr, 73), and(shr(40, amountLE), 0xff))
-                mstore8(add(ptr, 74), and(shr(48, amountLE), 0xff))
-                mstore8(add(ptr, 75), and(shr(56, amountLE), 0xff))
+                // pubkey second 16 bytes at offset+52 - write byte by byte
+                // pubkeySecond is bytes16, left-aligned in the word
+                let pubkey2 := pubkeySecond
+                mstore8(add(ptr, 52), byte(0, pubkey2))
+                mstore8(add(ptr, 53), byte(1, pubkey2))
+                mstore8(add(ptr, 54), byte(2, pubkey2))
+                mstore8(add(ptr, 55), byte(3, pubkey2))
+                mstore8(add(ptr, 56), byte(4, pubkey2))
+                mstore8(add(ptr, 57), byte(5, pubkey2))
+                mstore8(add(ptr, 58), byte(6, pubkey2))
+                mstore8(add(ptr, 59), byte(7, pubkey2))
+                mstore8(add(ptr, 60), byte(8, pubkey2))
+                mstore8(add(ptr, 61), byte(9, pubkey2))
+                mstore8(add(ptr, 62), byte(10, pubkey2))
+                mstore8(add(ptr, 63), byte(11, pubkey2))
+                mstore8(add(ptr, 64), byte(12, pubkey2))
+                mstore8(add(ptr, 65), byte(13, pubkey2))
+                mstore8(add(ptr, 66), byte(14, pubkey2))
+                mstore8(add(ptr, 67), byte(15, pubkey2))
+                // Write amount at offset+68 (8 bytes in little-endian)
+                // amountBE is big-endian, write it in little-endian byte order
+                mstore8(add(ptr, 68), and(amountBE, 0xff))
+                mstore8(add(ptr, 69), and(shr(8, amountBE), 0xff))
+                mstore8(add(ptr, 70), and(shr(16, amountBE), 0xff))
+                mstore8(add(ptr, 71), and(shr(24, amountBE), 0xff))
+                mstore8(add(ptr, 72), and(shr(32, amountBE), 0xff))
+                mstore8(add(ptr, 73), and(shr(40, amountBE), 0xff))
+                mstore8(add(ptr, 74), and(shr(48, amountBE), 0xff))
+                mstore8(add(ptr, 75), and(shr(56, amountBE), 0xff))
             }
         }
 
@@ -404,5 +451,104 @@ contract EIP7002Mock {
         uint256 val;
         assembly { val := sload(WITHDRAWAL_REQUEST_QUEUE_TAIL_STORAGE_SLOT) }
         return val;
+    }
+
+    // ── Consensus layer simulation helpers (for testing only) ─────────────────
+
+    /// Constants matching consensus layer specs
+    uint256 public constant MIN_ACTIVATION_BALANCE = 32 ether;
+
+    /// Credential types
+    uint8 public constant CREDENTIAL_TYPE_BLS = 0x00;
+    uint8 public constant CREDENTIAL_TYPE_EXECUTION = 0x01;
+    uint8 public constant CREDENTIAL_TYPE_COMPOUNDING = 0x02;
+
+    /**
+     * @notice Simulates consensus layer processing of a partial withdrawal request
+     * @dev This helper demonstrates what would happen on the consensus layer
+     * @param credentialType The validator's credential type (0x01 or 0x02)
+     * @param validatorBalance Current validator balance in wei
+     * @param requestedAmount Amount requested to withdraw in Gwei
+     * @return actualAmount Amount that would actually be withdrawn in Gwei
+     * @return wouldProcess Whether the request would be processed (not ignored)
+     */
+    function simulateConsensusWithdrawal(
+        uint8 credentialType,
+        uint256 validatorBalance,
+        uint64 requestedAmount
+    ) external pure returns (uint64 actualAmount, bool wouldProcess) {
+        // Convert Gwei amount to wei for calculation
+        uint256 requestedWei = uint256(requestedAmount) * 1 gwei;
+
+        // Full exit (amount = 0) is always processed for any credential type
+        if (requestedAmount == 0) {
+            return (0, true);
+        }
+
+        // 0x01 credentials: partial withdrawals are silently ignored
+        if (credentialType == CREDENTIAL_TYPE_EXECUTION) {
+            return (0, false);
+        }
+
+        // 0x02 compounding credentials: partial withdrawals are allowed with clamping
+        if (credentialType == CREDENTIAL_TYPE_COMPOUNDING) {
+            // Check if validator has excess balance above MIN_ACTIVATION_BALANCE
+            if (validatorBalance <= MIN_ACTIVATION_BALANCE) {
+                // No excess balance, withdrawal ignored
+                return (0, false);
+            }
+
+            // Calculate maximum withdrawable amount (maintaining MIN_ACTIVATION_BALANCE)
+            uint256 maxWithdrawable = validatorBalance - MIN_ACTIVATION_BALANCE;
+
+            // If available balance is less than 1 Gwei, cannot withdraw (Gwei precision)
+            if (maxWithdrawable < 1 gwei) {
+                return (0, false);
+            }
+
+            // Clamp the withdrawal amount
+            uint256 actualWei = requestedWei > maxWithdrawable ? maxWithdrawable : requestedWei;
+
+            // Convert back to Gwei
+            actualAmount = uint64(actualWei / 1 gwei);
+            return (actualAmount, actualAmount > 0);
+        }
+
+        // Unknown credential type (shouldn't happen in practice)
+        return (0, false);
+    }
+
+    /**
+     * @notice Helper to demonstrate the 40 ETH validator withdrawing 10 ETH scenario
+     * @param credentialType The validator's credential type
+     * @return actualWithdrawnGwei Amount actually withdrawn in Gwei
+     * @return explanation Human-readable explanation of what happened
+     */
+    function demonstratePartialWithdrawalScenario(uint8 credentialType)
+        external
+        view
+        returns (uint64 actualWithdrawnGwei, string memory explanation)
+    {
+        uint256 validatorBalance = 40 ether;
+        uint64 requestedGwei = 10_000_000_000; // 10 ETH in Gwei
+
+        (uint64 actualAmount, bool wouldProcess) = this.simulateConsensusWithdrawal(
+            credentialType,
+            validatorBalance,
+            requestedGwei
+        );
+
+        if (credentialType == CREDENTIAL_TYPE_EXECUTION) {
+            return (0, "0x01 credentials: Partial withdrawal ignored, fee lost");
+        } else if (credentialType == CREDENTIAL_TYPE_COMPOUNDING) {
+            if (wouldProcess) {
+                return (
+                    actualAmount,
+                    "0x02 credentials: Withdrew 8 ETH (clamped from 10 ETH to maintain 32 ETH minimum)"
+                );
+            }
+        }
+
+        return (0, "Unknown credential type or request ignored");
     }
 }

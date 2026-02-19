@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: CC0-1.0
-pragma solidity 0.8.30;
+pragma solidity ^0.8.34;
 
 /// @notice This is the Ethereum 2.0 deposit contract interface.
 /// For more information see the Phase 0 specification under https://github.com/ethereum/eth2.0-specs

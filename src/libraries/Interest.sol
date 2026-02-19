@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.30;
+pragma solidity ^0.8.34;
 
 library Interest {
     uint32 private constant MAX_RATE = 1e8; // 1e8 = 100%

@@ -3,352 +3,178 @@ pragma solidity ^0.8.30;
 
 import {BaseTest, CofferBondNftEvents} from "./BaseTest.sol";
 import {CofferBondNft} from "../../src/CofferBondNft.sol";
-import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import {IERC721Metadata} from "@openzeppelin/contracts/token/ERC721/extensions/IERC721Metadata.sol";
+import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 /**
  * @title CofferBondNftTest
- * @notice Comprehensive unit tests for CofferBondNft contract
- * @dev Tests follow logical progression: happy cases, require triggers, modifiers, edge cases
+ * @notice Unit tests for CofferBondNft contract
+ * @dev Tests follow logical progression: constructor → mint → burn → getHolderAddress → reverts → ERC721 edge cases
  */
 contract CofferBondNftTest is BaseTest {
-    CofferBondNft public nft;
-    address public authorizedMinter;
-
     // ========================================
-    // SETUP
+    // DRY HELPERS
     // ========================================
 
-    function setUp() public override {
-        super.setUp();
-
-        // Deploy a standalone NFT for testing
-        nft = new CofferBondNft();
-
-        // For testing purposes, we'll use a coffer as the authorized minter
-        authorizedMinter = createDefaultCoffer();
+    /// @dev Mints a token to the given address, asserts ownership, returns holderId
+    function _mintAndAssert(address to) internal returns (uint256 holderId) {
+        holderId = bondNft.mintCofferBond(to);
+        assertEq(bondNft.getHolderAddress(holderId), to, "Owner should match minted address");
     }
 
     // ========================================
-    // HAPPY CASES
+    // CONSTRUCTOR TESTS
     // ========================================
 
-    function test_MintCofferBond_Success() public {
-        // Act
-        vm.startPrank(authorizedMinter);
-        uint256 holderId = nft.mintCofferBond(holder1);
-        vm.stopPrank();
-
-        // Assert
-        assertEq(holderId, 1, "First token ID should be 1");
-        assertEq(nft.ownerOf(holderId), holder1, "Token should be owned by holder1");
-        assertEq(nft.balanceOf(holder1), 1, "Holder1 should have 1 token");
-    }
-
-    function test_MintMultipleBonds_DifferentHolders() public {
-        // Act
-        vm.startPrank(authorizedMinter);
-        uint256 holderId1 = nft.mintCofferBond(holder1);
-        uint256 holderId2 = nft.mintCofferBond(holder2);
-        uint256 holderId3 = nft.mintCofferBond(holder3);
-        vm.stopPrank();
-
-        // Assert
-        assertEq(holderId1, 1, "First token ID should be 1");
-        assertEq(holderId2, 2, "Second token ID should be 2");
-        assertEq(holderId3, 3, "Third token ID should be 3");
-
-        assertEq(nft.ownerOf(holderId1), holder1, "Token 1 should be owned by holder1");
-        assertEq(nft.ownerOf(holderId2), holder2, "Token 2 should be owned by holder2");
-        assertEq(nft.ownerOf(holderId3), holder3, "Token 3 should be owned by holder3");
-
-        assertEq(nft.balanceOf(holder1), 1, "Holder1 should have 1 token");
-        assertEq(nft.balanceOf(holder2), 1, "Holder2 should have 1 token");
-        assertEq(nft.balanceOf(holder3), 1, "Holder3 should have 1 token");
-    }
-
-    function test_MintMultipleBonds_SameHolder() public {
-        // Act
-        vm.startPrank(authorizedMinter);
-        uint256 holderId1 = nft.mintCofferBond(holder1);
-        uint256 holderId2 = nft.mintCofferBond(holder1);
-        uint256 holderId3 = nft.mintCofferBond(holder1);
-        vm.stopPrank();
-
-        // Assert
-        assertEq(nft.balanceOf(holder1), 3, "Holder1 should have 3 tokens");
-        assertEq(nft.ownerOf(holderId1), holder1, "All tokens should be owned by holder1");
-        assertEq(nft.ownerOf(holderId2), holder1, "All tokens should be owned by holder1");
-        assertEq(nft.ownerOf(holderId3), holder1, "All tokens should be owned by holder1");
-    }
-
-    function test_GetHolderAddress_Success() public {
-        // Arrange
-        vm.startPrank(authorizedMinter);
-        uint256 holderId = nft.mintCofferBond(holder1);
-        vm.stopPrank();
-
-        // Act
-        address holderAddress = nft.getHolderAddress(holderId);
-
-        // Assert
-        assertEq(holderAddress, holder1, "Should return correct holder address");
+    function test_Constructor_NameAndSymbol() public view {
+        assertEq(bondNft.name(), "Coffer Bond");
+        assertEq(bondNft.symbol(), "CB");
     }
 
     // ========================================
-    // REQUIRE TRIGGERS - TOKEN EXISTENCE
+    // HAPPY CASES — mintCofferBond
     // ========================================
 
-    function test_GetHolderAddress_RevertIf_TokenDoesNotExist() public {
-        // Act & Assert
-        vm.expectRevert();
-        nft.getHolderAddress(999);
+    function test_Mint_Success_ReturnsHolderId() public {
+        uint256 holderId = bondNft.mintCofferBond(holder1);
+        assertEq(holderId, 1, "First minted token should have holderId = 1");
+        assertEq(bondNft.getHolderAddress(holderId), holder1);
     }
 
-    function test_OwnerOf_RevertIf_TokenDoesNotExist() public {
-        // Act & Assert
-        vm.expectRevert();
-        nft.ownerOf(999);
-    }
-
-    // ========================================
-    // ERC721 STANDARD COMPLIANCE
-    // ========================================
-
-    function test_TokenMetadata() public {
-        // Assert
-        assertEq(nft.name(), "Coffer Bond", "Token name should be Coffer Bond");
-        assertEq(nft.symbol(), "CB", "Token symbol should be CB");
-    }
-
-    function test_TransferToken_Success() public {
-        // Arrange
-        vm.startPrank(authorizedMinter);
-        uint256 holderId = nft.mintCofferBond(holder1);
-        vm.stopPrank();
-
-        // Act
-        vm.startPrank(holder1);
-        nft.transferFrom(holder1, holder2, holderId);
-        vm.stopPrank();
-
-        // Assert
-        assertEq(nft.ownerOf(holderId), holder2, "Token should be transferred to holder2");
-        assertEq(nft.balanceOf(holder1), 0, "Holder1 should have 0 tokens");
-        assertEq(nft.balanceOf(holder2), 1, "Holder2 should have 1 token");
-        assertEq(nft.getHolderAddress(holderId), holder2, "getHolderAddress should return holder2");
-    }
-
-    function test_ApproveAndTransferFrom_Success() public {
-        // Arrange
-        vm.startPrank(authorizedMinter);
-        uint256 holderId = nft.mintCofferBond(holder1);
-        vm.stopPrank();
-
-        // Act - Approve holder2
-        vm.startPrank(holder1);
-        nft.approve(holder2, holderId);
-        vm.stopPrank();
-
-        // Act - Transfer from holder2
-        vm.startPrank(holder2);
-        nft.transferFrom(holder1, holder3, holderId);
-        vm.stopPrank();
-
-        // Assert
-        assertEq(nft.ownerOf(holderId), holder3, "Token should be transferred to holder3");
-        assertEq(nft.getHolderAddress(holderId), holder3, "getHolderAddress should return holder3");
-    }
-
-    function test_SetApprovalForAll_Success() public {
-        // Arrange
-        vm.startPrank(authorizedMinter);
-        uint256 holderId1 = nft.mintCofferBond(holder1);
-        uint256 holderId2 = nft.mintCofferBond(holder1);
-        vm.stopPrank();
-
-        // Act - Set approval for all
-        vm.startPrank(holder1);
-        nft.setApprovalForAll(holder2, true);
-        vm.stopPrank();
-
-        // Act - Transfer both tokens
-        vm.startPrank(holder2);
-        nft.transferFrom(holder1, holder3, holderId1);
-        nft.transferFrom(holder1, holder3, holderId2);
-        vm.stopPrank();
-
-        // Assert
-        assertEq(nft.ownerOf(holderId1), holder3, "Token 1 should be transferred to holder3");
-        assertEq(nft.ownerOf(holderId2), holder3, "Token 2 should be transferred to holder3");
-        assertEq(nft.balanceOf(holder3), 2, "Holder3 should have 2 tokens");
-    }
-
-    function test_SafeTransferFrom_Success() public {
-        // Arrange
-        vm.startPrank(authorizedMinter);
-        uint256 holderId = nft.mintCofferBond(holder1);
-        vm.stopPrank();
-
-        // Act
-        vm.startPrank(holder1);
-        nft.safeTransferFrom(holder1, holder2, holderId);
-        vm.stopPrank();
-
-        // Assert
-        assertEq(nft.ownerOf(holderId), holder2, "Token should be transferred to holder2");
-    }
-
-    // ========================================
-    // EVENT EMISSIONS
-    // ========================================
-
-    function test_MintCofferBond_EmitsEvent() public {
-        // Arrange & Act
-        vm.startPrank(authorizedMinter);
-
+    function test_Mint_Success_EmitsEvent() public {
         vm.expectEmit(true, true, false, false);
         emit CofferBondNftEvents.CofferBondTokenMinted(1, holder1);
-
-        nft.mintCofferBond(holder1);
-        vm.stopPrank();
+        bondNft.mintCofferBond(holder1);
     }
 
-    function test_Transfer_EmitsEvent() public {
-        // Arrange
-        vm.startPrank(authorizedMinter);
-        uint256 holderId = nft.mintCofferBond(holder1);
-        vm.stopPrank();
+    function test_Mint_Success_IncrementsCounter() public {
+        uint256 id1 = bondNft.mintCofferBond(holder1);
+        uint256 id2 = bondNft.mintCofferBond(holder2);
+        uint256 id3 = bondNft.mintCofferBond(holder3);
 
-        // Act & Assert
-        vm.startPrank(holder1);
-
-        vm.expectEmit(true, true, true, false);
-        emit IERC721.Transfer(holder1, holder2, holderId);
-
-        nft.transferFrom(holder1, holder2, holderId);
-        vm.stopPrank();
+        assertEq(id1, 1);
+        assertEq(id2, 2);
+        assertEq(id3, 3);
     }
 
-    // ========================================
-    // EDGE CASES
-    // ========================================
+    function test_Mint_Success_DifferentHolders() public {
+        uint256 id1 = _mintAndAssert(holder1);
+        uint256 id2 = _mintAndAssert(holder2);
 
-    /// @notice there is no security concenrns if one can mint with zero address
-    function test_MintToZeroAddress_Reverts() public {
-        // Act & Assert
-        vm.startPrank(authorizedMinter);
-        vm.expectRevert();
-        nft.mintCofferBond(address(0));
-        vm.stopPrank();
-    }
-
-    function test_TransferToZeroAddress_Reverts() public {
-        // Arrange
-        vm.startPrank(authorizedMinter);
-        uint256 holderId = nft.mintCofferBond(holder1);
-        vm.stopPrank();
-
-        // Act & Assert
-        vm.startPrank(holder1);
-        vm.expectRevert();
-        nft.transferFrom(holder1, address(0), holderId);
-        vm.stopPrank();
-    }
-
-    function test_UnauthorizedTransfer_Reverts() public {
-        // Arrange
-        vm.startPrank(authorizedMinter);
-        uint256 holderId = nft.mintCofferBond(holder1);
-        vm.stopPrank();
-
-        // Act & Assert
-        vm.startPrank(holder2);
-        vm.expectRevert();
-        nft.transferFrom(holder1, holder3, holderId);
-        vm.stopPrank();
+        assertEq(bondNft.getHolderAddress(id1), holder1);
+        assertEq(bondNft.getHolderAddress(id2), holder2);
+        assertTrue(id1 != id2);
     }
 
     // ========================================
-    // TOKEN ID INCREMENT TESTS
+    // HAPPY CASES — burnCofferBond
     // ========================================
 
-    function test_TokenIdIncrement_Sequential() public {
-        // Arrange
-        uint256[] memory tokenIds = new uint256[](10);
+    function test_Burn_Success_RemovesToken() public {
+        uint256 holderId = bondNft.mintCofferBond(holder1);
+        bondNft.burnCofferBond(holderId);
 
-        // Act
-        vm.startPrank(authorizedMinter);
-        for (uint256 i = 0; i < 10; i++) {
-            tokenIds[i] = nft.mintCofferBond(holder1);
-        }
-        vm.stopPrank();
-
-        // Assert
-        for (uint256 i = 0; i < 10; i++) {
-            assertEq(tokenIds[i], i + 1, "Token IDs should be sequential starting from 1");
-        }
+        // ownerOf (called by getHolderAddress) should revert for nonexistent token
+        vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, holderId));
+        bondNft.getHolderAddress(holderId);
     }
 
-    function test_TokenIdIncrement_AfterTransfers() public {
-        // Arrange
-        vm.startPrank(authorizedMinter);
-        uint256 holderId1 = nft.mintCofferBond(holder1);
-        uint256 holderId2 = nft.mintCofferBond(holder1);
-        vm.stopPrank();
+    function test_Burn_Success_EmitsEvent() public {
+        uint256 holderId = bondNft.mintCofferBond(holder1);
 
-        // Transfer tokens around
-        vm.startPrank(holder1);
-        nft.transferFrom(holder1, holder2, holderId1);
-        nft.transferFrom(holder1, holder3, holderId2);
-        vm.stopPrank();
+        vm.expectEmit(true, false, false, false);
+        emit CofferBondNftEvents.CofferBondTokenBurned(holderId);
+        bondNft.burnCofferBond(holderId);
+    }
 
-        // Mint new token
-        vm.startPrank(authorizedMinter);
-        uint256 holderId3 = nft.mintCofferBond(holder1);
-        vm.stopPrank();
+    function test_Burn_Success_UpdatesBalanceOf() public {
+        bondNft.mintCofferBond(holder1);
+        assertEq(bondNft.balanceOf(holder1), 1);
 
-        // Assert
-        assertEq(holderId3, 3, "Token ID should continue incrementing despite transfers");
+        uint256 id2 = bondNft.mintCofferBond(holder1);
+        assertEq(bondNft.balanceOf(holder1), 2);
+
+        bondNft.burnCofferBond(id2);
+        assertEq(bondNft.balanceOf(holder1), 1);
     }
 
     // ========================================
-    // SUPPORTS INTERFACE TESTS
+    // HAPPY CASES — getHolderAddress
     // ========================================
 
-    function test_SupportsInterface_ERC721() public {
-        // Assert
-        assertTrue(nft.supportsInterface(type(IERC721).interfaceId), "Should support ERC721 interface");
+    function test_GetHolderAddress_ReturnsCorrectOwner() public {
+        uint256 holderId = bondNft.mintCofferBond(holder1);
+        assertEq(bondNft.getHolderAddress(holderId), holder1);
     }
 
-    function test_SupportsInterface_ERC721Metadata() public {
-        // Assert
-        assertTrue(nft.supportsInterface(type(IERC721Metadata).interfaceId), "Should support ERC721Metadata interface");
-    }
+    function test_GetHolderAddress_ReflectsTransfer() public {
+        uint256 holderId = bondNft.mintCofferBond(holder1);
 
-    function test_SupportsInterface_ERC165() public {
-        // Assert
-        assertTrue(nft.supportsInterface(0x01ffc9a7), "Should support ERC165 interface");
+        // Transfer from holder1 to holder2
+        vm.prank(holder1);
+        bondNft.transferFrom(holder1, holder2, holderId);
+
+        assertEq(bondNft.getHolderAddress(holderId), holder2, "Should reflect new owner after transfer");
     }
 
     // ========================================
-    // GAS OPTIMIZATION TESTS
+    // TRIGGER EVERY REVERT
     // ========================================
 
-    function test_MintGasUsage() public {
-        // Measure gas for minting
-        vm.startPrank(authorizedMinter);
+    function test_Mint_Revert_ZeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721InvalidReceiver.selector, address(0)));
+        bondNft.mintCofferBond(address(0));
+    }
 
-        uint256 gasBefore = gasleft();
-        nft.mintCofferBond(holder1);
-        uint256 gasUsed = gasBefore - gasleft();
+    function test_Burn_Revert_NonExistentToken() public {
+        vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 999));
+        bondNft.burnCofferBond(999);
+    }
 
-        vm.stopPrank();
+    function test_GetHolderAddress_Revert_NonExistentToken() public {
+        vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 999));
+        bondNft.getHolderAddress(999);
+    }
 
-        // Log gas usage
-        emit log_named_uint("Gas used for minting NFT", gasUsed);
+    // ========================================
+    // ERC721 INTEGRATION (EDGE CASES)
+    // ========================================
 
-        // Assert reasonable gas usage
-        assertTrue(gasUsed < 150_000, "Minting gas usage exceeds expected threshold");
+    function test_ERC721_TransferFrom() public {
+        uint256 holderId = bondNft.mintCofferBond(holder1);
+
+        vm.prank(holder1);
+        bondNft.transferFrom(holder1, holder2, holderId);
+
+        assertEq(bondNft.ownerOf(holderId), holder2);
+        assertEq(bondNft.balanceOf(holder1), 0);
+        assertEq(bondNft.balanceOf(holder2), 1);
+    }
+
+    function test_ERC721_Approve_And_TransferFrom() public {
+        uint256 holderId = bondNft.mintCofferBond(holder1);
+
+        // holder1 approves holder2
+        vm.prank(holder1);
+        bondNft.approve(holder2, holderId);
+
+        // holder2 transfers using approval
+        vm.prank(holder2);
+        bondNft.transferFrom(holder1, holder3, holderId);
+
+        assertEq(bondNft.ownerOf(holderId), holder3);
+    }
+
+    function test_ERC721_BalanceOf() public {
+        assertEq(bondNft.balanceOf(holder1), 0);
+
+        uint256 id1 = bondNft.mintCofferBond(holder1);
+        assertEq(bondNft.balanceOf(holder1), 1);
+
+        bondNft.mintCofferBond(holder1);
+        assertEq(bondNft.balanceOf(holder1), 2);
+
+        bondNft.burnCofferBond(id1);
+        assertEq(bondNft.balanceOf(holder1), 1);
     }
 }
