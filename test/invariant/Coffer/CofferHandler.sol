@@ -123,6 +123,19 @@ contract CofferHandler is Test {
         }
     }
 
+    function _toLittleEndian64(uint64 value) private pure returns (bytes memory ret) {
+        ret = new bytes(8);
+        bytes8 bytesValue = bytes8(value);
+        ret[0] = bytesValue[7];
+        ret[1] = bytesValue[6];
+        ret[2] = bytesValue[5];
+        ret[3] = bytesValue[4];
+        ret[4] = bytesValue[3];
+        ret[5] = bytesValue[2];
+        ret[6] = bytesValue[1];
+        ret[7] = bytesValue[0];
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // HANDLER FUNCTIONS
     // ══════════════════════════════════════════════════════════════════════
@@ -343,10 +356,32 @@ contract CofferHandler is Test {
         // Check validator can afford it
         if (validator.balance < amt) return;
 
-        bytes32 dummyRoot = bytes32(uint256(0xdead));
+        // Reconstruct the deposit_data_root exactly as the DepositContract does
+        bytes memory pubkey = abi.encodePacked(coffer.i_public_key_part1(), coffer.i_public_key_part2());
+        bytes memory amountLE = _toLittleEndian64(uint64(uint256(amt) / 1 gwei));
+
+        bytes32 pubkey_root = sha256(abi.encodePacked(pubkey, bytes16(0)));
+
+        // signature is 96 zero bytes; split into first 64 and last 32
+        bytes memory sig_first64 = new bytes(64);
+        bytes memory sig_last32 = new bytes(32);
+        bytes32 signature_root = sha256(
+            abi.encodePacked(
+                sha256(sig_first64),
+                sha256(abi.encodePacked(sig_last32, bytes32(0)))
+            )
+        );
+
+        // withdrawal_credentials is 32 zero bytes = bytes32(0)
+        bytes32 depositDataRoot = sha256(
+            abi.encodePacked(
+                sha256(abi.encodePacked(pubkey_root, bytes32(0))),
+                sha256(abi.encodePacked(amountLE, bytes24(0), signature_root))
+            )
+        );
 
         vm.prank(validator);
-        coffer.validatorAddFundsToConsensus{value: amt}(dummyRoot);
+        coffer.validatorAddFundsToConsensus{value: amt}(depositDataRoot);
     }
 
     function handler_changeCofferActivity() external {
