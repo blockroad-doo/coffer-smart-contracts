@@ -9,7 +9,7 @@ import {
     WITHDRAWAL_REQUEST_QUEUE_TAIL_STORAGE_SLOT,
     MIN_WITHDRAWAL_REQUEST_FEE,
     WITHDRAWAL_REQUEST_FEE_UPDATE_FRACTION
-} from "../mock/EIP7002Mock.sol";
+} from "../../mock/EIP7002Mock.sol";
 
 /**
  * @title EIP7002ForkValidation

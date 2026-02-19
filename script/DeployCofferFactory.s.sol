@@ -38,7 +38,10 @@ contract DeployCofferFactory is Script {
         // Update .env file with deployed addresses
         console.log("\nUpdating .env file...");
         updateEnvVariable("HOODI_COFFER_FACTORY_ADDRESS", addressToString(factoryAddress));
-        console.log(".update nft address manually!");
+
+        address nftAddress = cofferFactory.I_COFFER_BOND_NFT_ADDRESS();
+        console.log("CofferBondNft deployed at:", nftAddress);
+        updateEnvVariable("HOODI_COFFER_RECEIVABLE_NFT_ADDRESS", addressToString(nftAddress));
 
         return cofferFactory;
     }

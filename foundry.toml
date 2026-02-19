@@ -4,6 +4,10 @@ out = "out"
 libs = ["lib"]
 ffi = true  # Enable FFI for deployment scripts to update .env file
 no_match_coverage = "^test/|^script/"
+no_match_path="test/invariant/*"
+
+[profile.coverage]
+no_match_path = "test/invariant/*"
 
 remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"]
 
@@ -17,5 +21,10 @@ runs = 512
 depth = 64
 fail_on_revert = false
 
-#[rpc_endpoints]
-#mainnet = "${MAINNET_RPC_URL}"
+[profile.strict.invariant]
+runs = 512
+depth = 64
+fail_on_revert = true
+
+[rpc_endpoints]
+mainnet = "${MAINNET_RPC_URL}"
