@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.34;
+pragma solidity ^0.8.33;
 
 import {BaseTest, CofferEvents, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, EXCESS_INHIBITOR, CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS} from "./BaseTest.sol";
 import {Coffer} from "../../src/Coffer.sol";

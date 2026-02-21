@@ -3,15 +3,10 @@ src = "src"
 out = "out"
 libs = ["lib"]
 ffi = true  # Enable FFI for deployment scripts to update .env file
+unchecked_cheatcode_artifacts = true # we need this so test can run older solc verions (0.6.11 for DepositContract.sol)
 no_match_coverage = "^test/|^script/"
-no_match_path="test/invariant/*"
-
-[profile.coverage]
-no_match_path = "test/invariant/*"
-
+no_match_path="test/invariant/*" #comment this line if wan to test invariants
 remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"]
-
-# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
 [fuzz]
 runs = 1024

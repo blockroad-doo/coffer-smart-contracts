@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.34;
+pragma solidity ^0.8.33;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
