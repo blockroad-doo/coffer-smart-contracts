@@ -272,7 +272,7 @@ contract Coffer is Ownable, Multicall {
             }
 
             address holderAddress = ICofferBondNft(i_cofferBondNftAddress)
-                .getHolderAddress(_holderIds[i]);
+                .ownerOf(_holderIds[i]);
             removeHolder(_holderIds[i]);
 
             emit ValidatorsBondRedeem(
@@ -639,7 +639,7 @@ contract Coffer is Ownable, Multicall {
     function holderIsCaller(uint256 _holderId) private view {
         if (
             msg.sender !=
-            ICofferBondNft(i_cofferBondNftAddress).getHolderAddress(_holderId)
+            ICofferBondNft(i_cofferBondNftAddress).ownerOf(_holderId)
         ) {
             revert CallerIsNotHolder();
         }

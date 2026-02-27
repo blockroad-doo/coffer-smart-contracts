@@ -102,7 +102,7 @@ contract CofferInvariantTest is BaseTest {
             uint256 holderId = handler.getActiveBondIdAt(i);
             assertEq(
                 handler.ghost_bondHolder(holderId),
-                bondNft.getHolderAddress(holderId),
+                bondNft.ownerOf(holderId),
                 "ghost_bondHolder must match NFT owner"
             );
         }

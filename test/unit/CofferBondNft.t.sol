@@ -9,7 +9,7 @@ import {Vm} from "forge-std/Vm.sol";
 /**
  * @title CofferBondNftTest
  * @notice Unit tests for CofferBondNft contract
- * @dev Tests follow logical progression: constructor → mint → burn → getHolderAddress → reverts → ERC721 edge cases
+ * @dev Tests follow logical progression: constructor → mint → burn → ownerOf → reverts → ERC721 edge cases
  */
 contract CofferBondNftTest is BaseTest {
     // ========================================
@@ -19,7 +19,7 @@ contract CofferBondNftTest is BaseTest {
     /// @dev Mints a token to the given address, asserts ownership, returns holderId
     function _mintAndAssert(address to) internal returns (uint256 holderId) {
         holderId = bondNft.mintCofferBond(to);
-        assertEq(bondNft.getHolderAddress(holderId), to, "Owner should match minted address");
+        assertEq(bondNft.ownerOf(holderId), to, "Owner should match minted address");
     }
 
     // ========================================
@@ -38,7 +38,7 @@ contract CofferBondNftTest is BaseTest {
     function test_Mint_Success_ReturnsHolderId() public {
         uint256 holderId = bondNft.mintCofferBond(holder1);
         assertEq(holderId, 1, "First minted token should have holderId = 1");
-        assertEq(bondNft.getHolderAddress(holderId), holder1);
+        assertEq(bondNft.ownerOf(holderId), holder1);
     }
 
     function test_Mint_Success_EmitsEvent() public {
@@ -61,8 +61,8 @@ contract CofferBondNftTest is BaseTest {
         uint256 id1 = _mintAndAssert(holder1);
         uint256 id2 = _mintAndAssert(holder2);
 
-        assertEq(bondNft.getHolderAddress(id1), holder1);
-        assertEq(bondNft.getHolderAddress(id2), holder2);
+        assertEq(bondNft.ownerOf(id1), holder1);
+        assertEq(bondNft.ownerOf(id2), holder2);
         assertTrue(id1 != id2);
     }
 
@@ -74,9 +74,9 @@ contract CofferBondNftTest is BaseTest {
         uint256 holderId = bondNft.mintCofferBond(holder1);
         bondNft.burnCofferBond(holderId);
 
-        // ownerOf (called by getHolderAddress) should revert for nonexistent token
+        // ownerOf (called by ownerOf) should revert for nonexistent token
         vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, holderId));
-        bondNft.getHolderAddress(holderId);
+        bondNft.ownerOf(holderId);
     }
 
     function test_Burn_Success_EmitsEvent() public {
@@ -99,22 +99,22 @@ contract CofferBondNftTest is BaseTest {
     }
 
     // ========================================
-    // HAPPY CASES — getHolderAddress
+    // HAPPY CASES — ownerOf
     // ========================================
 
-    function test_GetHolderAddress_ReturnsCorrectOwner() public {
+    function test_ownerOf_ReturnsCorrectOwner() public {
         uint256 holderId = bondNft.mintCofferBond(holder1);
-        assertEq(bondNft.getHolderAddress(holderId), holder1);
+        assertEq(bondNft.ownerOf(holderId), holder1);
     }
 
-    function test_GetHolderAddress_ReflectsTransfer() public {
+    function test_ownerOf_ReflectsTransfer() public {
         uint256 holderId = bondNft.mintCofferBond(holder1);
 
         // Transfer from holder1 to holder2
         vm.prank(holder1);
         bondNft.transferFrom(holder1, holder2, holderId);
 
-        assertEq(bondNft.getHolderAddress(holderId), holder2, "Should reflect new owner after transfer");
+        assertEq(bondNft.ownerOf(holderId), holder2, "Should reflect new owner after transfer");
     }
 
     // ========================================
@@ -128,12 +128,18 @@ contract CofferBondNftTest is BaseTest {
 
     function test_Burn_Revert_NonExistentToken() public {
         vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 999));
+        vm.prank(address(0));
         bondNft.burnCofferBond(999);
     }
 
-    function test_GetHolderAddress_Revert_NonExistentToken() public {
+    function test_Burn_Revert_NonDelegateCallBurn() public {
+        vm.expectRevert(CofferBondNft.OnlyDelegateCanBurn.selector);
+        bondNft.burnCofferBond(999);
+    }
+
+    function test_ownerOf_Revert_NonExistentToken() public {
         vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 999));
-        bondNft.getHolderAddress(999);
+        bondNft.ownerOf(999);
     }
 
     // ========================================
