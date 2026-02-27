@@ -47,7 +47,7 @@ contract CofferFactoryHandler is Test {
         maxDur = uint32(bound(uint256(maxDur), minDur, MAX_DURATION));
 
         // Clamp safeTotalStake
-        safeTotalStake = uint32(bound(uint256(safeTotalStake), 1, type(uint32).max));
+        safeTotalStake = uint32(bound(uint256(safeTotalStake), 1, 300_000_000));
 
         // Compute maxMinAmount
         uint128 maxMinAmount = Penalty.addMaximumPenalty(

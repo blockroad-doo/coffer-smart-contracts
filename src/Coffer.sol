@@ -12,7 +12,8 @@ import {Penalty} from "./libraries/Penalty.sol";
  * @title Coffer
  * @notice Created by a validator, using CofferFactory smart contract
  * @notice Supports multiple holders per validator with transferable receivable NFT instruments representing ownership of an offer
- * @notice Integrates with EIP-7002 for withdrawals from consensus layer to smart contract
+ * @notice Uses EIP-7002 for withdrawals from consensus layer to smart contract
+ * @notice Uses EIP-7251 for transforming validator to compounding (0x02 withdrawl credentials)
  * @notice Uses IDepositContract interface to allow deposits to consensus layer to top up validator's effective balance
  */
 contract Coffer is Ownable, Multicall {
@@ -20,22 +21,27 @@ contract Coffer is Ownable, Multicall {
     error AmountTooSmallToAccept();
     error InvalidDuration();
     error InvalidRate();
+
     error ValidatorHasExited();
     error ValidatorIsNotActive();
     error ValidatorDoesntCoverTheAmount();
-    error ValidatorHasOutstandingBonds();
     error ValidatorCannotIncreaseInterestRateWhileOutstandingBondExist();
+    error ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist();
+    error ValidatorCannotChangeExitAllowedWhileOutstandingBondExists();
+    error ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist();
+    error ValidatorCannotWithdrawFromExecutionWhileOutstandingBondExists();
     error ValidatorConditionsVersionMismatch();
     error ValidatorDepositValueTooLow();
     error ValidatorDepositValueNotMultipleOfGwei();
+
     error HolderConsensusWithdrawNotPossibleContractHasEnoughBalance();
     error HolderDoesNotExistOrAlreadyWithdrawnAmount();
     error HoldersTimeHasNotExpiredYet();
     error HolderCannotBeValidator();
+
     error CallerIsNotHolder();
     error ContractBalanceLessThanAmount();
     error SendAmountFailed();
-
     error WithdrawlContractCallFailed();
     error ConsolidationContractCallFailed();
     error InsufficientFee();
@@ -47,15 +53,15 @@ contract Coffer is Ownable, Multicall {
         uint32 startTimestamp;
     }
 
-    /// @param availableAmount initialy this parameter is set to 32 eth and after Coffer setup is finished it has value really close to real effective balance minus potential penalties. Validator can change this parameter on its own and that way it determines for holder how sure they can be of the return of their funds in future. This value has to be less than validator's consensus balance, by at least a cost of penalties which could occur, in order for this validator's bonds to be safe to buy. It is the total amount that validator can use to issue bonds. When holder buys a bond, this amount is decreased by the bond amount with interest. This amount also represents amount which validator can withdraw from consensus to execution.
-    /// @param version is a safe measure for holders when accepting a bond so that malicious validator cannot frontrun
-    /// @param safeTotalStake represents safe total stake on network used to calculate potetnial penalties. The bigger difference (real total stake - safeTotalStake) is, the safer Contract is, but availableBalance is less. So validator should consider to be close but a little bit lower than real total stake. If that difference becomes to close to zero or even go negative, validator can allways change that parameter, but only when it has no unmatured bonds
-    /// @param outstandingBonds counter for bonds that are not redeemed yet, can be matured or not
-    /// @param isActive represents if validator is willing to issue a bond
-    /// @param exitAllowed validator can make availableAmount small enough so holder has no other way to claim amount than to exit a validator. Those are situations in which validator issues bonds whose total value makes validator effective balance less than 32 ETH. If validator set availableAmount less than its consensus balance by 32 ETH plus cost of penalties which could occur, then this parameter can be false and validator would be considered as safe.
+    /// @param issueSize initialy this parameter is set to 32 eth and after Coffer setup is finished it has value really close to real beacon chain balance minus potential maximal penalties. Validator can change this parameter on its own and that way it determines for holder how sure they can be of the return of their funds in future. This value has to be less than validator's consensus balance, by at least a cost of penalties which could occur, in order for this validator's bonds to be safe to buy. It is the total amount that validator can use to issue bonds. When holder buys a bond, this amount is decreased by the bond amount with interest. This amount also represents amount which validator can withdraw from consensus to execution.
+    /// @param version is a safe measure for holders. When holder is buying a bond version prevents malicious validator from frontruning attacks
+    /// @param safeTotalStake represents safe total stake on network used to calculate potetnial penalties. The bigger difference (real total stake - safeTotalStake) is, the safer Contract is, but issueSize is less. So validator should consider to be close but a little bit lower than real total stake. If that difference becomes to close to zero or even go negative, validator can allways change that parameter, but only when it has no unmatured bonds. 
+    /// @param outstandingBonds counter for bonds that are not redeemed yet. Those bonds can be matured or not.
+    /// @param isActive represents if validator is willing to issue a bond or not. Can switch on/off at own will
+    /// @param exitAllowed - if (validator effective balance on beacon chain - issueSize < 32) holder has no other way to claim matured bond other than to exit a validator, if there are no enough ETH on Coffer contract. In those situations, validator who doesn't set (exitAllowed == true) is considered unsafe. If (validator effective balance on beacon chain - (issueSize + maximal penalties) > 32) then exitAllowed can be false and validator would be considered as safe.
 
     struct ValidatorConditions {
-        uint128 availableAmount;
+        uint128 issueSize;
         uint32 interestRate;
         uint32 minimumDuration;
         uint32 maximumDuration;
@@ -74,13 +80,15 @@ contract Coffer is Ownable, Multicall {
     /// @notice address of DepositContract
     address private constant DEPOSIT_CONTRACT =
         0x00000000219ab540356cBB839Cbe05303d7705Fa;
-    /// @notice address of consolidation contract, must be called from coffer contract
+    /// @notice address of consolidation contract
     address private constant CONSOLIDATION_CONTRACT =
         0x0000BBdDc7CE488642fb579F8B00f3a590007251;
 
-    /// @notice every validator created by CofferFactory is initially validator with 32 ETH Balance
+    /// @notice every validator created by CofferFactory is initially validator with 32 ETH effective balance
     uint128 private constant STARTING_EFFECTIVE_BALANCE_FOR_0x00 = 32 ether;
     uint16 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
+    uint32 private constant MAX_DURATION = 1_576_800_000; // 50 years
+    uint32 private constant MAX_SAFE_TOTAL_STAKE = 300_000_000; // total ETH amount that size shouldn't be reached in 100 years
 
     /// @notice 100% interest rate is the maximum allowed, it can have up to 8 decimal places, for example, 10% interest rate is represented as 1e7
     uint32 private constant MAX_RATE = 1e8; // 1e8 = 100%, so rate has precision of 6 decimals
@@ -92,6 +100,7 @@ contract Coffer is Ownable, Multicall {
     bytes16 public immutable i_public_key_part2;
 
     ValidatorConditions public s_validatorConditions;
+    // uint256 represents Id of ERC721 NFT from i_cofferBondNftAddress
     mapping(uint256 => HolderConditions) public s_holderConditions;
 
     event HolderAcceptedOffer(
@@ -125,25 +134,13 @@ contract Coffer is Ownable, Multicall {
     event CofferForbidsHolderToExit();
     event InterestRateChanged(uint32 oldRate, uint32 newRate);
     event DurationRangeChanged(uint32 minimumDuration, uint32 maximumDuration);
-    event AvailableAmountChanged(uint128 oldAmount, uint128 newAmount);
+    event IssueSizeChanged(uint128 oldAmount, uint128 newAmount);
     event MinimumAmountChanged(uint128 newMinimum);
     event SafeTotalStakeChanged(
         uint32 oldSafeTotalStake,
         uint32 newSafeTotalStake
     );
     event ValidatorConvertedToCompounding();
-
-    ///--------------------------
-    ///
-    /// MODIFIER
-    ///
-    ///--------------------------
-
-    modifier _noOutstandingBonds() {
-        if (s_validatorConditions.outstandingBonds != 0)
-            revert ValidatorHasOutstandingBonds();
-        _;
-    }
 
     ///--------------------------
     ///
@@ -168,7 +165,7 @@ contract Coffer is Ownable, Multicall {
         i_public_key_part2 = _public_key_part2;
 
         s_validatorConditions = ValidatorConditions({
-            availableAmount: 0,
+            issueSize: 0,
             interestRate: _interestRate,
             minimumDuration: _minimumDuration,
             maximumDuration: _maximumDuration,
@@ -181,7 +178,7 @@ contract Coffer is Ownable, Multicall {
         });
 
         if (_exitAllowed) {
-            s_validatorConditions.availableAmount = Penalty.addMaximumPenalty(
+            s_validatorConditions.issueSize = Penalty.addMaximumPenalty(
                 STARTING_EFFECTIVE_BALANCE_FOR_0x00,
                 _safeTotalStake,
                 _maximumDuration / NUMBER_OF_SECONDS_IN_EPOCH
@@ -225,7 +222,7 @@ contract Coffer is Ownable, Multicall {
         uint128 amountWithInterest = msgValue128 +
             Interest.calculateInterest(msgValue128, _duration, vs.interestRate);
 
-        if (amountWithInterest > vs.availableAmount) {
+        if (amountWithInterest > vs.issueSize) {
             revert ValidatorDoesntCoverTheAmount();
         }
 
@@ -240,7 +237,7 @@ contract Coffer is Ownable, Multicall {
             amount: amountWithInterest
         });
 
-        vs.availableAmount -= amountWithInterest;
+        vs.issueSize -= amountWithInterest;
         ++vs.outstandingBonds;
 
         emit HolderAcceptedOffer(
@@ -298,8 +295,9 @@ contract Coffer is Ownable, Multicall {
         else emit CofferDeactivated();
     }
 
-    /// @notice validator can change its rate without affecting previous bonds since rate is calculated when bond is bought
+    /// @notice validator can decrease its rate without affecting previous bonds
     /// @notice version of validator conditions must be updated to avoid validator frontrun holder
+    /// @notice validator must repay all outstanding bonds in order to increase interestRate
     function changeInterestRate(uint32 _rate) external onlyOwner {
         if (_rate == 0 || _rate > MAX_RATE) revert InvalidRate();
         ValidatorConditions storage vc = s_validatorConditions;
@@ -320,7 +318,7 @@ contract Coffer is Ownable, Multicall {
         uint32 _minimumDuration,
         uint32 _maximumDuration
     ) external onlyOwner {
-        if ((_maximumDuration < _minimumDuration) || _minimumDuration == 0)
+        if (_maximumDuration > MAX_DURATION || _maximumDuration < _minimumDuration || _minimumDuration == 0)
             revert InvalidDuration();
         ValidatorConditions storage vc = s_validatorConditions;
         vc.minimumDuration = _minimumDuration;
@@ -336,27 +334,36 @@ contract Coffer is Ownable, Multicall {
         emit MinimumAmountChanged(_amount);
     }
 
-    /// @notice This function is called by the validator to increase the available amount
-    /// @notice Validator should consider not to increase too much the available amount so that it satisfies the condition: effective balance on consensus layer >= available amount + possible penalties
+    /// @notice this function is called by the validator to change the issueSize
+    /// @notice validator should consider not to increase too much. It must satisfy condition: effective balance on consensus layer >= issueSize + possible penalties
     /// @notice version of validator conditions must be updated to avoid validator frontrun holder
-    function changeAvailableAmount(
+    /// @notice validator must repay all outstanding bonds in order to increase issueSize
+    function changeIssueSize(
         uint128 _amount
-    ) external onlyOwner _noOutstandingBonds {
+    ) external onlyOwner {
         ValidatorConditions storage vc = s_validatorConditions;
+
+        if (_amount >= vc.issueSize && vc.outstandingBonds != 0) {
+            revert ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist();
+        }
 
         if (_amount < vc.minimumAmountToAccept) revert AmountTooSmallToAccept();
 
-        uint128 oldAmount = vc.availableAmount;
-        vc.availableAmount = _amount;
+        uint128 oldAmount = vc.issueSize;
+        vc.issueSize = _amount;
         ++vc.version;
 
-        emit AvailableAmountChanged(oldAmount, _amount);
+        emit IssueSizeChanged(oldAmount, _amount);
     }
 
     /// @notice This function is called by the validator to allow or forbids exits to holder
     /// @notice version of validator conditions must be updated to avoid validator frontrun holder
-    function changeExitAllowed() external onlyOwner _noOutstandingBonds {
+    function changeExitAllowed() external onlyOwner {
         ValidatorConditions storage vc = s_validatorConditions;
+
+        if (vc.outstandingBonds != 0) {
+            revert ValidatorCannotChangeExitAllowedWhileOutstandingBondExists();
+        }
 
         vc.exitAllowed = !vc.exitAllowed;
 
@@ -368,10 +375,16 @@ contract Coffer is Ownable, Multicall {
 
     /// @notice This function is called by the validator to update safe total stake
     /// @notice version of validator conditions must be updated to avoid validator frontrun holder
+    /// @notice validator can decrease safeTotalStake at will
+    /// @notice validator must repay all outstanding bonds in order to increase safeTotalStake
     function changeSafeTotalStake(
         uint32 _safeTotalStake
-    ) external onlyOwner _noOutstandingBonds {
+    ) external onlyOwner {
         ValidatorConditions storage vc = s_validatorConditions;
+
+        if (_safeTotalStake >= vc.safeTotalStake && vc.outstandingBonds != 0) {
+            revert ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist();
+        }
 
         uint32 oldSafeTotalStake = vc.safeTotalStake;
         vc.safeTotalStake = _safeTotalStake;
@@ -384,7 +397,7 @@ contract Coffer is Ownable, Multicall {
     /// @notice If contract has amount holder wants to withdraw and holders bond reached maturity, holder can call this function to withdraw the amount with interest
     /// @notice This function should be called when the contract has enough balance to cover the amount holder wants to withdraw
     /// @notice Validator or holder can trigger consensus withdraw in order to fill up contract with ETH
-    /// @notice If validator allows holder to initiate full exit than it can issue bonds for (almost) all the consensus amount, even so it can drop to less than 32. Penalties should be considered only while defining availableAmount in this situation.
+    /// @notice If validator allows holder to initiate full exit than it can issue bonds for (almost) all the consensus amount, even so it can drop to less than 32. Penalties should be considered only while defining issueSize in this situation.
     /// @notice If validator doesn not allows holder to initiate full exit, a holder can withdraw from consensus only the amount validator owes them and after bond reach its maturity
     /// @notice BondNft owner can withdraw using their holderId
     function holderWithdrawFromExecution(uint256 _holderId) external {
@@ -482,11 +495,20 @@ contract Coffer is Ownable, Multicall {
     }
 
     /// @notice Validator that has no unmatured bonds can withdraw everything from contract, otherwise it cannot
+    /// @notice version of validator conditions must be updated to avoid validator frontrun holder
     function validatorWithdrawFromExecution(
         uint128 _amount
-    ) external onlyOwner _noOutstandingBonds {
+    ) external onlyOwner {
+        ValidatorConditions storage vc = s_validatorConditions;
+
+        if (vc.outstandingBonds != 0) {
+            revert ValidatorCannotWithdrawFromExecutionWhileOutstandingBondExists();
+        }
+        
         if (_amount > address(this).balance)
             revert ContractBalanceLessThanAmount();
+
+        ++vc.version;
 
         emit ValidatorWithdrawFromExecution(_amount);
 
@@ -502,22 +524,6 @@ contract Coffer is Ownable, Multicall {
     function validatorWithdrawFromConsensus(
         uint64 _amount
     ) external payable onlyOwner {
-        // if (_amount != 0) {
-        //     ValidatorConditions storage vc = s_validatorConditions;
-
-        //     uint128 amountInWei = uint128(_amount) * GWEI_RATE;
-        //     uint32 numberOfEpoch = vc.maximumDuration / NUMBER_OF_SECONDS_IN_EPOCH;
-
-        //     uint128 availableAmountWithPenalties = Penalty.removeMaximumPenalty(
-        //         vc.availableAmount, vc.safeTotalStake, numberOfEpoch
-        //     );
-
-        //     if (availableAmountWithPenalties >= amountInWei) {
-        //         vc.availableAmount -= Penalty.addMaximumPenalty(
-        //             amountInWei, vc.safeTotalStake, numberOfEpoch
-        //         );
-        //     }
-        // }
 
         (bool readOK, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall(
             ""
@@ -561,15 +567,15 @@ contract Coffer is Ownable, Multicall {
 
         IDepositContract(DEPOSIT_CONTRACT).deposit{value: msg.value}(
             abi.encodePacked(i_public_key_part1, i_public_key_part2),
-            new bytes(32), //withdraw credentials
-            new bytes(96), //signature
+            new bytes(32), // withdraw credentials can be all 0
+            new bytes(96), // signature can be all 0
             _deposit_data_root
         );
 
         ValidatorConditions storage vc = s_validatorConditions;
 
         uint128 msgValue128 = uint128(msg.value);
-        vc.availableAmount += Penalty.addMaximumPenalty(
+        vc.issueSize += Penalty.addMaximumPenalty(
             msgValue128,
             vc.safeTotalStake,
             vc.maximumDuration / NUMBER_OF_SECONDS_IN_EPOCH
@@ -621,7 +627,7 @@ contract Coffer is Ownable, Multicall {
     /// @dev It's checked in all functions that _holderId indeed is in storage s_holderConditions, so we do not check here
     function removeHolder(uint256 _holderId) private {
         ValidatorConditions storage vc = s_validatorConditions;
-        vc.availableAmount += s_holderConditions[_holderId].amount;
+        vc.issueSize += s_holderConditions[_holderId].amount;
         --vc.outstandingBonds;
         ICofferBondNft(i_cofferBondNftAddress).burnCofferBond(_holderId);
         delete s_holderConditions[_holderId];

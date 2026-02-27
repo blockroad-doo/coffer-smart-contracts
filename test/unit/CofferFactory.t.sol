@@ -61,7 +61,7 @@ contract CofferFactoryTest is BaseTest {
     function _getValidatorConditions(address cofferAddr) internal view returns (Coffer.ValidatorConditions memory vc) {
         Coffer c = Coffer(payable(cofferAddr));
         (
-            uint128 availableAmount,
+            uint128 issueSize,
             uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
@@ -72,7 +72,7 @@ contract CofferFactoryTest is BaseTest {
             bool isActive,
             bool exitAllowed
         ) = c.s_validatorConditions();
-        vc.availableAmount = availableAmount;
+        vc.issueSize = issueSize;
         vc.interestRate = interestRate;
         vc.minimumDuration = minimumDuration;
         vc.maximumDuration = maximumDuration;
@@ -100,7 +100,7 @@ contract CofferFactoryTest is BaseTest {
     ) internal view {
         Coffer.ValidatorConditions memory vc = _getValidatorConditions(cofferAddr);
 
-        assertEq(vc.availableAmount, expectedAvailable, "availableAmount mismatch");
+        assertEq(vc.issueSize, expectedAvailable, "issueSize mismatch");
         assertEq(vc.interestRate, expectedRate, "interestRate mismatch");
         assertEq(vc.minimumDuration, expectedMinDuration, "minimumDuration mismatch");
         assertEq(vc.maximumDuration, expectedMaxDuration, "maximumDuration mismatch");
@@ -241,9 +241,9 @@ contract CofferFactoryTest is BaseTest {
             Penalty.addMaximumPenalty(VALIDATOR_STARTING_ETH, defaultSafeTotalStake, defaultMaxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
 
         Coffer c = Coffer(payable(cofferAddr));
-        (uint128 availableAmount,,,,,,,,, ) = c.s_validatorConditions();
-        assertEq(availableAmount, expectedAvailable, "Available amount should match penalty calculation");
-        assertTrue(expectedAvailable > 0, "Expected available should be positive for these params");
+        (uint128 issueSize,,,,,,,,, ) = c.s_validatorConditions();
+        assertEq(issueSize, expectedAvailable, "Issue size should match penalty calculation");
+        assertTrue(expectedAvailable > 0, "Expected issue size should be positive for these params");
     }
 
     function test_CreateCoffer_Success_ExitNotAllowed_ZeroAvailableAmount() public {
@@ -260,8 +260,8 @@ contract CofferFactoryTest is BaseTest {
         );
 
         Coffer c = Coffer(payable(cofferAddr));
-        (uint128 availableAmount,,,,,,,,, ) = c.s_validatorConditions();
-        assertEq(availableAmount, 0, "Available amount should be 0 when exitAllowed is false");
+        (uint128 issueSize,,,,,,,,, ) = c.s_validatorConditions();
+        assertEq(issueSize, 0, "Issue size should be 0 when exitAllowed is false");
     }
 
     function test_CreateCoffer_Success_MultipleCoffers() public {
@@ -384,6 +384,36 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             0, // _minimumAmountToAccept = 0
             defaultSafeTotalStake,
+            defaultExitAllowed
+        );
+    }
+
+    function test_CreateCoffer_Revert_SafeTotalStakeZero() public {
+        vm.prank(validator);
+        vm.expectRevert(CofferFactory.InvalidSafeTotalStake.selector);
+        factory.createCoffer(
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            0, // safeTotalStake = 0
+            defaultExitAllowed
+        );
+    }
+
+    function test_CreateCoffer_Revert_SafeTotalStakeExceedsMax() public {
+        vm.prank(validator);
+        vm.expectRevert(CofferFactory.InvalidSafeTotalStake.selector);
+        factory.createCoffer(
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            300_000_001, // exceeds 300_000_000 cap
             defaultExitAllowed
         );
     }

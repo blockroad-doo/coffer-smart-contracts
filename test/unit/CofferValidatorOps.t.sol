@@ -31,7 +31,7 @@ contract CofferValidatorOpsTest is BaseTest {
         returns (uint256 holderId, uint128 amountWithInterest)
     {
         vm.prank(validator);
-        coffer.changeAvailableAmount(available); // version -> 2
+        coffer.changeIssueSize(available); // version -> 2
 
         holderId = buyBond(cofferAddr, holder1, bondAmount, duration, 2);
 
@@ -61,7 +61,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
     function test_RedeemBondsEarly_MultipleBonds_Success() public {
         vm.prank(validator);
-        coffer.changeAvailableAmount(10 ether); // version -> 2
+        coffer.changeIssueSize(10 ether); // version -> 2
 
         uint256 id1 = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
         uint256 id2 = buyBond(cofferAddr, holder2, 1 ether, ONE_MONTH, 2);
@@ -119,9 +119,9 @@ contract CofferValidatorOpsTest is BaseTest {
         ids[0] = holderId;
         coffer.redeemBondsEarly(ids);
 
-        (uint128 availableAmount,,,,, , uint32 bonds,,,) = coffer.s_validatorConditions();
+        (uint128 issueSize,,,,, , uint32 bonds,,,) = coffer.s_validatorConditions();
         assertEq(bonds, 0);
-        assertEq(availableAmount, 10 ether); // fully restored
+        assertEq(issueSize, 10 ether); // fully restored
     }
 
     function test_RedeemBondsEarly_EmitsEvent() public {
@@ -184,7 +184,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.deal(address(rejector), 100 ether);
 
         vm.prank(validator);
-        coffer.changeAvailableAmount(10 ether); // version -> 2
+        coffer.changeIssueSize(10 ether); // version -> 2
 
         // Buy bond from rejector address
         vm.prank(address(rejector));
@@ -436,57 +436,57 @@ contract CofferValidatorOpsTest is BaseTest {
     }
 
     // ========================================
-    // changeAvailableAmount
+    // changeIssueSize
     // ========================================
 
-    function test_ChangeAvailableAmount_UpdatesValue() public {
+    function test_ChangeIssueSize_UpdatesValue() public {
         uint128 newAmt = 5 ether;
 
         vm.expectEmit(false, false, false, true);
-        emit CofferEvents.AvailableAmountChanged(0, newAmt);
+        emit CofferEvents.IssueSizeChanged(0, newAmt);
 
         vm.prank(validator);
-        coffer.changeAvailableAmount(newAmt);
+        coffer.changeIssueSize(newAmt);
 
-        (uint128 available,,,,,,,,, ) = coffer.s_validatorConditions();
-        assertEq(available, newAmt);
+        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        assertEq(issueSize, newAmt);
     }
 
-    function test_ChangeAvailableAmount_ExactMinimumBoundary() public {
+    function test_ChangeIssueSize_ExactMinimumBoundary() public {
         // Set amount equal to minimumAmountToAccept (1 ether)
         vm.prank(validator);
-        coffer.changeAvailableAmount(defaultMinimumAmount);
+        coffer.changeIssueSize(defaultMinimumAmount);
 
-        (uint128 available,,,,,,,,, ) = coffer.s_validatorConditions();
-        assertEq(available, defaultMinimumAmount);
+        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        assertEq(issueSize, defaultMinimumAmount);
     }
 
-    function test_ChangeAvailableAmount_IncrementsVersion() public {
+    function test_ChangeIssueSize_IncrementsVersion() public {
         vm.prank(validator);
-        coffer.changeAvailableAmount(5 ether);
+        coffer.changeIssueSize(5 ether);
 
         (, , , , , uint32 version,,,,) = coffer.s_validatorConditions();
         assertEq(version, 2);
     }
 
-    function test_ChangeAvailableAmount_RevertsIfBelowMinimum() public {
+    function test_ChangeIssueSize_RevertsIfBelowMinimum() public {
         vm.prank(validator);
         vm.expectRevert(Coffer.AmountTooSmallToAccept.selector);
-        coffer.changeAvailableAmount(defaultMinimumAmount - 1);
+        coffer.changeIssueSize(defaultMinimumAmount - 1);
     }
 
-    function test_ChangeAvailableAmount_RevertsIfOutstandingBonds() public {
+    function test_ChangeIssueSize_RevertsIfIncreaseWithOutstandingBonds() public {
         _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorHasOutstandingBonds.selector);
-        coffer.changeAvailableAmount(5 ether);
+        vm.expectRevert(Coffer.ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist.selector);
+        coffer.changeIssueSize(15 ether); // increase triggers revert
     }
 
-    function test_ChangeAvailableAmount_RevertsIfNotOwner() public {
+    function test_ChangeIssueSize_RevertsIfNotOwner() public {
         vm.prank(holder1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, holder1));
-        coffer.changeAvailableAmount(5 ether);
+        coffer.changeIssueSize(5 ether);
     }
 
     // ========================================
@@ -527,7 +527,7 @@ contract CofferValidatorOpsTest is BaseTest {
         _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorHasOutstandingBonds.selector);
+        vm.expectRevert(Coffer.ValidatorCannotChangeExitAllowedWhileOutstandingBondExists.selector);
         coffer.changeExitAllowed();
     }
 
@@ -562,18 +562,65 @@ contract CofferValidatorOpsTest is BaseTest {
         assertEq(version, 2);
     }
 
-    function test_ChangeSafeTotalStake_RevertsIfOutstandingBonds() public {
+    function test_ChangeSafeTotalStake_RevertsIfIncreaseWithOutstandingBonds() public {
         _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorHasOutstandingBonds.selector);
-        coffer.changeSafeTotalStake(25_000_000);
+        vm.expectRevert(Coffer.ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist.selector);
+        coffer.changeSafeTotalStake(25_000_000); // increase from 20_000_000
     }
 
     function test_ChangeSafeTotalStake_RevertsIfNotOwner() public {
         vm.prank(holder1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, holder1));
         coffer.changeSafeTotalStake(25_000_000);
+    }
+
+    // ========================================
+    // changeIssueSize / changeSafeTotalStake — decrease with bonds
+    // ========================================
+
+    function test_ChangeIssueSize_DecreaseWithBonds_Success() public {
+        _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+
+        // Decrease is allowed with outstanding bonds
+        vm.prank(validator);
+        coffer.changeIssueSize(5 ether);
+
+        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        assertEq(issueSize, 5 ether);
+    }
+
+    function test_ChangeIssueSize_SameValueWithBonds_Reverts() public {
+        _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+
+        // Read current issueSize (it's less than 10 ether because a bond was bought)
+        (uint128 currentIssueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+
+        // Same value counts as >= so should revert
+        vm.prank(validator);
+        vm.expectRevert(Coffer.ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist.selector);
+        coffer.changeIssueSize(currentIssueSize);
+    }
+
+    function test_ChangeSafeTotalStake_DecreaseWithBonds_Success() public {
+        _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+
+        // Decrease is allowed with outstanding bonds
+        vm.prank(validator);
+        coffer.changeSafeTotalStake(15_000_000); // decrease from 20_000_000
+
+        (, , , , , , , uint32 stake,,) = coffer.s_validatorConditions();
+        assertEq(stake, 15_000_000);
+    }
+
+    function test_ChangeSafeTotalStake_SameValueWithBonds_Reverts() public {
+        _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+
+        // Same value counts as >= so should revert
+        vm.prank(validator);
+        vm.expectRevert(Coffer.ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist.selector);
+        coffer.changeSafeTotalStake(defaultSafeTotalStake);
     }
 
     // ========================================
@@ -616,7 +663,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.deal(cofferAddr, 10 ether);
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorHasOutstandingBonds.selector);
+        vm.expectRevert(Coffer.ValidatorCannotWithdrawFromExecutionWhileOutstandingBondExists.selector);
         coffer.validatorWithdrawFromExecution(1 ether);
     }
 
@@ -749,9 +796,9 @@ contract CofferValidatorOpsTest is BaseTest {
     function test_ValidatorAddFundsToConsensus_IncreasesAvailableAmount() public {
         // First set an available amount so we can see the increase
         vm.prank(validator);
-        coffer.changeAvailableAmount(5 ether); // version -> 2
+        coffer.changeIssueSize(5 ether); // version -> 2
 
-        (uint128 availBefore,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSizeBefore,,,,,,,,, ) = coffer.s_validatorConditions();
 
         // Mock DepositContract.deposit to accept any call
         vm.mockCall(
@@ -766,14 +813,14 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.validatorAddFundsToConsensus{value: 1 ether}(bytes32(0));
 
-        (uint128 availAfter,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSizeAfter,,,,,,,,, ) = coffer.s_validatorConditions();
 
         uint128 expectedIncrease = Penalty.addMaximumPenalty(
             1 ether,
             defaultSafeTotalStake,
             defaultMaxDuration / 384
         );
-        assertEq(availAfter, availBefore + expectedIncrease);
+        assertEq(issueSizeAfter, issueSizeBefore + expectedIncrease);
     }
 
     function test_ValidatorAddFundsToConsensus_Exact1Ether() public {
@@ -797,13 +844,13 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.validatorAddFundsToConsensus{value: 2 ether}(bytes32(0));
 
-        (uint128 avail1,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSize1,,,,,,,,, ) = coffer.s_validatorConditions();
 
         vm.prank(validator);
         coffer.validatorAddFundsToConsensus{value: 3 ether}(bytes32(0));
 
-        (uint128 avail2,,,,,,,,, ) = coffer.s_validatorConditions();
-        assertGt(avail2, avail1);
+        (uint128 issueSize2,,,,,,,,, ) = coffer.s_validatorConditions();
+        assertGt(issueSize2, issueSize1);
     }
 
     function test_ValidatorAddFundsToConsensus_RevertsIfValueLessThan1Ether() public {

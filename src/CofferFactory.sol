@@ -15,11 +15,13 @@ import {Penalty} from "./libraries/Penalty.sol";
 contract CofferFactory {
     error InvalidDuration();
     error InvalidInterestRate();
+    error InvalidSafeTotalStake();
     error InvalidMinimumAmountToAccept();
 
     uint32 private constant MAX_RATE = 1e8; // Represents 100% interest rate, so 1e6 is 1%
     uint128 private constant VALIDATOR_STARTING_ETH = 32 ether;
-    uint32 private constant MAX_DURATION = 157_68_00_000; // 50 years
+    uint32 private constant MAX_DURATION = 1_576_800_000; // 50 years
+    uint32 private constant MAX_SAFE_TOTAL_STAKE = 300_000_000; // total ETH amount that size shouldn't be reached in 100 years
     uint16 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
 
     address public immutable I_COFFER_BOND_NFT_ADDRESS;
@@ -48,8 +50,13 @@ contract CofferFactory {
         ) {
             revert InvalidDuration();
         }
-        if (_interestRate == 0 || _interestRate > MAX_RATE)
+        if (_interestRate == 0 || _interestRate > MAX_RATE) {
             revert InvalidInterestRate();
+        }
+
+        if (_safeTotalStake == 0 || _safeTotalStake > MAX_SAFE_TOTAL_STAKE) {
+            revert InvalidSafeTotalStake();
+        }
 
         // validator cannot set minimum amount to accept more that maximum it could accept
         uint128 maxMinimumAmountToAccept = Penalty.addMaximumPenalty(

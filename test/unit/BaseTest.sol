@@ -54,9 +54,7 @@ abstract contract BaseTest is Test {
     string constant ERROR_INVALID_DURATION = "InvalidDuration()";
     string constant ERROR_INVALID_RATE = "InvalidRate()";
     string constant ERROR_VALIDATOR_NOT_ACTIVE = "ValidatorIsNotActive()";
-    string constant ERROR_VALIDATOR_HAS_UNREPAID = "ValidatorHasUnrepaidBonds()";
     string constant ERROR_VERSION_MISMATCH = "ValidatorConditionsVersionMismatch()";
-    string constant ERROR_INSUFFICIENT_AVAILABLE = "ValidatorDoesNotHaveEnoughAvailableAmount()";
     string constant ERROR_CONSENSUS_WITHDRAW_NOT_POSSIBLE =
         "HolderConsensusWithdrawNotPossibleContractHasEnoughBalance()";
     string constant ERROR_HOLDER_DOES_NOT_EXIST = "HolderDoesNotExistOrAlreadyWithdrawnAmount()";
@@ -65,8 +63,6 @@ abstract contract BaseTest is Test {
     string constant ERROR_NOT_HOLDER = "CallerIsNotHolder()";
     string constant ERROR_INSUFFICIENT_BALANCE = "ContractBalanceLessThanAmount()";
     string constant ERROR_SEND_FAILED = "SendAmountFailed()";
-    string constant ERROR_PRECOMPILE_FAILED = "PrecompileFailed()";
-    string constant ERROR_INSUFFICIENT_PRECOMPILE_FEE = "InsufficientPrecompileFee()";
 
     // CofferFactory errors
     string constant ERROR_FACTORY_INVALID_DURATION = "InvalidDuration()";
@@ -261,26 +257,26 @@ abstract contract BaseTest is Test {
 
     function assertValidatorConditions(
         address cofferAddr,
-        uint128 expectedAvailable,
-        uint32 expectedUnrepaid,
+        uint128 expectedIssueSize,
+        uint32 expectedOutstandingBonds,
         bool expectedActive
     ) public {
         Coffer targetCoffer = Coffer(payable(cofferAddr));
         (
-            uint128 availableAmount,
+            uint128 issueSize,
             uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
             uint128 minimumAmountToAccept,
             uint32 version,
-            uint32 unrepaidBonds,
+            uint32 outstandingBonds,
             uint32 safeTotalStake,
             bool isActive,
             bool exitAllowed
         ) = targetCoffer.s_validatorConditions();
 
-        assertEq(availableAmount, expectedAvailable, "Available amount mismatch");
-        assertEq(unrepaidBonds, expectedUnrepaid, "Unrepaid bonds mismatch");
+        assertEq(issueSize, expectedIssueSize, "Issue size mismatch");
+        assertEq(outstandingBonds, expectedOutstandingBonds, "Outstanding bonds mismatch");
         assertEq(isActive, expectedActive, "Active status mismatch");
     }
 
@@ -310,7 +306,7 @@ abstract contract BaseTest is Test {
     // HELPER FUNCTIONS - PENALTY CALCULATION
     // ========================================
 
-    function calculateExpectedAvailableAmount(uint32 safeTotalStake, uint32 maxDuration) public pure returns (uint128) {
+    function calculateExpectedIssueSize(uint32 safeTotalStake, uint32 maxDuration) public pure returns (uint128) {
         uint128 slashingPenalty = Penalty.slashing(32 ether, safeTotalStake);
         // Convert duration in seconds to epochs (384 seconds per epoch)
         uint32 epochs = maxDuration / 384;
@@ -509,7 +505,7 @@ interface CofferEvents {
     event CofferForbidsHolderToExit();
     event InterestRateChanged(uint32 oldRate, uint32 newRate);
     event DurationRangeChanged(uint32 minimumDuration, uint32 maximumDuration);
-    event AvailableAmountChanged(uint128 oldAmount, uint128 newAmount);
+    event IssueSizeChanged(uint128 oldAmount, uint128 newAmount);
     event MinimumAmountChanged(uint128 newMinimum);
     event SafeTotalStakeChanged(uint32 oldSafeTotalStake, uint32 newSafeTotalStake);
     event ValidatorConvertedToCompounding();

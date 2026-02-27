@@ -29,7 +29,7 @@ Coffer is a **decentralized and trustless peer-to-pool protocol** that allows va
 
 ## Whitepaper
 
-A detailed description of the protocol can be found in the [**Coffer Whitepaper**](https://github.com/ivglavas/coffer-whitepaper/blob/main/whitepaper-v0.1.pdf).
+A detailed description of the protocol can be found in the [**Coffer Whitepaper**] TODO-must fix old version.
 
 ---
 
@@ -93,7 +93,7 @@ The signing keys must be created before the Coffer contract itself. Yet we need 
 
 ## Safety Guidelines
 
-There are possible attempts in which a bad actor could create malicious Coffer contracts. The most obvious example is setting `availableAmount` greater than the effective balance of the validator on the beacon chain. Below are various scenarios and their safety levels:
+There are possible attempts in which a bad actor could create malicious Coffer contracts. The most obvious example is setting `issueSize` greater than the effective balance of the validator on the beacon chain. Below are various scenarios and their safety levels:
 
 ### Initialization
 
@@ -101,9 +101,9 @@ There are possible attempts in which a bad actor could create malicious Coffer c
 
 Since setting up a Coffer contract takes multiple steps (multiple transactions and consensus layer interactions), it's better to start with an **inactive validator**.
 
-**Why?** If a validator is active at creation and some holder buys a bond right away, the validator cannot increase its `availableAmount` while there is an unmatured bond. There is a higher chance that the validator would like to increase `availableAmount` since the validator starts with 32 ETH.
+**Why?** If a validator is active at creation and some holder buys a bond right away, the validator cannot increase its `issueSize` while there is a single unmatured bond. There is a higher chance that the validator would like to increase `issueSize` since the validator starts with 32 ETH.
 
-> **Good thing is:** When a validator initiates `validatorAddFundsToConsensus(bytes32, uint128)`, it doesn't have to wait for the amount to be deposited to the validator on the beacon chain since the contract increases `availableAmount` right away if the deposit is successful.
+> **Good thing is:** When a validator initiates `validatorAddFundsToConsensus(bytes32, uint128)`, it doesn't have to wait for the amount to be deposited to the validator on the beacon chain since the contract increases `issueSize` right away if the deposit is successful.
 
 ### Validator status
 
@@ -122,9 +122,9 @@ Before buying a bond ceratin conditions must be thoroughly checked both on execu
 > Validator should set up `0x02` withdrawal credentials so that all Coffer functions are able to execute properly.
 
 > [!CAUTION]
-> **`availableAmount` in Coffer contract is too low**
+> **`issueSize` in Coffer contract is too big**
 >
-> Validator can set up `availableAmount` so it's greater than effective balance minus possible penalties that could happen before **minimum** duration has passed. Slashing and leaking for not performing duties should be considered. Also validator can be unsafe
+> Validator can set up `issueSize` so it's greater than effective balance minus possible penalties that could happen before **minimum** duration has passed. Slashing and leaking for not performing duties should be considered. Also validator can be unsafe
 
 > [!CAUTION]
 > **`allowExit` should be true**
@@ -133,20 +133,23 @@ TODO
 #### **PARTIALLY SAFE Scenarios**
 
 > [!WARNING]
-> **`availableAmount` in Coffer contract is sometimes enough**
+> **`issueSize` in Coffer contract is sometimes enough**
 >
-> Validator can have `availableAmount` so it's greater than effective balance minus possible penalties that could happen before **maximum** duration has passed, but are less than effective balance minus possible penalties that could happen before **minimum** duration has passed.
+> Validator can have `issueSize` so it's greater than effective balance minus possible penalties that could happen before **maximum** duration has passed, but are less than effective balance minus possible penalties that could happen before **minimum** duration has passed. We considered this validator partially safe. Holder can choose if it's willing to risk and buy bond from validator.
 
 #### **SAFE Scenarios**
 
 > [!NOTE]
-> **`availableAmount` in Coffer contract covers all penalties**
+> **`issueSize` in Coffer contract covers all penalties**
 >
-> Validator should have `availableAmount` less than effective balance minus possible penalties that could happen before **maximum** duration has passed. When this validator issues the first bond, `availableAmount` locks up and cannot be changed until all bonds are repaid.
+> Validator should have `issueSize` less than effective balance minus possible penalties that could happen before **maximum** duration has passed. When this validator issues the first bond, `issueSize` locks up and cannot be changed until all bonds are repaid.
 
 ### Reasnonable holder risk
 
-TODO
+If stake of all validators on network drops bellow `safeTotalStake` penalties will be calculated less than it should so buying bond from that validator will start to become a little bit less safer. Holder is taking minor risk there, minor for few reasons.
+1. When validator is penalized both hoder and validator lose
+2. Because of chrun limit, if total stake of network is droping down, it's droping very slowly
+3. Even if all bad things happen, holder is losing very small amount.
 
 ---
 
@@ -155,7 +158,7 @@ TODO
 ### Changing Offer Parameters
 
 > [!IMPORTANT]
-> Validators **CANNOT** change `availableAmount` and `exitsAllowed` in the Coffer contract and it cannot **INCREASE** `interestRate` while some bonds are not matured. This would give the validator the ability to manipulate amounts Coffer is responsible to handle for its own benefit at the expense of a holder.
+> Validators **CANNOT** change `exitsAllowed` in the Coffer contract and it cannot **INCREASE** `issueSize`, `interestRate` and `safeTotalStake` while some bonds are not matured. This would give the validator the ability to manipulate amounts Coffer is responsible to handle for its own benefit at the expense of a holder.
 
 ### Granting Full Exit to Holders
 
@@ -169,9 +172,9 @@ TODO
 
 **Key Points:**
 - Validator with allowed full exit can prevent holder from initiating exit by depositing the required amount
-- When full exits are allowed, every holder with a matured bond can initiate a full exit when there's insufficient ETH
+- When full exits are allowed, every holder with a matured bond can initiate a full exit when there's insufficient ETH on Coffer contract
 - Allowing full exit is an option that can be changed (only when validator has no unmatured bonds)
-- Validators with larger stakes (available balance exceeds validator's effective balance by at least 32 ETH) can make full exits forbidden
+- Validators with larger stakes (issue size exceeds validator's effective balance by at least 32 ETH) can make full exits forbidden
 - In restricted scenarios, holders can only initiate partial withdrawals with the amount needed to fulfill bond conditions at maturity
 
 ---

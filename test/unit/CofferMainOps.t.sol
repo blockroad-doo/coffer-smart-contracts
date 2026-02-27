@@ -23,7 +23,7 @@ contract CofferMainOpsTest is BaseTest {
     /// @dev Sets up a coffer with availableAmount and buys a bond, returning holderId
     function _setupBondForModifierTests() internal returns (uint256 holderId) {
         vm.prank(validator);
-        coffer.changeAvailableAmount(10 ether); // version -> 2
+        coffer.changeIssueSize(10 ether); // version -> 2
         holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
     }
 
@@ -42,13 +42,13 @@ contract CofferMainOpsTest is BaseTest {
     }
 
     function test_Constructor_ExitNotAllowed_AvailableAmountIsZero() public view {
-        (uint128 availableAmount,,,,,,,,, ) = coffer.s_validatorConditions();
-        assertEq(availableAmount, 0);
+        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        assertEq(issueSize, 0);
     }
 
     function test_Constructor_ExitNotAllowed_SetsAllValidatorConditions() public view {
         (
-            uint128 availableAmount,
+            uint128 issueSize,
             uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
@@ -60,7 +60,7 @@ contract CofferMainOpsTest is BaseTest {
             bool exitAllowed
         ) = coffer.s_validatorConditions();
 
-        assertEq(availableAmount, 0);
+        assertEq(issueSize, 0);
         assertEq(interestRate, defaultInterestRate);
         assertEq(minimumDuration, defaultMinDuration);
         assertEq(maximumDuration, defaultMaxDuration);
@@ -90,14 +90,14 @@ contract CofferMainOpsTest is BaseTest {
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
 
-        (uint128 availableAmount,,,,,,,,, ) = exitCoffer.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,, ) = exitCoffer.s_validatorConditions();
 
         uint128 expected = Penalty.addMaximumPenalty(
             32 ether,
             defaultSafeTotalStake,
             defaultMaxDuration / 384
         );
-        assertEq(availableAmount, expected);
+        assertEq(issueSize, expected);
     }
 
     function test_Constructor_ExitAllowed_AvailableAmountIsPositive() public {
@@ -114,8 +114,8 @@ contract CofferMainOpsTest is BaseTest {
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
 
-        (uint128 availableAmount,,,,,,,,, ) = exitCoffer.s_validatorConditions();
-        assertGt(availableAmount, 0);
+        (uint128 issueSize,,,,,,,,, ) = exitCoffer.s_validatorConditions();
+        assertGt(issueSize, 0);
     }
 
     function test_Constructor_ExitAllowed_SetsAllValidatorConditions() public {
@@ -133,7 +133,7 @@ contract CofferMainOpsTest is BaseTest {
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
 
         (
-            uint128 availableAmount,
+            uint128 issueSize,
             uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
@@ -151,7 +151,7 @@ contract CofferMainOpsTest is BaseTest {
             defaultMaxDuration / 384
         );
 
-        assertEq(availableAmount, expectedAvailable);
+        assertEq(issueSize, expectedAvailable);
         assertEq(interestRate, defaultInterestRate);
         assertEq(minimumDuration, defaultMinDuration);
         assertEq(maximumDuration, defaultMaxDuration);
@@ -202,41 +202,41 @@ contract CofferMainOpsTest is BaseTest {
     }
 
     // ========================================
-    // MODIFIER _noOutstandingBonds
+    // OUTSTANDING BONDS RESTRICTIONS
     // ========================================
 
-    function test_NoOutstandingBonds_ChangeAvailableAmount_RevertsWhenBondsExist() public {
+    function test_ChangeIssueSize_RevertsWhenIncreasedWithBondsExist() public {
         _setupBondForModifierTests();
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorHasOutstandingBonds.selector);
-        coffer.changeAvailableAmount(5 ether);
+        vm.expectRevert(Coffer.ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist.selector);
+        coffer.changeIssueSize(15 ether); // increase from 10 ether triggers revert
     }
 
-    function test_NoOutstandingBonds_ChangeExitAllowed_RevertsWhenBondsExist() public {
+    function test_ChangeExitAllowed_RevertsWhenBondsExist() public {
         _setupBondForModifierTests();
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorHasOutstandingBonds.selector);
+        vm.expectRevert(Coffer.ValidatorCannotChangeExitAllowedWhileOutstandingBondExists.selector);
         coffer.changeExitAllowed();
     }
 
-    function test_NoOutstandingBonds_ChangeSafeTotalStake_RevertsWhenBondsExist() public {
+    function test_ChangeSafeTotalStake_RevertsWhenIncreasedWithBondsExist() public {
         _setupBondForModifierTests();
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorHasOutstandingBonds.selector);
+        vm.expectRevert(Coffer.ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist.selector);
         coffer.changeSafeTotalStake(30_000_000);
     }
 
-    function test_NoOutstandingBonds_ValidatorWithdrawFromExecution_RevertsWhenBondsExist() public {
+    function test_ValidatorWithdrawFromExecution_RevertsWhenBondsExist() public {
         _setupBondForModifierTests();
 
         // Fund the contract so the balance check doesn't fail first
         vm.deal(cofferAddr, 10 ether);
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorHasOutstandingBonds.selector);
+        vm.expectRevert(Coffer.ValidatorCannotWithdrawFromExecutionWhileOutstandingBondExists.selector);
         coffer.validatorWithdrawFromExecution(1 ether);
     }
 
@@ -246,7 +246,7 @@ contract CofferMainOpsTest is BaseTest {
 
     function test_RemoveHolder_RestoresAvailableAmount() public {
         vm.prank(validator);
-        coffer.changeAvailableAmount(10 ether); // version -> 2
+        coffer.changeIssueSize(10 ether); // version -> 2
 
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
@@ -266,7 +266,7 @@ contract CofferMainOpsTest is BaseTest {
 
     function test_RemoveHolder_DecrementsOutstandingBonds() public {
         vm.prank(validator);
-        coffer.changeAvailableAmount(10 ether); // version -> 2
+        coffer.changeIssueSize(10 ether); // version -> 2
 
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
@@ -285,7 +285,7 @@ contract CofferMainOpsTest is BaseTest {
 
     function test_RemoveHolder_BurnsNft() public {
         vm.prank(validator);
-        coffer.changeAvailableAmount(10 ether); // version -> 2
+        coffer.changeIssueSize(10 ether); // version -> 2
 
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
@@ -305,7 +305,7 @@ contract CofferMainOpsTest is BaseTest {
 
     function test_RemoveHolder_DeletesHolderConditions() public {
         vm.prank(validator);
-        coffer.changeAvailableAmount(10 ether); // version -> 2
+        coffer.changeIssueSize(10 ether); // version -> 2
 
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
@@ -325,7 +325,7 @@ contract CofferMainOpsTest is BaseTest {
 
     function test_HolderIsCaller_RevertsIfNotNftOwner_WithdrawFromExecution() public {
         vm.prank(validator);
-        coffer.changeAvailableAmount(10 ether); // version -> 2
+        coffer.changeIssueSize(10 ether); // version -> 2
 
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
@@ -339,7 +339,7 @@ contract CofferMainOpsTest is BaseTest {
 
     function test_HolderIsCaller_RevertsIfNotNftOwner_WithdrawFromConsensus() public {
         vm.prank(validator);
-        coffer.changeAvailableAmount(10 ether); // version -> 2
+        coffer.changeIssueSize(10 ether); // version -> 2
 
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
         advanceTime(ONE_MONTH + 1);
@@ -353,7 +353,7 @@ contract CofferMainOpsTest is BaseTest {
 
     function test_HolderIsCaller_SucceedsAfterNftTransfer() public {
         vm.prank(validator);
-        coffer.changeAvailableAmount(10 ether); // version -> 2
+        coffer.changeIssueSize(10 ether); // version -> 2
 
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 

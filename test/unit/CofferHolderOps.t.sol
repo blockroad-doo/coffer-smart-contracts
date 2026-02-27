@@ -28,7 +28,7 @@ contract CofferHolderOpsTest is BaseTest {
     /// @dev Standard setup: set available amount and return the current version
     function _enableBonding(uint128 available) internal returns (uint32 version) {
         vm.prank(validator);
-        coffer.changeAvailableAmount(available); // version -> 2
+        coffer.changeIssueSize(available); // version -> 2
         version = 2;
     }
 
@@ -76,8 +76,8 @@ contract CofferHolderOpsTest is BaseTest {
 
         buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 available,,,,,,,,, ) = coffer.s_validatorConditions();
-        assertEq(available, 10 ether - amtWithInterest);
+        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        assertEq(issueSize, 10 ether - amtWithInterest);
     }
 
     function test_BuyBond_IncrementsOutstandingBonds() public {
@@ -145,12 +145,12 @@ contract CofferHolderOpsTest is BaseTest {
 
         // Set available to exactly what's needed
         vm.prank(validator);
-        coffer.changeAvailableAmount(totalNeeded); // version -> 3
+        coffer.changeIssueSize(totalNeeded); // version -> 3
 
         buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 3);
 
-        (uint128 available,,,,,,,,, ) = coffer.s_validatorConditions();
-        assertEq(available, 0);
+        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        assertEq(issueSize, 0);
     }
 
     function test_BuyBond_ExitAllowedCofferPath() public {
@@ -286,7 +286,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         // Set available amount — need to prank as rejector (owner)
         vm.prank(address(rejector));
-        Coffer(payable(rejectorCofferAddr)).changeAvailableAmount(10 ether);
+        Coffer(payable(rejectorCofferAddr)).changeIssueSize(10 ether);
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.SendAmountFailed.selector);
@@ -339,9 +339,9 @@ contract CofferHolderOpsTest is BaseTest {
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(holderId);
 
-        (uint128 available,,,,, , uint32 bonds,,,) = coffer.s_validatorConditions();
+        (uint128 issueSize,,,,, , uint32 bonds,,,) = coffer.s_validatorConditions();
         assertEq(bonds, 0);
-        assertEq(available, 10 ether); // fully restored
+        assertEq(issueSize, 10 ether); // fully restored
     }
 
     function test_HolderWithdrawFromExecution_MultipleHoldersIndependently() public {

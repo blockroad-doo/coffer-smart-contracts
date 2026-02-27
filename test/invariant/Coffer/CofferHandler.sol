@@ -59,7 +59,7 @@ contract CofferHandler is Test {
     uint256 public calls_validatorAddFundsToConsensus;
     uint256 public calls_changeCofferActivity;
     uint256 public calls_changeInterestRate;
-    uint256 public calls_changeAvailableAmount;
+    uint256 public calls_changeIssueSize;
     uint256 public calls_advanceTime;
 
     // ── Constructor ────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ contract CofferHandler is Test {
     // ══════════════════════════════════════════════════════════════════════
 
     struct BuyBondParams {
-        uint128 availableAmount;
+        uint128 issueSize;
         uint32 interestRate;
         uint32 minimumDuration;
         uint32 maximumDuration;
@@ -95,7 +95,7 @@ contract CofferHandler is Test {
 
     function _readBuyBondParams() private view returns (BuyBondParams memory p) {
         (
-            uint128 availableAmount,
+            uint128 issueSize,
             uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
@@ -105,7 +105,7 @@ contract CofferHandler is Test {
             ,
             bool isActive,
         ) = coffer.s_validatorConditions();
-        p.availableAmount = availableAmount;
+        p.issueSize = issueSize;
         p.interestRate = interestRate;
         p.minimumDuration = minimumDuration;
         p.maximumDuration = maximumDuration;
@@ -148,14 +148,14 @@ contract CofferHandler is Test {
 
         // Early returns for invalid states
         if (!p.isActive) return;
-        if (p.availableAmount < p.minimumAmountToAccept) return;
+        if (p.issueSize < p.minimumAmountToAccept) return;
         if (holder.balance == 0) return;
 
         // Clamp duration
         uint32 dur = uint32(bound(duration, p.minimumDuration, p.maximumDuration));
 
         // Compute max affordable amount (inverse of interest formula)
-        uint256 numerator = uint256(p.availableAmount) * uint256(MAX_RATE) * uint256(SECONDS_IN_YEAR);
+        uint256 numerator = uint256(p.issueSize) * uint256(MAX_RATE) * uint256(SECONDS_IN_YEAR);
         uint256 denominator = uint256(MAX_RATE) * uint256(SECONDS_IN_YEAR) + uint256(p.interestRate) * uint256(dur);
         uint128 maxAmt = uint128(numerator / denominator);
 
@@ -166,7 +166,7 @@ contract CofferHandler is Test {
 
         // Verify amountWithInterest fits
         uint128 amountWithInterest = amt + Interest.calculateInterest(amt, dur, p.interestRate);
-        if (amountWithInterest > p.availableAmount) return;
+        if (amountWithInterest > p.issueSize) return;
 
         // Buy the bond
         vm.recordLogs();
@@ -406,8 +406,8 @@ contract CofferHandler is Test {
         coffer.changeInterestRate(newRate);
     }
 
-    function handler_changeAvailableAmount(uint256 amount) external {
-        ++calls_changeAvailableAmount;
+    function handler_changeIssueSize(uint256 amount) external {
+        ++calls_changeIssueSize;
 
         // Read conditions
         (,,,, uint128 minimumAmountToAccept,, uint32 outstandingBonds,,,) = coffer.s_validatorConditions();
@@ -418,7 +418,7 @@ contract CofferHandler is Test {
         uint128 amt = uint128(bound(amount, minimumAmountToAccept, 1000 ether));
 
         vm.prank(validator);
-        coffer.changeAvailableAmount(amt);
+        coffer.changeIssueSize(amt);
     }
 
     function handler_advanceTime(uint256 seconds_) external {

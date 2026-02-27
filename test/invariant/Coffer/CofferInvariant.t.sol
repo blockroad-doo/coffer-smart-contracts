@@ -16,9 +16,9 @@ contract CofferInvariantTest is BaseTest {
         address cofferAddr = createDefaultCoffer();
         coffer = Coffer(payable(cofferAddr));
 
-        // Enable bond buying by setting availableAmount
+        // Enable bond buying by setting issueSize
         vm.prank(validator);
-        coffer.changeAvailableAmount(100 ether);
+        coffer.changeIssueSize(100 ether);
 
         // Fund validator for redeemBondsEarly top-ups + consensus deposits
         vm.deal(validator, 10_000 ether);
@@ -53,8 +53,8 @@ contract CofferInvariantTest is BaseTest {
         }
     }
 
-    function invariant_availableAmountPlusBondsNonNegative() public view {
-        (uint128 availableAmount,,,,,,,,,) = coffer.s_validatorConditions();
+    function invariant_issueSizePlusBondsNonNegative() public view {
+        (uint128 issueSize,,,,,,,,,) = coffer.s_validatorConditions();
 
         uint256 totalBondAmounts = 0;
         uint256 len = handler.getActiveBondIdsLength();
@@ -66,8 +66,8 @@ contract CofferInvariantTest is BaseTest {
 
         // Sum must fit in uint128 — no overflow/underflow corruption
         assertTrue(
-            uint256(availableAmount) + totalBondAmounts <= type(uint128).max,
-            "availableAmount + sum(bond amounts) must fit in uint128"
+            uint256(issueSize) + totalBondAmounts <= type(uint128).max,
+            "issueSize + sum(bond amounts) must fit in uint128"
         );
     }
 
@@ -131,7 +131,7 @@ contract CofferInvariantTest is BaseTest {
 
     function invariant_versionMonotonicity() public view {
         (,,,,, uint32 version,,,,) = coffer.s_validatorConditions();
-        // constructor sets version=1, setUp's changeAvailableAmount bumps to 2
+        // constructor sets version=1, setUp's changeIssueSize bumps to 2
         assertGe(version, 2, "version must be >= 2 after setUp");
     }
 
@@ -190,7 +190,7 @@ contract CofferInvariantTest is BaseTest {
         console2.log("validatorAddFundsConsensus:  ", handler.calls_validatorAddFundsToConsensus());
         console2.log("changeCofferActivity:       ", handler.calls_changeCofferActivity());
         console2.log("changeInterestRate:         ", handler.calls_changeInterestRate());
-        console2.log("changeAvailableAmount:      ", handler.calls_changeAvailableAmount());
+        console2.log("changeIssueSize:            ", handler.calls_changeIssueSize());
         console2.log("advanceTime:                ", handler.calls_advanceTime());
         console2.log("--- Ghost Totals ---");
         console2.log("totalBought:                ", handler.ghost_totalBondsBought());
