@@ -57,7 +57,7 @@ contract EIP7251Mock {
         // Path 1: System call
         if (msg.sender == SYSTEM_ADDRESS) {
             _systemCall();
-            return;
+            //return;
         }
 
         // Compute fee (reverts if EXCESS_INHIBITOR)
@@ -87,7 +87,7 @@ contract EIP7251Mock {
     receive() external payable {
         if (msg.sender == SYSTEM_ADDRESS) {
             _systemCall();
-            return;
+            //return;
         }
 
         uint256 fee = _getFee();

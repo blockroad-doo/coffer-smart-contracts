@@ -15,6 +15,11 @@
   - [Setup Steps](#setup-steps)
   - [Initialization](#initialization)
   - [Safety Guidelines](#safety-guidelines)
+- [Testing](#testing)
+  - [Environment Setup](#environment-setup)
+  - [Deployment Scripts](#deployment-scripts)
+  - [Invariant Testing](#invariant-testing)
+  - [Integration Tests (Mock Validation)](#integration-tests-mock-validation)
 - [Restrictions](#restrictions)
   - [Changing Offer Parameters](#changing-offer-parameters)
   - [Granting Full Exit to Holders](#granting-full-exit-to-holders)
@@ -68,6 +73,111 @@ Can call the following functions:
 - `buyBond(uint128)`
 - `holderWithdrawFromExecution(uint128)`
 - `holderWithdrawFromConsensus(uint128)`
+
+---
+
+## Testing
+
+### Environment Setup
+
+The `.env` file lives at the **monorepo root** (`coffer/.env`), one level above `coffer-smart-contracts/`. The deployment scripts reference it via `../.env`.
+
+Example `.env` with all variables the scripts read:
+
+```
+HOODI_RPC_URL=http://your-execution-node:8545
+
+# Deployed contract addresses (auto-filled by scripts)
+HOODI_COFFER_FACTORY_ADDRESS=
+HOODI_COFFER_RECEIVABLE_NFT_ADDRESS=
+HOODI_COFFER_ADDRESS=
+
+# Coffer creation parameters
+VALIDATOR_PUBLIC_KEY=0x<your-48-byte-bls-public-key>
+INTEREST_RATE=2000000
+MIN_DURATION=2592000
+MAX_DURATION=31536000
+MINIMUM_AMOUNT_TO_ACCEPT=100000000000000000
+SAFE_TOTAL_STAKE=42000000
+ALLOW_EXIT=true
+```
+
+Private keys and testnet accounts (`HOODI_V*`, `HOODI_C*`) are also needed for broadcasting transactions but are omitted here for brevity.
+
+Deployment scripts **auto-update** `.env` via FFI (`sed`) — `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_RECEIVABLE_NFT_ADDRESS`, and `HOODI_COFFER_ADDRESS` are written automatically after each script run.
+
+**Hoodi** is the recommended testnet because validators operate there identically to mainnet — the same EIP-7002 withdrawal and EIP-7251 consolidation request contracts are active, making it the closest environment for end-to-end testing.
+
+### Deployment Scripts
+
+Two-step deployment flow in `script/`:
+
+**Step 1 — `DeployCofferFactory.s.sol`**
+
+Deploys `CofferFactory` (which internally deploys `CofferBondNft`) and auto-writes `HOODI_COFFER_FACTORY_ADDRESS` and `HOODI_COFFER_RECEIVABLE_NFT_ADDRESS` to `.env`.
+
+```
+cd coffer-smart-contracts
+forge script script/DeployCofferFactory.s.sol \
+  --rpc-url <RPC_URL> \
+  --broadcast \
+  --private-key <DEPLOYER_PRIVATE_KEY>
+```
+
+**Step 2 — `CreateCoffer.s.sol`**
+
+Reads Coffer offer parameters from `.env` (`VALIDATOR_PUBLIC_KEY`, `INTEREST_RATE`, etc.), calls `factory.createCoffer(...)`, and writes `HOODI_COFFER_ADDRESS` back to `.env`. You must source `.env` first so the `vm.env*()` cheatcodes can read the variables.
+
+```
+cd coffer-smart-contracts
+set -a && source ../.env && set +a
+forge script script/CreateCoffer.s.sol \
+  --rpc-url $HOODI_RPC_URL \
+  --broadcast \
+  --private-key <VALIDATOR_PRIVATE_KEY>
+```
+
+> **Note:** `ffi = true` must be set in `foundry.toml` (already configured).
+
+### Invariant Testing
+
+Invariant tests are **excluded from the default test run** via `no_match_path` in `foundry.toml`.
+
+To run them, comment out the `no_match_path` line in `foundry.toml`, then:
+
+```
+forge test --mp "test/invariant/*"
+```
+
+Default invariant config (`[invariant]`): 512 runs, depth 64, `fail_on_revert = false`.
+
+Strict profile (`[profile.strict.invariant]`): same runs/depth but `fail_on_revert = true`. Run with:
+
+```
+forge test --mp "test/invariant/*" --profile strict
+```
+
+Four invariant suites: `Coffer`, `CofferFactory`, `CofferBondNft`, `Penalty`.
+
+### Integration Tests (Mock Validation)
+
+Located in `test/integration/mock/` — two fork test files:
+
+- **`EIP7002ForkValidation.t.sol`** — validates our EIP-7002 (withdrawal request) mock against the real mainnet predeploy
+- **`EIP7251ForkValidation.t.sol`** — validates our EIP-7251 (consolidation request) mock against the real mainnet predeploy
+
+These tests fork mainnet at a pinned post-Pectra block (22,400,000) to compare fee calculation and request queueing behavior between the real predeploys and our mocks. Tests auto-skip if `MAINNET_RPC_URL` is not set (graceful no-op).
+
+To run them:
+
+1. Uncomment the `[rpc_endpoints]` section in `foundry.toml`
+2. Set `MAINNET_RPC_URL` in `.env` (or export it)
+3. Run:
+   ```
+   MAINNET_RPC_URL=http://your-mainnet-node:8545 forge test --mp "test/integration/*" -vvv
+   ```
+
+These tests verify that our Solidity mocks (used in unit tests) faithfully replicate the behavior of the real EIP-7002 and EIP-7251 system contracts.
 
 ---
 
