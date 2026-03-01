@@ -1,7 +1,8 @@
 //SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.33;
 
-import {BaseTest, CofferEvents, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, EXCESS_INHIBITOR, CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS} from "./BaseTest.sol";
+import {BaseTest, CofferEvents, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS} from "./BaseTest.sol";
+import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
 import {Penalty} from "../../src/libraries/Penalty.sol";
@@ -66,8 +67,8 @@ contract CofferValidatorOpsTest is BaseTest {
         uint256 id1 = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
         uint256 id2 = buyBond(cofferAddr, holder2, 1 ether, ONE_MONTH, 2);
 
-        (uint128 amt1,,) = coffer.s_holderConditions(id1);
-        (uint128 amt2,,) = coffer.s_holderConditions(id2);
+        (uint128 amt1,,) = coffer.sHolderConditions(id1);
+        (uint128 amt2,,) = coffer.sHolderConditions(id2);
 
         vm.deal(cofferAddr, amt1 + amt2);
 
@@ -78,7 +79,7 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.redeemBondsEarly(ids);
 
         // Both bonds redeemed - outstandingBonds should be 0
-        (,,,,, , uint32 bonds,,,) = coffer.s_validatorConditions();
+        (,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 0);
     }
 
@@ -94,7 +95,7 @@ contract CofferValidatorOpsTest is BaseTest {
         ids[0] = holderId;
         coffer.redeemBondsEarly{value: amtOwed - partial_}(ids);
 
-        (uint128 amt,,) = coffer.s_holderConditions(holderId);
+        (uint128 amt,,) = coffer.sHolderConditions(holderId);
         assertEq(amt, 0); // deleted
     }
 
@@ -119,7 +120,7 @@ contract CofferValidatorOpsTest is BaseTest {
         ids[0] = holderId;
         coffer.redeemBondsEarly(ids);
 
-        (uint128 issueSize,,,,, , uint32 bonds,,,) = coffer.s_validatorConditions();
+        (uint128 issueSize,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 0);
         assertEq(issueSize, 10 ether); // fully restored
     }
@@ -191,7 +192,7 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.buyBond{value: 1 ether}(ONE_MONTH, 2);
         uint256 holderId = 1; // first bond
 
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
         vm.deal(cofferAddr, amtOwed);
 
         vm.prank(validator);
@@ -212,7 +213,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeCofferActivity();
 
-        (,,,,,,,, bool isActive,) = coffer.s_validatorConditions();
+        (,,,,,,,, bool isActive,) = coffer.sValidatorConditions();
         assertFalse(isActive);
     }
 
@@ -226,7 +227,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeCofferActivity(); // reactivate
 
-        (,,,,,,,, bool isActive,) = coffer.s_validatorConditions();
+        (,,,,,,,, bool isActive,) = coffer.sValidatorConditions();
         assertTrue(isActive);
     }
 
@@ -249,7 +250,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeInterestRate(newRate);
 
-        (, uint32 rate,,,, uint32 version,,,,) = coffer.s_validatorConditions();
+        (, uint32 rate,,,, uint32 version,,,,) = coffer.sValidatorConditions();
         assertEq(rate, newRate);
         assertEq(version, 2); // incremented
     }
@@ -260,7 +261,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeInterestRate(newRate);
 
-        (, uint32 rate,,,,,,,,) = coffer.s_validatorConditions();
+        (, uint32 rate,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(rate, newRate);
     }
 
@@ -271,7 +272,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeInterestRate(newRate);
 
-        (, uint32 rate,,,,,,,,) = coffer.s_validatorConditions();
+        (, uint32 rate,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(rate, newRate);
     }
 
@@ -279,7 +280,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeInterestRate(defaultInterestRate);
 
-        (, uint32 rate,,,,,,,,) = coffer.s_validatorConditions();
+        (, uint32 rate,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(rate, defaultInterestRate);
     }
 
@@ -287,7 +288,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeInterestRate(1e8); // MAX_RATE
 
-        (, uint32 rate,,,,,,,,) = coffer.s_validatorConditions();
+        (, uint32 rate,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(rate, 1e8);
     }
 
@@ -295,13 +296,13 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeInterestRate(3e6);
 
-        (, , , , , uint32 version,,,,) = coffer.s_validatorConditions();
+        (, , , , , uint32 version,,,,) = coffer.sValidatorConditions();
         assertEq(version, 2);
 
         vm.prank(validator);
         coffer.changeInterestRate(4e6);
 
-        (, , , , , uint32 version2,,,,) = coffer.s_validatorConditions();
+        (, , , , , uint32 version2,,,,) = coffer.sValidatorConditions();
         assertEq(version2, 3);
     }
 
@@ -354,7 +355,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeMinimumAndMaximumDuration(newMin, newMax);
 
-        (, , uint32 minDur, uint32 maxDur,,,,,,) = coffer.s_validatorConditions();
+        (, , uint32 minDur, uint32 maxDur,,,,,,) = coffer.sValidatorConditions();
         assertEq(minDur, newMin);
         assertEq(maxDur, newMax);
     }
@@ -363,18 +364,18 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeMinimumAndMaximumDuration(ONE_MONTH, ONE_MONTH);
 
-        (, , uint32 minDur, uint32 maxDur,,,,,,) = coffer.s_validatorConditions();
+        (, , uint32 minDur, uint32 maxDur,,,,,,) = coffer.sValidatorConditions();
         assertEq(minDur, ONE_MONTH);
         assertEq(maxDur, ONE_MONTH);
     }
 
     function test_ChangeMinimumAndMaximumDuration_DoesNotIncrementVersion() public {
-        (, , , , , uint32 vBefore,,,,) = coffer.s_validatorConditions();
+        (, , , , , uint32 vBefore,,,,) = coffer.sValidatorConditions();
 
         vm.prank(validator);
         coffer.changeMinimumAndMaximumDuration(ONE_WEEK, FIVE_YEARS);
 
-        (, , , , , uint32 vAfter,,,,) = coffer.s_validatorConditions();
+        (, , , , , uint32 vAfter,,,,) = coffer.sValidatorConditions();
         assertEq(vAfter, vBefore);
     }
 
@@ -409,17 +410,17 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeMinimumAmountToAccept(newMin);
 
-        (, , , , uint128 minAmt,,,,,) = coffer.s_validatorConditions();
+        (, , , , uint128 minAmt,,,,,) = coffer.sValidatorConditions();
         assertEq(minAmt, newMin);
     }
 
     function test_ChangeMinimumAmountToAccept_DoesNotIncrementVersion() public {
-        (, , , , , uint32 vBefore,,,,) = coffer.s_validatorConditions();
+        (, , , , , uint32 vBefore,,,,) = coffer.sValidatorConditions();
 
         vm.prank(validator);
         coffer.changeMinimumAmountToAccept(0.5 ether);
 
-        (, , , , , uint32 vAfter,,,,) = coffer.s_validatorConditions();
+        (, , , , , uint32 vAfter,,,,) = coffer.sValidatorConditions();
         assertEq(vAfter, vBefore);
     }
 
@@ -448,7 +449,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(newAmt);
 
-        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
         assertEq(issueSize, newAmt);
     }
 
@@ -457,7 +458,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(defaultMinimumAmount);
 
-        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
         assertEq(issueSize, defaultMinimumAmount);
     }
 
@@ -465,7 +466,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(5 ether);
 
-        (, , , , , uint32 version,,,,) = coffer.s_validatorConditions();
+        (, , , , , uint32 version,,,,) = coffer.sValidatorConditions();
         assertEq(version, 2);
     }
 
@@ -500,7 +501,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeExitAllowed();
 
-        (,,,,,,,,, bool exitAllowed) = coffer.s_validatorConditions();
+        (,,,,,,,,, bool exitAllowed) = coffer.sValidatorConditions();
         assertTrue(exitAllowed);
     }
 
@@ -519,7 +520,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeExitAllowed();
 
-        (, , , , , uint32 version,,,,) = coffer.s_validatorConditions();
+        (, , , , , uint32 version,,,,) = coffer.sValidatorConditions();
         assertEq(version, 2);
     }
 
@@ -550,7 +551,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeSafeTotalStake(newStake);
 
-        (, , , , , , , uint32 stake,,) = coffer.s_validatorConditions();
+        (, , , , , , , uint32 stake,,) = coffer.sValidatorConditions();
         assertEq(stake, newStake);
     }
 
@@ -558,7 +559,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeSafeTotalStake(25_000_000);
 
-        (, , , , , uint32 version,,,,) = coffer.s_validatorConditions();
+        (, , , , , uint32 version,,,,) = coffer.sValidatorConditions();
         assertEq(version, 2);
     }
 
@@ -587,7 +588,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(5 ether);
 
-        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
         assertEq(issueSize, 5 ether);
     }
 
@@ -595,7 +596,7 @@ contract CofferValidatorOpsTest is BaseTest {
         _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
 
         // Read current issueSize (it's less than 10 ether because a bond was bought)
-        (uint128 currentIssueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 currentIssueSize,,,,,,,,, ) = coffer.sValidatorConditions();
 
         // Same value counts as >= so should revert
         vm.prank(validator);
@@ -610,7 +611,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeSafeTotalStake(15_000_000); // decrease from 20_000_000
 
-        (, , , , , , , uint32 stake,,) = coffer.s_validatorConditions();
+        (, , , , , , , uint32 stake,,) = coffer.sValidatorConditions();
         assertEq(stake, 15_000_000);
     }
 
@@ -798,7 +799,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(5 ether); // version -> 2
 
-        (uint128 issueSizeBefore,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSizeBefore,,,,,,,,, ) = coffer.sValidatorConditions();
 
         // Mock DepositContract.deposit to accept any call
         vm.mockCall(
@@ -813,7 +814,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.validatorAddFundsToConsensus{value: 1 ether}(bytes32(0));
 
-        (uint128 issueSizeAfter,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSizeAfter,,,,,,,,, ) = coffer.sValidatorConditions();
 
         uint128 expectedIncrease = Penalty.addMaximumPenalty(
             1 ether,
@@ -844,12 +845,12 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.validatorAddFundsToConsensus{value: 2 ether}(bytes32(0));
 
-        (uint128 issueSize1,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSize1,,,,,,,,, ) = coffer.sValidatorConditions();
 
         vm.prank(validator);
         coffer.validatorAddFundsToConsensus{value: 3 ether}(bytes32(0));
 
-        (uint128 issueSize2,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSize2,,,,,,,,, ) = coffer.sValidatorConditions();
         assertGt(issueSize2, issueSize1);
     }
 

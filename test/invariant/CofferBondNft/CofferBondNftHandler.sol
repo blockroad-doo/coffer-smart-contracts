@@ -9,13 +9,13 @@ contract CofferBondNftHandler is Test {
     address[] public actors;
 
     // Ghost state
-    uint256 public ghost_totalMinted;
-    uint256 public ghost_totalBurned;
-    uint256 public ghost_nextExpectedId;
-    uint256[] public ghost_activeIds;
-    mapping(uint256 => bool) public ghost_isActive;
-    mapping(uint256 => address) public ghost_owner;
-    uint256 public ghost_lastBurnedId;
+    uint256 public ghostTotalMinted;
+    uint256 public ghostTotalBurned;
+    uint256 public ghostNextExpectedId;
+    uint256[] public ghostActiveIds;
+    mapping(uint256 => bool) public ghostIsActive;
+    mapping(uint256 => address) public ghostOwner;
+    uint256 public ghostLastBurnedId;
 
     constructor(CofferBondNft _nft) {
         nft = _nft;
@@ -26,64 +26,64 @@ contract CofferBondNftHandler is Test {
         actors.push(makeAddr("actor4"));
     }
 
-    function handler_mint(uint256 actorSeed) external {
+    function handlerMint(uint256 actorSeed) external {
         address recipient = actors[actorSeed % actors.length];
 
         uint256 holderId = nft.mintCofferBond(recipient);
 
-        ++ghost_totalMinted;
-        ++ghost_nextExpectedId;
-        ghost_activeIds.push(holderId);
-        ghost_isActive[holderId] = true;
-        ghost_owner[holderId] = recipient;
+        ++ghostTotalMinted;
+        ++ghostNextExpectedId;
+        ghostActiveIds.push(holderId);
+        ghostIsActive[holderId] = true;
+        ghostOwner[holderId] = recipient;
     }
 
-    function handler_burn(uint256 idSeed) external {
-        uint256 len = ghost_activeIds.length;
+    function handlerBurn(uint256 idSeed) external {
+        uint256 len = ghostActiveIds.length;
         if (len == 0) return;
 
         uint256 idx = idSeed % len;
-        uint256 tokenId = ghost_activeIds[idx];
+        uint256 tokenId = ghostActiveIds[idx];
 
         nft.burnCofferBond(tokenId);
 
         // Swap-and-pop
-        ghost_activeIds[idx] = ghost_activeIds[len - 1];
-        ghost_activeIds.pop();
+        ghostActiveIds[idx] = ghostActiveIds[len - 1];
+        ghostActiveIds.pop();
 
-        ghost_isActive[tokenId] = false;
-        delete ghost_owner[tokenId];
-        ++ghost_totalBurned;
-        ghost_lastBurnedId = tokenId;
+        ghostIsActive[tokenId] = false;
+        delete ghostOwner[tokenId];
+        ++ghostTotalBurned;
+        ghostLastBurnedId = tokenId;
     }
 
-    function handler_burnInvalid(uint256 rawId) external {
-        if (ghost_isActive[rawId]) return;
+    function handlerBurnInvalid(uint256 rawId) external {
+        if (ghostIsActive[rawId]) return;
         // Will revert — absorbed by fail_on_revert = false
         nft.burnCofferBond(rawId);
     }
 
-    function handler_transfer(uint256 idSeed, uint256 actorSeed) external {
-        uint256 len = ghost_activeIds.length;
+    function handlerTransfer(uint256 idSeed, uint256 actorSeed) external {
+        uint256 len = ghostActiveIds.length;
         if (len == 0) return;
 
         uint256 idx = idSeed % len;
-        uint256 tokenId = ghost_activeIds[idx];
-        address currentOwner = ghost_owner[tokenId];
+        uint256 tokenId = ghostActiveIds[idx];
+        address currentOwner = ghostOwner[tokenId];
         address newOwner = actors[actorSeed % actors.length];
 
         vm.prank(currentOwner);
         nft.transferFrom(currentOwner, newOwner, tokenId);
 
-        ghost_owner[tokenId] = newOwner;
+        ghostOwner[tokenId] = newOwner;
     }
 
     // Helper views
     function getActiveIdsLength() external view returns (uint256) {
-        return ghost_activeIds.length;
+        return ghostActiveIds.length;
     }
 
     function getActiveIdAt(uint256 index) external view returns (uint256) {
-        return ghost_activeIds[index];
+        return ghostActiveIds[index];
     }
 }

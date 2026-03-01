@@ -18,7 +18,7 @@ interface IDepositContract {
     /// @notice A processed deposit event.
     event DepositEvent(
         bytes pubkey,
-        bytes withdrawal_credentials,
+        bytes withdrawalCredentials,
         bytes amount,
         bytes signature,
         bytes index
@@ -26,15 +26,15 @@ interface IDepositContract {
 
     /// @notice Submit a Phase 0 DepositData object.
     /// @param pubkey A BLS12-381 public key.
-    /// @param withdrawal_credentials Commitment to a public key for withdrawals.
+    /// @param withdrawalCredentials Commitment to a public key for withdrawals.
     /// @param signature A BLS12-381 signature.
-    /// @param deposit_data_root The SHA-256 hash of the SSZ-encoded DepositData object.
+    /// @param depositDataRoot The SHA-256 hash of the SSZ-encoded DepositData object.
     /// Used as a protection against malformed input.
     function deposit(
         bytes calldata pubkey,
-        bytes calldata withdrawal_credentials,
+        bytes calldata withdrawalCredentials,
         bytes calldata signature,
-        bytes32 deposit_data_root
+        bytes32 depositDataRoot
     ) external payable;
 
     /// @notice Query the current deposit root hash.
@@ -100,13 +100,13 @@ contract DepositContract is IDepositContract, ERC165 {
 
     function deposit(
         bytes calldata pubkey,
-        bytes calldata withdrawal_credentials,
+        bytes calldata withdrawalCredentials,
         bytes calldata signature,
-        bytes32 deposit_data_root
+        bytes32 depositDataRoot
     ) override external payable {
         // Extended ABI length checks since dynamic types are used.
         require(pubkey.length == 48, "DepositContract: invalid pubkey length");
-        require(withdrawal_credentials.length == 32, "DepositContract: invalid withdrawal_credentials length");
+        require(withdrawalCredentials.length == 32, "DepositContract: invalid withdrawalCredentials length");
         require(signature.length == 96, "DepositContract: invalid signature length");
 
         // Check deposit amount
@@ -119,7 +119,7 @@ contract DepositContract is IDepositContract, ERC165 {
         bytes memory amount = to_little_endian_64(uint64(deposit_amount));
         emit DepositEvent(
             pubkey,
-            withdrawal_credentials,
+            withdrawalCredentials,
             amount,
             signature,
             to_little_endian_64(uint64(deposit_count))
@@ -132,12 +132,12 @@ contract DepositContract is IDepositContract, ERC165 {
             sha256(abi.encodePacked(signature[64:], bytes32(0)))
         ));
         bytes32 node = sha256(abi.encodePacked(
-            sha256(abi.encodePacked(pubkey_root, withdrawal_credentials)),
+            sha256(abi.encodePacked(pubkey_root, withdrawalCredentials)),
             sha256(abi.encodePacked(amount, bytes24(0), signature_root))
         ));
 
         // Verify computed and expected deposit data roots match
-        require(node == deposit_data_root, "DepositContract: reconstructed DepositData does not match supplied deposit_data_root");
+        require(node == depositDataRoot, "DepositContract: reconstructed DepositData does not match supplied depositDataRoot");
 
         // Avoid overflowing the Merkle tree (and prevent edge case in computing `branch`)
         require(deposit_count < MAX_DEPOSIT_COUNT, "DepositContract: merkle tree full");

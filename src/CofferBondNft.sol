@@ -11,7 +11,7 @@ import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 contract CofferBondNft is ERC721 {
     error OnlyDelegateCanBurn();
 
-    uint256 private s_holderIdCounter;
+    uint256 private sHolderIdCounter;
     mapping(uint256 => address) private burnDelegates;
 
     event CofferBondTokenMinted(
@@ -22,16 +22,16 @@ contract CofferBondNft is ERC721 {
 
     constructor() ERC721("Coffer Bond", "CB") {}
 
-    /// @notice we set msg.sender for delegate to burn tokens, that way only our Coffer contract has ability to burn tokens that it creates
+    /// @notice we set msg.sender for delegate to burn tokens so all calls coming from Coffer contract will set that exact Coffer contract as the only delegator which would be allowed to burn
     function mintCofferBond(address _holderAddress) external returns (uint256) {
-        uint256 holderId = ++s_holderIdCounter;
+        uint256 holderId = ++sHolderIdCounter;
         burnDelegates[holderId] = msg.sender;
         _mint(_holderAddress, holderId);
         emit CofferBondTokenMinted(holderId, _holderAddress);
         return holderId;
     }
 
-    /// @notice burns nft
+    /// @notice simple function for burning NFTs which checks only if the original minter is caller
     function burnCofferBond(uint256 _holderId) external {
         if (msg.sender != burnDelegates[_holderId]) revert OnlyDelegateCanBurn();
         _burn(_holderId);

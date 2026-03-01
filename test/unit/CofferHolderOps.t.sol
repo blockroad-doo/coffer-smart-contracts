@@ -1,11 +1,10 @@
 //SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.33;
 
-import {BaseTest, CofferEvents, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, EXCESS_INHIBITOR} from "./BaseTest.sol";
+import {BaseTest, CofferEvents, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS} from "./BaseTest.sol";
+import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
-import {Penalty} from "../../src/libraries/Penalty.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @dev Contract that rejects all ETH transfers
 contract RejectEther {
@@ -50,7 +49,7 @@ contract CofferHolderOpsTest is BaseTest {
         assertEq(bondNft.ownerOf(holderId), holder1);
 
         // HolderConditions stored
-        (uint128 amount, uint32 duration, uint32 startTs) = coffer.s_holderConditions(holderId);
+        (uint128 amount, uint32 duration, uint32 startTs) = coffer.sHolderConditions(holderId);
         uint128 expectedAmt = _expectedAmountWithInterest(1 ether, ONE_MONTH);
         assertEq(amount, expectedAmt);
         assertEq(duration, ONE_MONTH);
@@ -76,7 +75,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
         assertEq(issueSize, 10 ether - amtWithInterest);
     }
 
@@ -85,7 +84,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (,,,,, , uint32 bonds,,,) = coffer.s_validatorConditions();
+        (,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 1);
     }
 
@@ -108,7 +107,7 @@ contract CofferHolderOpsTest is BaseTest {
         assertEq(bondNft.ownerOf(id1), holder1);
         assertEq(bondNft.ownerOf(id2), holder2);
 
-        (,,,,, , uint32 bonds,,,) = coffer.s_validatorConditions();
+        (,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 2);
     }
 
@@ -118,7 +117,7 @@ contract CofferHolderOpsTest is BaseTest {
         // defaultMinimumAmount is 1 ether — buy exactly that
         buyBond(cofferAddr, holder1, defaultMinimumAmount, ONE_MONTH, version);
 
-        (,,,,, , uint32 bonds,,,) = coffer.s_validatorConditions();
+        (,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 1);
     }
 
@@ -149,7 +148,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 3);
 
-        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
         assertEq(issueSize, 0);
     }
 
@@ -170,7 +169,7 @@ contract CofferHolderOpsTest is BaseTest {
         // exitAllowed coffer starts with availableAmount set by constructor, version=1
         buyBond(exitCofferAddr, holder1, 1 ether, ONE_MONTH, 1);
 
-        (,,,,, , uint32 bonds,,,) = exitCoffer.s_validatorConditions();
+        (,,,,, , uint32 bonds,,,) = exitCoffer.sValidatorConditions();
         assertEq(bonds, 1);
     }
 
@@ -179,7 +178,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         uint256 holderId = buyBond(cofferAddr, holder1, 2 ether, SIX_MONTHS, version);
 
-        (uint128 storedAmount,,) = coffer.s_holderConditions(holderId);
+        (uint128 storedAmount,,) = coffer.sHolderConditions(holderId);
         uint128 expectedInterest = Interest.calculateInterest(2 ether, SIX_MONTHS, defaultInterestRate);
         assertEq(storedAmount, 2 ether + expectedInterest);
     }
@@ -301,7 +300,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint32 version = _enableBonding(10 ether);
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
 
         vm.deal(cofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
@@ -318,7 +317,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint32 version = _enableBonding(10 ether);
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
         vm.deal(cofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
 
@@ -339,7 +338,7 @@ contract CofferHolderOpsTest is BaseTest {
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(holderId);
 
-        (uint128 issueSize,,,,, , uint32 bonds,,,) = coffer.s_validatorConditions();
+        (uint128 issueSize,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 0);
         assertEq(issueSize, 10 ether); // fully restored
     }
@@ -356,14 +355,14 @@ contract CofferHolderOpsTest is BaseTest {
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(id1);
 
-        (,,,,, , uint32 bonds1,,,) = coffer.s_validatorConditions();
+        (,,,,, , uint32 bonds1,,,) = coffer.sValidatorConditions();
         assertEq(bonds1, 1);
 
         // holder2 withdraws second
         vm.prank(holder2);
         coffer.holderWithdrawFromExecution(id2);
 
-        (,,,,, , uint32 bonds2,,,) = coffer.s_validatorConditions();
+        (,,,,, , uint32 bonds2,,,) = coffer.sValidatorConditions();
         assertEq(bonds2, 0);
     }
 
@@ -371,7 +370,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint32 version = _enableBonding(10 ether);
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
 
         // Transfer NFT to holder2
         vm.prank(holder1);
@@ -404,7 +403,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 holderId = buyBond(exitCofferAddr, holder1, 1 ether, ONE_MONTH, 1);
 
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
-        (uint128 amtOwed,,) = exitCoffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = exitCoffer.sHolderConditions(holderId);
 
         vm.deal(exitCofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
@@ -486,7 +485,7 @@ contract CofferHolderOpsTest is BaseTest {
         coffer.buyBond{value: 1 ether}(ONE_MONTH, version);
         uint256 holderId = 1;
 
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
         vm.deal(cofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
 
@@ -506,7 +505,8 @@ contract CofferHolderOpsTest is BaseTest {
         advanceTime(ONE_MONTH + 1);
         uint256 fee = getWithdrawalFee();
 
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        // forge-lint: disable-next-line(unsafe-typecast) amtOwed / 1e9 fits in uint64
         uint64 expectedGwei = uint64(amtOwed / 1e9);
 
         vm.expectEmit(true, true, false, true);
@@ -524,7 +524,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 fee = getWithdrawalFee();
 
         // The event's isFullExit should be false when exitAllowed=false (partial amount)
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
 
         vm.expectEmit(true, true, false, true);
         emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, holderId, amtOwed, false);
@@ -552,7 +552,7 @@ contract CofferHolderOpsTest is BaseTest {
         advanceTime(ONE_MONTH + 1);
         uint256 fee = getWithdrawalFee();
 
-        (uint128 amtOwed,,) = exitCoffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = exitCoffer.sHolderConditions(holderId);
 
         // isFullExit should be true because exitAllowed=true means amountToWithdrawInGwei=0
         vm.expectEmit(true, true, false, true);
@@ -583,7 +583,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         // Full exit: amount in payload is 0, so isFullExit = true
         vm.expectEmit(true, true, false, true);
-        (uint128 amtOwed,,) = exitCoffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = exitCoffer.sHolderConditions(holderId);
         emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, holderId, amtOwed, true);
 
         vm.prank(holder1);
@@ -618,7 +618,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint32 version = _enableBonding(10 ether);
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
         vm.deal(cofferAddr, amtOwed); // fund contract with enough
 
         advanceTime(ONE_MONTH + 1);
@@ -675,7 +675,8 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 fee = getWithdrawalFee();
 
         // Build the exact 56-byte payload that Coffer will send
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint64
         uint64 amountGwei = uint64(amtOwed / 1e9);
         bytes memory data = abi.encodePacked(
             validPublicKeyPart1,
@@ -700,7 +701,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint32 version = _enableBonding(10 ether);
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
         vm.deal(cofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
 
@@ -723,7 +724,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint32 version = _enableBonding(10 ether);
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
 
         // Transfer NFT holder1 -> holder2
         vm.prank(holder1);
@@ -748,7 +749,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint32 version = _enableBonding(10 ether);
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.s_holderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
         vm.deal(cofferAddr, amtOwed);
 
         // Validator redeems early

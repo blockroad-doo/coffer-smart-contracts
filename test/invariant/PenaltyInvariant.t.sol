@@ -169,6 +169,7 @@ contract PenaltyInvariantTest is Test {
         uint256 leakingPenalty =
             Penalty.missingAttestations(eb, s, SLASHING_PENALTY_DURATION_IN_EPOCH);
 
+        // forge-lint: disable-next-line(unsafe-typecast) bounded by eb and s inputs
         uint128 expectedTotal = initialPenalty + uint128(correlationPenalty) + uint128(leakingPenalty);
         assertEq(totalSlashing, expectedTotal, "Slashing must equal sum of initial + correlation + leaking");
     }
@@ -348,9 +349,13 @@ contract PenaltyInvariantTest is Test {
 
         // corr(2*eb) should be 4 * corr(eb), with tolerance for integer floor division
         // 4 * corr1 may differ from corr2 by up to 4 wei due to independent floor divisions
+        // forge-lint: disable-next-line(unsafe-typecast) test helper, bounded by inputs
+        uint128 corr2Casted = uint128(corr2);
+        // forge-lint: disable-next-line(unsafe-typecast) test helper, bounded by inputs
+        uint128 corr1x4Casted = uint128(corr1 * 4);
         assertApproxEqAbs(
-            uint128(corr2),
-            uint128(corr1 * 4),
+            corr2Casted,
+            corr1x4Casted,
             4,
             "Doubling balance should quadruple correlation penalty (+-4 wei)"
         );

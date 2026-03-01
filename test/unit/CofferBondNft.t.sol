@@ -4,7 +4,6 @@ pragma solidity ^0.8.30;
 import {BaseTest, CofferBondNftEvents} from "./BaseTest.sol";
 import {CofferBondNft} from "../../src/CofferBondNft.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
-import {Vm} from "forge-std/Vm.sol";
 
 /**
  * @title CofferBondNftTest

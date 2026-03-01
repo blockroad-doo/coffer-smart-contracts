@@ -1,11 +1,9 @@
 //SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.33;
 
-import {BaseTest, CofferEvents} from "./BaseTest.sol";
+import {BaseTest} from "./BaseTest.sol";
 import {Coffer} from "../../src/Coffer.sol";
-import {CofferBondNft} from "../../src/CofferBondNft.sol";
 import {Penalty} from "../../src/libraries/Penalty.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract CofferMainOpsTest is BaseTest {
     address public cofferAddr;
@@ -36,13 +34,13 @@ contract CofferMainOpsTest is BaseTest {
     }
 
     function test_Constructor_ExitNotAllowed_SetsImmutables() public view {
-        assertEq(coffer.i_cofferBondNftAddress(), address(bondNft));
-        assertEq(coffer.i_public_key_part1(), validPublicKeyPart1);
-        assertEq(coffer.i_public_key_part2(), validPublicKeyPart2);
+        assertEq(coffer.I_COFFER_BOND_NFT_ADDRESS(), address(bondNft));
+        assertEq(coffer.I_PUBLIC_KEY_PART1(), validPublicKeyPart1);
+        assertEq(coffer.I_PUBLIC_KEY_PART2(), validPublicKeyPart2);
     }
 
     function test_Constructor_ExitNotAllowed_AvailableAmountIsZero() public view {
-        (uint128 issueSize,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
         assertEq(issueSize, 0);
     }
 
@@ -58,7 +56,7 @@ contract CofferMainOpsTest is BaseTest {
             uint32 safeTotalStake,
             bool isActive,
             bool exitAllowed
-        ) = coffer.s_validatorConditions();
+        ) = coffer.sValidatorConditions();
 
         assertEq(issueSize, 0);
         assertEq(interestRate, defaultInterestRate);
@@ -90,7 +88,7 @@ contract CofferMainOpsTest is BaseTest {
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
 
-        (uint128 issueSize,,,,,,,,, ) = exitCoffer.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,, ) = exitCoffer.sValidatorConditions();
 
         uint128 expected = Penalty.addMaximumPenalty(
             32 ether,
@@ -114,7 +112,7 @@ contract CofferMainOpsTest is BaseTest {
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
 
-        (uint128 issueSize,,,,,,,,, ) = exitCoffer.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,, ) = exitCoffer.sValidatorConditions();
         assertGt(issueSize, 0);
     }
 
@@ -143,7 +141,7 @@ contract CofferMainOpsTest is BaseTest {
             uint32 safeTotalStake,
             bool isActive,
             bool exitAllowed
-        ) = exitCoffer.s_validatorConditions();
+        ) = exitCoffer.sValidatorConditions();
 
         uint128 expectedAvailable = Penalty.addMaximumPenalty(
             32 ether,
@@ -251,7 +249,7 @@ contract CofferMainOpsTest is BaseTest {
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
         // Get availableAmount after buying bond
-        (uint128 availableAfterBuy,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 availableAfterBuy,,,,,,,,, ) = coffer.sValidatorConditions();
 
         // Fund contract and advance time
         vm.deal(cofferAddr, 10 ether);
@@ -260,7 +258,7 @@ contract CofferMainOpsTest is BaseTest {
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(holderId);
 
-        (uint128 availableAfterWithdraw,,,,,,,,, ) = coffer.s_validatorConditions();
+        (uint128 availableAfterWithdraw,,,,,,,,, ) = coffer.sValidatorConditions();
         assertEq(availableAfterWithdraw, 10 ether); // fully restored
     }
 
@@ -270,7 +268,7 @@ contract CofferMainOpsTest is BaseTest {
 
         uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
-        (,,,,, , uint32 bondsBefore,,,) = coffer.s_validatorConditions();
+        (,,,,, , uint32 bondsBefore,,,) = coffer.sValidatorConditions();
         assertEq(bondsBefore, 1);
 
         vm.deal(cofferAddr, 10 ether);
@@ -279,7 +277,7 @@ contract CofferMainOpsTest is BaseTest {
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(holderId);
 
-        (,,,,, , uint32 bondsAfter,,,) = coffer.s_validatorConditions();
+        (,,,,, , uint32 bondsAfter,,,) = coffer.sValidatorConditions();
         assertEq(bondsAfter, 0);
     }
 
@@ -315,7 +313,7 @@ contract CofferMainOpsTest is BaseTest {
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(holderId);
 
-        (uint128 amount, , ) = coffer.s_holderConditions(holderId);
+        (uint128 amount, , ) = coffer.sHolderConditions(holderId);
         assertEq(amount, 0);
     }
 

@@ -7,7 +7,6 @@ import {
     CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS,
     CONSOLIDATION_EXCESS_INHIBITOR,
     MAX_CONSOLIDATION_REQUESTS_PER_BLOCK,
-    TARGET_CONSOLIDATION_REQUESTS_PER_BLOCK,
     MIN_CONSOLIDATION_REQUEST_FEE,
     CONSOLIDATION_QUEUE_ENTRY_SIZE
 } from "../mock/EIP7251Mock.sol";
@@ -324,6 +323,7 @@ contract EIP7251MockTest is BaseTest {
         );
 
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS.call("");
     }
 
@@ -332,24 +332,29 @@ contract EIP7251MockTest is BaseTest {
         bytes memory invalidData = "invalid";
 
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS.call(invalidData);
 
         // Try with 95 bytes (one byte short)
         bytes memory shortData = new bytes(95);
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS.call(shortData);
 
         // Try with 97 bytes (one byte too many)
         bytes memory longData = new bytes(97);
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS.call(longData);
     }
 
     function test_Revert_Condition3_FeeGetterWithValue() public {
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS.call{value: 1}("");
 
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS.call{value: 1 ether}("");
     }
 
@@ -359,10 +364,12 @@ contract EIP7251MockTest is BaseTest {
 
         // Send less than required fee
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS.call{value: fee - 1}(data);
 
         // Send 0 fee
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS.call{value: 0}(data);
     }
 

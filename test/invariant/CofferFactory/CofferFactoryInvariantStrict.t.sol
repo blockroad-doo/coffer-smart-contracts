@@ -8,7 +8,7 @@ contract CofferFactoryInvariantStrictTest is CofferFactoryInvariantTest {
     function setUp() public override {
         super.setUp();
         bytes4[] memory excluded = new bytes4[](1);
-        excluded[0] = CofferFactoryHandler.handler_createCofferInvalid.selector;
+        excluded[0] = CofferFactoryHandler.handlerCreateCofferInvalid.selector;
         excludeSelector(FuzzSelector({addr: address(handler), selectors: excluded}));
     }
 }

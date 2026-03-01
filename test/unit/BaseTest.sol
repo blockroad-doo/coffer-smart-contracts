@@ -2,13 +2,12 @@
 pragma solidity ^0.8.30;
 
 import {Test, Vm} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {CofferFactory} from "../../src/CofferFactory.sol";
 import {CofferBondNft} from "../../src/CofferBondNft.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
 import {Penalty} from "../../src/libraries/Penalty.sol";
-import {EIP7002Mock, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, SYSTEM_ADDRESS, EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
+import {EIP7002Mock, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, SYSTEM_ADDRESS} from "../mock/EIP7002Mock.sol";
 import {EIP7251Mock, CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS} from "../mock/EIP7251Mock.sol";
 
 /**
@@ -106,8 +105,8 @@ abstract contract BaseTest is Test {
 
     function setUp() public virtual {
         // Deploy mocks at canonical addresses
-        deployEIP7002Mock();
-        deployEIP7251Mock();
+        deployEip7002Mock();
+        deployEip7251Mock();
         deployDepositContractMock();
 
         // Deploy factory (which deploys the shared NFT)
@@ -273,7 +272,7 @@ abstract contract BaseTest is Test {
             uint32 safeTotalStake,
             bool isActive,
             bool exitAllowed
-        ) = targetCoffer.s_validatorConditions();
+        ) = targetCoffer.sValidatorConditions();
 
         assertEq(issueSize, expectedIssueSize, "Issue size mismatch");
         assertEq(outstandingBonds, expectedOutstandingBonds, "Outstanding bonds mismatch");
@@ -287,7 +286,7 @@ abstract contract BaseTest is Test {
         uint32 expectedDuration
     ) public {
         Coffer targetCoffer = Coffer(payable(cofferAddr));
-        (uint128 amount, uint64 duration, uint64 startTimestamp) = targetCoffer.s_holderConditions(holderId);
+        (uint128 amount, uint64 duration, uint64 startTimestamp) = targetCoffer.sHolderConditions(holderId);
 
         assertEq(amount, expectedAmount, "Holder amount mismatch");
         assertEq(duration, expectedDuration, "Holder duration mismatch");
@@ -336,7 +335,7 @@ abstract contract BaseTest is Test {
     /**
      * @dev Deploy and initialize the EIP7002Mock at the canonical address
      */
-    function deployEIP7002Mock() public {
+    function deployEip7002Mock() public {
         // Deploy the mock
         withdrawalMock = new EIP7002Mock();
 
@@ -351,7 +350,7 @@ abstract contract BaseTest is Test {
     /**
      * @dev Deploy and initialize the EIP7251Mock at the canonical address
      */
-    function deployEIP7251Mock() public {
+    function deployEip7251Mock() public {
         consolidationMock = new EIP7251Mock();
         vm.etch(CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS, address(consolidationMock).code);
         vm.store(CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS, bytes32(uint256(0)), bytes32(uint256(0)));

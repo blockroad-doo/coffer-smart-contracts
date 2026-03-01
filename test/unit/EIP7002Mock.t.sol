@@ -5,7 +5,6 @@ import {BaseTest} from "./BaseTest.sol";
 import {
     EIP7002Mock,
     WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS,
-    SYSTEM_ADDRESS,
     EXCESS_INHIBITOR
 } from "../mock/EIP7002Mock.sol";
 
@@ -71,7 +70,9 @@ contract EIP7002MockTest is BaseTest {
         uint256 fee = getWithdrawalFee();
         for (uint256 i = 0; i < count; i++) {
             bytes32 pubkey1 = bytes32(uint256(i + 1));
+            // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint128
             bytes16 pubkey2 = bytes16(uint128(i + 1));
+            // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint64
             uint64 amount = uint64((i + 1) * 1e9); // i+1 ETH in Gwei
 
             addWithdrawalRequest(pubkey1, pubkey2, amount, fee);
@@ -148,7 +149,9 @@ contract EIP7002MockTest is BaseTest {
         // Act
         for (uint256 i = 0; i < requestCount; i++) {
             bytes32 pubkey1 = bytes32(uint256(i));
+            // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint128
             bytes16 pubkey2 = bytes16(uint128(i));
+            // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint64
             uint64 amount = uint64(i * 1e9);
 
             addWithdrawalRequest(pubkey1, pubkey2, amount, fee);
@@ -257,6 +260,7 @@ contract EIP7002MockTest is BaseTest {
 
         // Any non-system call should revert
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.call("");
     }
 
@@ -265,25 +269,30 @@ contract EIP7002MockTest is BaseTest {
         bytes memory invalidData = "invalid";
 
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.call(invalidData);
 
         // Try with 55 bytes (one byte short)
         bytes memory shortData = new bytes(55);
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.call(shortData);
 
         // Try with 57 bytes (one byte too many)
         bytes memory longData = new bytes(57);
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.call(longData);
     }
 
     function test_Revert_Condition3_FeeGetterWithValue() public {
         // Fee getter (0 calldata) but with msg.value > 0
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.call{value: 1}("");
 
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.call{value: 1 ether}("");
     }
 
@@ -294,10 +303,12 @@ contract EIP7002MockTest is BaseTest {
 
         // Send less than required fee
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.call{value: fee - 1}(data);
 
         // Send 0 fee
         vm.expectRevert();
+        // forge-lint: disable-next-line(unchecked-call)
         WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.call{value: 0}(data);
     }
 
@@ -641,7 +652,9 @@ contract EIP7002MockTest is BaseTest {
         // Add multiple requests
         for (uint256 i = 0; i < 3; i++) {
             bytes32 pubkey1 = bytes32(uint256(i + 100));
+            // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint128
             bytes16 pubkey2 = bytes16(uint128(i + 100));
+            // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint64
             uint64 amount = uint64((i + 1) * 5_000_000_000); // 5, 10, 15 ETH
 
             addWithdrawalRequest(pubkey1, pubkey2, amount, fee);
@@ -661,6 +674,7 @@ contract EIP7002MockTest is BaseTest {
             uint256 maxWithdrawable = balances[i] - 32 ether;
             uint256 requestedWei = uint256(amounts[i]) * 1 gwei;
             uint256 expectedWei = requestedWei > maxWithdrawable ? maxWithdrawable : requestedWei;
+            // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint64
             uint64 expectedGwei = uint64(expectedWei / 1 gwei);
 
             assertEq(actualAmount, expectedGwei, string.concat("Request ", vm.toString(i), " amount mismatch"));
@@ -776,6 +790,7 @@ contract EIP7002MockTest is BaseTest {
         // Add many requests to simulate high demand
         uint256 requestCount = 20;
         for (uint256 i = 0; i < requestCount; i++) {
+            // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint64
             addWithdrawalRequest(bytes32(uint256(i)), bytes16(uint128(i)), uint64(i * 1e9), initialFee);
         }
 

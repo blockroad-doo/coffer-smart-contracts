@@ -4,7 +4,6 @@ pragma solidity ^0.8.33;
 import {BaseTest} from "../../unit/BaseTest.sol";
 import {console2} from "forge-std/console2.sol";
 import {Coffer} from "../../../src/Coffer.sol";
-import {CofferBondNft} from "../../../src/CofferBondNft.sol";
 import {CofferHandler} from "./CofferHandler.sol";
 
 contract CofferInvariantTest is BaseTest {
@@ -32,7 +31,7 @@ contract CofferInvariantTest is BaseTest {
     // ══════════════════════════════════════════════════════════════════════
 
     function invariant_outstandingBondsMatchesGhost() public view {
-        (,,,,,, uint32 outstandingBonds,,,) = coffer.s_validatorConditions();
+        (,,,,,, uint32 outstandingBonds,,,) = coffer.sValidatorConditions();
         assertEq(
             uint256(outstandingBonds),
             handler.getActiveBondIdsLength(),
@@ -44,23 +43,23 @@ contract CofferInvariantTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 holderId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,) = coffer.s_holderConditions(holderId);
+            (uint128 amount,,) = coffer.sHolderConditions(holderId);
             assertEq(
-                uint256(handler.ghost_bondAmount(holderId)),
+                uint256(handler.ghostBondAmount(holderId)),
                 uint256(amount),
-                "ghost_bondAmount must match on-chain amount"
+                "ghostBondAmount must match on-chain amount"
             );
         }
     }
 
     function invariant_issueSizePlusBondsNonNegative() public view {
-        (uint128 issueSize,,,,,,,,,) = coffer.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
 
         uint256 totalBondAmounts = 0;
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 holderId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,) = coffer.s_holderConditions(holderId);
+            (uint128 amount,,) = coffer.sHolderConditions(holderId);
             totalBondAmounts += uint256(amount);
         }
 
@@ -91,7 +90,7 @@ contract CofferInvariantTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 holderId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,) = coffer.s_holderConditions(holderId);
+            (uint128 amount,,) = coffer.sHolderConditions(holderId);
             assertTrue(amount > 0, "Active bond must have non-zero amount");
         }
     }
@@ -101,9 +100,9 @@ contract CofferInvariantTest is BaseTest {
         for (uint256 i = 0; i < len; i++) {
             uint256 holderId = handler.getActiveBondIdAt(i);
             assertEq(
-                handler.ghost_bondHolder(holderId),
+                handler.ghostBondHolder(holderId),
                 bondNft.ownerOf(holderId),
-                "ghost_bondHolder must match NFT owner"
+                "ghostBondHolder must match NFT owner"
             );
         }
     }
@@ -113,9 +112,9 @@ contract CofferInvariantTest is BaseTest {
     // ══════════════════════════════════════════════════════════════════════
 
     function invariant_bondLifecycleAccounting() public view {
-        uint256 totalBought = handler.ghost_totalBondsBought();
-        uint256 totalWithdrawnExec = handler.ghost_totalBondsWithdrawnExecution();
-        uint256 totalRedeemed = handler.ghost_totalBondsRedeemed();
+        uint256 totalBought = handler.ghostTotalBondsBought();
+        uint256 totalWithdrawnExec = handler.ghostTotalBondsWithdrawnExecution();
+        uint256 totalRedeemed = handler.ghostTotalBondsRedeemed();
         uint256 activeCount = handler.getActiveBondIdsLength();
 
         assertEq(
@@ -130,19 +129,19 @@ contract CofferInvariantTest is BaseTest {
     // ══════════════════════════════════════════════════════════════════════
 
     function invariant_versionMonotonicity() public view {
-        (,,,,, uint32 version,,,,) = coffer.s_validatorConditions();
+        (,,,,, uint32 version,,,,) = coffer.sValidatorConditions();
         // constructor sets version=1, setUp's changeIssueSize bumps to 2
         assertGe(version, 2, "version must be >= 2 after setUp");
     }
 
     function invariant_durationRangeValid() public view {
-        (, , uint32 minimumDuration, uint32 maximumDuration,,,,,,) = coffer.s_validatorConditions();
+        (, , uint32 minimumDuration, uint32 maximumDuration,,,,,,) = coffer.sValidatorConditions();
         assertGe(maximumDuration, minimumDuration, "maximumDuration must be >= minimumDuration");
         assertGt(minimumDuration, 0, "minimumDuration must be > 0");
     }
 
     function invariant_interestRateInBounds() public view {
-        (, uint32 interestRate,,,,,,,,) = coffer.s_validatorConditions();
+        (, uint32 interestRate,,,,,,,,) = coffer.sValidatorConditions();
         assertGt(interestRate, 0, "interestRate must be > 0");
         assertLe(interestRate, 1e8, "interestRate must be <= 1e8");
     }
@@ -155,9 +154,9 @@ contract CofferInvariantTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 holderId = handler.getActiveBondIdAt(i);
-            if (handler.ghost_hasPendingConsensusWithdrawal(holderId)) {
+            if (handler.ghostHasPendingConsensusWithdrawal(holderId)) {
                 assertTrue(
-                    handler.ghost_isBondActive(holderId),
+                    handler.ghostIsBondActive(holderId),
                     "Pending consensus withdrawal implies bond is active"
                 );
             }
@@ -168,8 +167,8 @@ contract CofferInvariantTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 holderId = handler.getActiveBondIdAt(i);
-            if (handler.ghost_hasPendingConsensusWithdrawal(holderId)) {
-                (uint128 amount,,) = coffer.s_holderConditions(holderId);
+            if (handler.ghostHasPendingConsensusWithdrawal(holderId)) {
+                (uint128 amount,,) = coffer.sHolderConditions(holderId);
                 assertGt(amount, 0, "Pending consensus bond must have non-zero on-chain amount");
             }
         }
@@ -181,24 +180,24 @@ contract CofferInvariantTest is BaseTest {
 
     function invariant_callSummary() public view {
         console2.log("--- Call Summary ---");
-        console2.log("buyBond:                    ", handler.calls_buyBond());
-        console2.log("holderWithdrawFromExecution: ", handler.calls_holderWithdrawFromExecution());
-        console2.log("holderWithdrawFromConsensus: ", handler.calls_holderWithdrawFromConsensus());
-        console2.log("simulateEthArrival:         ", handler.calls_simulateEthArrival());
-        console2.log("redeemBondsEarly:           ", handler.calls_redeemBondsEarly());
-        console2.log("validatorWithdrawExecution:  ", handler.calls_validatorWithdrawFromExecution());
-        console2.log("validatorAddFundsConsensus:  ", handler.calls_validatorAddFundsToConsensus());
-        console2.log("changeCofferActivity:       ", handler.calls_changeCofferActivity());
-        console2.log("changeInterestRate:         ", handler.calls_changeInterestRate());
-        console2.log("changeIssueSize:            ", handler.calls_changeIssueSize());
-        console2.log("advanceTime:                ", handler.calls_advanceTime());
+        console2.log("buyBond:                    ", handler.callsBuyBond());
+        console2.log("holderWithdrawFromExecution: ", handler.callsHolderWithdrawFromExecution());
+        console2.log("holderWithdrawFromConsensus: ", handler.callsHolderWithdrawFromConsensus());
+        console2.log("simulateEthArrival:         ", handler.callsSimulateEthArrival());
+        console2.log("redeemBondsEarly:           ", handler.callsRedeemBondsEarly());
+        console2.log("validatorWithdrawExecution:  ", handler.callsValidatorWithdrawFromExecution());
+        console2.log("validatorAddFundsConsensus:  ", handler.callsValidatorAddFundsToConsensus());
+        console2.log("changeCofferActivity:       ", handler.callsChangeCofferActivity());
+        console2.log("changeInterestRate:         ", handler.callsChangeInterestRate());
+        console2.log("changeIssueSize:            ", handler.callsChangeIssueSize());
+        console2.log("advanceTime:                ", handler.callsAdvanceTime());
         console2.log("--- Ghost Totals ---");
-        console2.log("totalBought:                ", handler.ghost_totalBondsBought());
-        console2.log("totalWithdrawnExecution:     ", handler.ghost_totalBondsWithdrawnExecution());
-        console2.log("totalWithdrawnConsensus:     ", handler.ghost_totalBondsWithdrawnConsensus());
-        console2.log("totalRedeemed:              ", handler.ghost_totalBondsRedeemed());
+        console2.log("totalBought:                ", handler.ghostTotalBondsBought());
+        console2.log("totalWithdrawnExecution:     ", handler.ghostTotalBondsWithdrawnExecution());
+        console2.log("totalWithdrawnConsensus:     ", handler.ghostTotalBondsWithdrawnConsensus());
+        console2.log("totalRedeemed:              ", handler.ghostTotalBondsRedeemed());
         console2.log("activeBonds:                ", handler.getActiveBondIdsLength());
         console2.log("pendingWithdrawals:         ", handler.getPendingWithdrawalsLength());
-        console2.log("totalEthArrivedConsensus:   ", handler.ghost_totalEthArrivedFromConsensus());
+        console2.log("totalEthArrivedConsensus:   ", handler.ghostTotalEthArrivedFromConsensus());
     }
 }

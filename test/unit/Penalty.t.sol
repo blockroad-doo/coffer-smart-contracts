@@ -4,7 +4,6 @@ pragma solidity ^0.8.30;
 import {BaseTest} from "./BaseTest.sol";
 import {Penalty} from "../../src/libraries/Penalty.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {console2} from "forge-std/console2.sol";
 
 /**
  * @title PenaltyTest
@@ -85,6 +84,7 @@ contract PenaltyTest is BaseTest {
         // Formula matches library: (effectiveBalance * effectiveBalance * MULTIPLIER) / (safeTotalStake * WEI_DECIMALS)
         uint256 penalty = uint256(effectiveBalance) * effectiveBalance * PROPORTIONAL_SLASHING_MULTIPLIER
             / (uint128(safeTotalStake) * WEI_DECIMALS);
+        // forge-lint: disable-next-line(unsafe-typecast) test helper, bounded by inputs
         return uint128(penalty);
     }
 
@@ -98,6 +98,7 @@ contract PenaltyTest is BaseTest {
     {
         uint256 penalty = uint256(effectiveBalance) * BASE_REWARD * epochs
             / Math.sqrt(uint256(safeTotalStake) * GWEI_DECIMALS);
+        // forge-lint: disable-next-line(unsafe-typecast) test helper, bounded by inputs
         return uint128(penalty);
     }
 
@@ -709,6 +710,7 @@ contract PenaltyTest is BaseTest {
         // Correlation penalty component (highest risk of overflow)
         uint256 correlationCalc = uint256(balance) * balance * PROPORTIONAL_SLASHING_MULTIPLIER
             / (uint128(stake) * WEI_DECIMALS);
+        // forge-lint: disable-next-line(unsafe-typecast) test helper, bounded by inputs
         uint128 correlationPenalty = uint128(correlationCalc);
         assertTrue(correlationPenalty > 0 || correlationPenalty == 0, "Correlation penalty calculated");
 
@@ -724,11 +726,11 @@ contract PenaltyTest is BaseTest {
     function test_Overflow_EdgeCase_Combinations() public {
         // Test various edge case combinations
         TestCase[5] memory cases = [
-            TestCase(MAX_VALIDATOR_BALANCE, MIN_SAFE_TOTAL_STAKE, EPOCHS_50_YEARS, "Max balance, min stake, 50 years"),
-            TestCase(MAX_VALIDATOR_BALANCE, MAX_SAFE_TOTAL_STAKE, EPOCHS_50_YEARS, "Max balance, max stake, 50 years"),
-            TestCase(1 ether, MIN_SAFE_TOTAL_STAKE, EPOCHS_50_YEARS, "Small balance, min stake, 50 years"),
-            TestCase(MAX_VALIDATOR_BALANCE, 1000000, EPOCHS_20_YEARS, "Max balance, medium stake, 20 years"),
-            TestCase(100 ether, 10000, EPOCHS_10_YEARS, "Medium balance, small stake, 10 years")
+            TestCase({ balance: MAX_VALIDATOR_BALANCE, stake: MIN_SAFE_TOTAL_STAKE, epochs: EPOCHS_50_YEARS, description: "Max balance, min stake, 50 years" }),
+            TestCase({ balance: MAX_VALIDATOR_BALANCE, stake: MAX_SAFE_TOTAL_STAKE, epochs: EPOCHS_50_YEARS, description: "Max balance, max stake, 50 years" }),
+            TestCase({ balance: 1 ether, stake: MIN_SAFE_TOTAL_STAKE, epochs: EPOCHS_50_YEARS, description: "Small balance, min stake, 50 years" }),
+            TestCase({ balance: MAX_VALIDATOR_BALANCE, stake: 1000000, epochs: EPOCHS_20_YEARS, description: "Max balance, medium stake, 20 years" }),
+            TestCase({ balance: 100 ether, stake: 10000, epochs: EPOCHS_10_YEARS, description: "Medium balance, small stake, 10 years" })
         ];
 
         for (uint i = 0; i < cases.length; i++) {

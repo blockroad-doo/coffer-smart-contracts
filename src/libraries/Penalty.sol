@@ -24,6 +24,7 @@ library Penalty {
         uint256 leakingPenalty =
             missingAttestations(effectiveBalance, safeTotalStake, SLASHING_PENALTY_DURATION_IN_EPOCH);
 
+        // forge-lint: disable-next-line(unsafe-typecast) penalties bounded by effective balance
         return initialPenalty + uint128(correlationPenalty) + uint128(leakingPenalty);
     }
 
@@ -34,6 +35,7 @@ library Penalty {
     {
         uint256 returnValue =
             effectiveBalance * BASE_REWARD * numberOfEpochs / Math.sqrt(safeTotalStake * GWEI_DECIMALS);
+        // forge-lint: disable-next-line(unsafe-typecast) bounded by uint128 effective balance input
         return uint128(returnValue);
     }
 

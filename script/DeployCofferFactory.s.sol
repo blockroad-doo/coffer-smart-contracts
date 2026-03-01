@@ -57,6 +57,7 @@ contract DeployCofferFactory is Script {
         inputs[3] = ENV_FILE_PATH;
 
         // Execute sed command via FFI
+        // forge-lint: disable-next-line(unsafe-cheatcode) ffi needed to update .env file
         vm.ffi(inputs);
     }
 

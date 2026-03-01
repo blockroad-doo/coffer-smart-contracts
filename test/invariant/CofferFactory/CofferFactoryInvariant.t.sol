@@ -13,8 +13,8 @@ contract CofferFactoryInvariantTest is BaseTest {
 
     function setUp() public virtual override {
         // Deploy mocks at canonical addresses (required by Coffer constructor)
-        deployEIP7002Mock();
-        deployEIP7251Mock();
+        deployEip7002Mock();
+        deployEip7251Mock();
         deployDepositContractMock();
 
         // Deploy factory (which deploys the shared NFT)
@@ -29,7 +29,7 @@ contract CofferFactoryInvariantTest is BaseTest {
     function invariant_DeploymentCountMatchesGhost() public view {
         assertEq(
             handler.getDeployedCoffersLength(),
-            handler.ghost_deploymentCount(),
+            handler.ghostDeploymentCount(),
             "Deployed array length must match deployment count"
         );
     }
@@ -39,7 +39,7 @@ contract CofferFactoryInvariantTest is BaseTest {
         for (uint256 i = 0; i < len; i++) {
             address cofferAddr = handler.getDeployedCofferAt(i);
             assertEq(
-                Coffer(payable(cofferAddr)).i_cofferBondNftAddress(),
+                Coffer(payable(cofferAddr)).I_COFFER_BOND_NFT_ADDRESS(),
                 factory.I_COFFER_BOND_NFT_ADDRESS(),
                 "Coffer NFT address must match factory NFT address"
             );
@@ -73,7 +73,7 @@ contract CofferFactoryInvariantTest is BaseTest {
         uint256 len = handler.getDeployedCoffersLength();
         for (uint256 i = 0; i < len; i++) {
             address cofferAddr = handler.getDeployedCofferAt(i);
-            (,,,,,,,,bool isActive,) = Coffer(payable(cofferAddr)).s_validatorConditions();
+            (,,,,,,,,bool isActive,) = Coffer(payable(cofferAddr)).sValidatorConditions();
             assertTrue(isActive, "Newly deployed coffer must be active");
         }
     }

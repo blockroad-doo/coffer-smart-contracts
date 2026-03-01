@@ -14,8 +14,8 @@ contract CofferFactoryHandler is Test {
     uint16 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
 
     // Ghost state
-    address[] public ghost_deployedCoffers;
-    uint256 public ghost_deploymentCount;
+    address[] public ghostDeployedCoffers;
+    uint256 public ghostDeploymentCount;
 
     constructor(CofferFactory _factory) {
         factory = _factory;
@@ -26,7 +26,7 @@ contract CofferFactoryHandler is Test {
         actors.push(makeAddr("factoryActor4"));
     }
 
-    function handler_createCoffer(
+    function handlerCreateCoffer(
         uint256 actorSeed,
         bytes32 pk1,
         bytes16 pk2,
@@ -83,11 +83,11 @@ contract CofferFactoryHandler is Test {
             }
         }
 
-        ghost_deployedCoffers.push(cofferAddress);
-        ++ghost_deploymentCount;
+        ghostDeployedCoffers.push(cofferAddress);
+        ++ghostDeploymentCount;
     }
 
-    function handler_createCofferInvalid(
+    function handlerCreateCofferInvalid(
         uint256 actorSeed,
         bytes32 pk1,
         bytes16 pk2,
@@ -116,10 +116,10 @@ contract CofferFactoryHandler is Test {
 
     // Helper views
     function getDeployedCoffersLength() external view returns (uint256) {
-        return ghost_deployedCoffers.length;
+        return ghostDeployedCoffers.length;
     }
 
     function getDeployedCofferAt(uint256 index) external view returns (address) {
-        return ghost_deployedCoffers[index];
+        return ghostDeployedCoffers[index];
     }
 }

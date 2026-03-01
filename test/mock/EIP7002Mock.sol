@@ -311,16 +311,17 @@ contract EIP7002Mock {
             // slot2Val layout: pubkey[32:48] (16 bytes) ++ amount_be (8 bytes) ++ zeros (8 bytes)
             // The real bytecode converts amount from big-endian to little-endian byte by byte.
             // Extract the 16 bytes of pubkey remainder
+            // forge-lint: disable-next-line(unsafe-typecast) extracting high 16 bytes from slot value
             bytes16 pubkeySecond = bytes16(slot2Val);
 
             // Extract amount (big-endian uint64) from slot2Val bytes [16:24]
-            uint64 amountBE;
+            uint64 amountBe;
             assembly {
                 // slot2Val has: pubkey[32:48] (16 bytes) ++ amount_be (8 bytes) ++ zeros (8 bytes)
                 // We want bytes [16:24] which contain the amount
                 // First shift left by 128 bits to remove first 16 bytes
                 // Then shift right by 192 bits to get the 8 bytes we want as uint64
-                amountBE := shr(192, shl(128, slot2Val))
+                amountBe := shr(192, shl(128, slot2Val))
             }
 
             // We'll write this amount in little-endian byte order
@@ -353,15 +354,15 @@ contract EIP7002Mock {
                 mstore8(add(ptr, 66), byte(14, pubkey2))
                 mstore8(add(ptr, 67), byte(15, pubkey2))
                 // Write amount at offset+68 (8 bytes in little-endian)
-                // amountBE is big-endian, write it in little-endian byte order
-                mstore8(add(ptr, 68), and(amountBE, 0xff))
-                mstore8(add(ptr, 69), and(shr(8, amountBE), 0xff))
-                mstore8(add(ptr, 70), and(shr(16, amountBE), 0xff))
-                mstore8(add(ptr, 71), and(shr(24, amountBE), 0xff))
-                mstore8(add(ptr, 72), and(shr(32, amountBE), 0xff))
-                mstore8(add(ptr, 73), and(shr(40, amountBE), 0xff))
-                mstore8(add(ptr, 74), and(shr(48, amountBE), 0xff))
-                mstore8(add(ptr, 75), and(shr(56, amountBE), 0xff))
+                // amountBe is big-endian, write it in little-endian byte order
+                mstore8(add(ptr, 68), and(amountBe, 0xff))
+                mstore8(add(ptr, 69), and(shr(8, amountBe), 0xff))
+                mstore8(add(ptr, 70), and(shr(16, amountBe), 0xff))
+                mstore8(add(ptr, 71), and(shr(24, amountBe), 0xff))
+                mstore8(add(ptr, 72), and(shr(32, amountBe), 0xff))
+                mstore8(add(ptr, 73), and(shr(40, amountBe), 0xff))
+                mstore8(add(ptr, 74), and(shr(48, amountBe), 0xff))
+                mstore8(add(ptr, 75), and(shr(56, amountBe), 0xff))
             }
         }
 
@@ -510,6 +511,7 @@ contract EIP7002Mock {
             uint256 actualWei = requestedWei > maxWithdrawable ? maxWithdrawable : requestedWei;
 
             // Convert back to Gwei
+            // forge-lint: disable-next-line(unsafe-typecast) bounded by validator balance
             actualAmount = uint64(actualWei / 1 gwei);
             return (actualAmount, actualAmount > 0);
         }

@@ -8,7 +8,7 @@ contract CofferBondNftInvariantStrictTest is CofferBondNftInvariantTest {
     function setUp() public override {
         super.setUp();
         bytes4[] memory excluded = new bytes4[](1);
-        excluded[0] = CofferBondNftHandler.handler_burnInvalid.selector;
+        excluded[0] = CofferBondNftHandler.handlerBurnInvalid.selector;
         excludeSelector(FuzzSelector({addr: address(handler), selectors: excluded}));
     }
 }

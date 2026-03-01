@@ -17,8 +17,8 @@ contract CofferBondNftInvariantTest is Test {
 
     function invariant_CounterMonotonicallyIncreases() public view {
         assertEq(
-            handler.ghost_nextExpectedId(),
-            handler.ghost_totalMinted(),
+            handler.ghostNextExpectedId(),
+            handler.ghostTotalMinted(),
             "Counter must equal total minted"
         );
     }
@@ -26,7 +26,7 @@ contract CofferBondNftInvariantTest is Test {
     function invariant_ActiveSupplyEqualsMintsMinusBurns() public view {
         assertEq(
             handler.getActiveIdsLength(),
-            handler.ghost_totalMinted() - handler.ghost_totalBurned(),
+            handler.ghostTotalMinted() - handler.ghostTotalBurned(),
             "Active supply must equal mints minus burns"
         );
     }
@@ -46,16 +46,16 @@ contract CofferBondNftInvariantTest is Test {
             uint256 tokenId = handler.getActiveIdAt(i);
             assertEq(
                 nft.ownerOf(tokenId),
-                handler.ghost_owner(tokenId),
+                handler.ghostOwner(tokenId),
                 "On-chain owner must match ghost owner"
             );
         }
     }
 
     function invariant_BurnedTokenHasNoOwner() public {
-        uint256 lastBurned = handler.ghost_lastBurnedId();
+        uint256 lastBurned = handler.ghostLastBurnedId();
         if (lastBurned == 0) return; // No burns yet
-        if (handler.ghost_isActive(lastBurned)) return; // Re-minted (won't happen with incrementing IDs, but safe)
+        if (handler.ghostIsActive(lastBurned)) return; // Re-minted (won't happen with incrementing IDs, but safe)
 
         // ownerOf should revert for burned tokens
         try nft.ownerOf(lastBurned) {
@@ -65,8 +65,8 @@ contract CofferBondNftInvariantTest is Test {
 
     function invariant_TotalBurnedNeverExceedsTotalMinted() public view {
         assertLe(
-            handler.ghost_totalBurned(),
-            handler.ghost_totalMinted(),
+            handler.ghostTotalBurned(),
+            handler.ghostTotalMinted(),
             "Total burned must never exceed total minted"
         );
     }

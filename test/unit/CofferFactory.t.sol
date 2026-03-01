@@ -1,9 +1,8 @@
 //SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
-import {BaseTest, CofferFactoryEvents} from "./BaseTest.sol";
+import {BaseTest} from "./BaseTest.sol";
 import {Coffer} from "../../src/Coffer.sol";
-import {CofferBondNft} from "../../src/CofferBondNft.sol";
 import {CofferFactory} from "../../src/CofferFactory.sol";
 import {Penalty} from "../../src/libraries/Penalty.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -57,7 +56,7 @@ contract CofferFactoryTest is BaseTest {
         vm.stopPrank();
     }
 
-    /// @dev Reads s_validatorConditions into a Coffer.ValidatorConditions struct (avoids stack-too-deep)
+    /// @dev Reads sValidatorConditions into a Coffer.ValidatorConditions struct (avoids stack-too-deep)
     function _getValidatorConditions(address cofferAddr) internal view returns (Coffer.ValidatorConditions memory vc) {
         Coffer c = Coffer(payable(cofferAddr));
         (
@@ -71,7 +70,7 @@ contract CofferFactoryTest is BaseTest {
             uint32 safeTotalStake,
             bool isActive,
             bool exitAllowed
-        ) = c.s_validatorConditions();
+        ) = c.sValidatorConditions();
         vc.issueSize = issueSize;
         vc.interestRate = interestRate;
         vc.minimumDuration = minimumDuration;
@@ -84,7 +83,7 @@ contract CofferFactoryTest is BaseTest {
         vc.exitAllowed = exitAllowed;
     }
 
-    /// @dev Asserts all fields of s_validatorConditions on a deployed Coffer
+    /// @dev Asserts all fields of sValidatorConditions on a deployed Coffer
     function _assertValidatorConditions(
         address cofferAddr,
         uint128 expectedAvailable,
@@ -191,9 +190,9 @@ contract CofferFactoryTest is BaseTest {
         );
 
         Coffer c = Coffer(payable(cofferAddr));
-        assertEq(c.i_public_key_part1(), validPublicKeyPart1);
-        assertEq(c.i_public_key_part2(), validPublicKeyPart2);
-        assertEq(c.i_cofferBondNftAddress(), factory.I_COFFER_BOND_NFT_ADDRESS());
+        assertEq(c.I_PUBLIC_KEY_PART1(), validPublicKeyPart1);
+        assertEq(c.I_PUBLIC_KEY_PART2(), validPublicKeyPart2);
+        assertEq(c.I_COFFER_BOND_NFT_ADDRESS(), factory.I_COFFER_BOND_NFT_ADDRESS());
     }
 
     function test_CreateCoffer_Success_SetsValidatorConditions() public {
@@ -241,7 +240,7 @@ contract CofferFactoryTest is BaseTest {
             Penalty.addMaximumPenalty(VALIDATOR_STARTING_ETH, defaultSafeTotalStake, defaultMaxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
 
         Coffer c = Coffer(payable(cofferAddr));
-        (uint128 issueSize,,,,,,,,, ) = c.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,, ) = c.sValidatorConditions();
         assertEq(issueSize, expectedAvailable, "Issue size should match penalty calculation");
         assertTrue(expectedAvailable > 0, "Expected issue size should be positive for these params");
     }
@@ -260,7 +259,7 @@ contract CofferFactoryTest is BaseTest {
         );
 
         Coffer c = Coffer(payable(cofferAddr));
-        (uint128 issueSize,,,,,,,,, ) = c.s_validatorConditions();
+        (uint128 issueSize,,,,,,,,, ) = c.sValidatorConditions();
         assertEq(issueSize, 0, "Issue size should be 0 when exitAllowed is false");
     }
 
