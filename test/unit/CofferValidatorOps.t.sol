@@ -7,6 +7,7 @@ import {Coffer} from "../../src/Coffer.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
 import {Penalty} from "../../src/libraries/Penalty.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 
 /// @dev Contract that rejects all ETH transfers
 contract RejectEther {
@@ -36,8 +37,9 @@ contract CofferValidatorOpsTest is BaseTest {
 
         holderId = buyBond(cofferAddr, holder1, bondAmount, duration, 2);
 
-        uint128 interest = Interest.calculateInterest(bondAmount, duration, defaultInterestRate);
-        amountWithInterest = bondAmount + interest;
+        uint256 interest = Interest.calculateInterest(bondAmount, duration, defaultInterestRate);
+        // forge-lint: disable-next-line(unsafe-typecast) bondAmount + interest from test constants fits uint128
+        amountWithInterest = uint128(bondAmount + interest);
     }
 
     // ========================================
@@ -56,6 +58,7 @@ contract CofferValidatorOpsTest is BaseTest {
         uint256[] memory ids = new uint256[](1);
         ids[0] = holderId;
         coffer.redeemBondsEarly(ids);
+        vm.snapshotGasLastCall("redeemBondsEarly_single");
 
         assertEq(holder1.balance, holderBalBefore + amtOwed);
     }
@@ -198,7 +201,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         uint256[] memory ids = new uint256[](1);
         ids[0] = holderId;
-        vm.expectRevert(Coffer.SendAmountFailed.selector);
+        vm.expectRevert(Errors.FailedCall.selector);
         coffer.redeemBondsEarly(ids);
     }
 
@@ -212,6 +215,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
         vm.prank(validator);
         coffer.changeCofferActivity();
+        vm.snapshotGasLastCall("changeCofferActivity");
 
         (,,,,,,,, bool isActive,) = coffer.sValidatorConditions();
         assertFalse(isActive);
@@ -637,6 +641,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
         vm.prank(validator);
         coffer.validatorWithdrawFromExecution(5 ether);
+        vm.snapshotGasLastCall("validatorWithdrawFromExecution");
 
         assertEq(validator.balance, balBefore + 5 ether);
         assertEq(cofferAddr.balance, 5 ether);
@@ -696,7 +701,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.deal(rejectorCofferAddr, 10 ether);
 
         vm.prank(address(rejector));
-        vm.expectRevert(Coffer.SendAmountFailed.selector);
+        vm.expectRevert(Errors.FailedCall.selector);
         Coffer(payable(rejectorCofferAddr)).validatorWithdrawFromExecution(1 ether);
     }
 
@@ -712,6 +717,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
         vm.prank(validator);
         coffer.validatorWithdrawFromConsensus{value: fee}(5_000_000_000);
+        vm.snapshotGasLastCall("validatorWithdrawFromConsensus");
     }
 
     function test_ValidatorWithdrawFromConsensus_FullExit() public {
@@ -816,7 +822,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
         (uint128 issueSizeAfter,,,,,,,,, ) = coffer.sValidatorConditions();
 
-        uint128 expectedIncrease = Penalty.addMaximumPenalty(
+        uint256 expectedIncrease = Penalty.addMaximumPenalty(
             1 ether,
             defaultSafeTotalStake,
             defaultMaxDuration / 384

@@ -29,11 +29,11 @@ contract PenaltyWrapper {
         return n > MAX_EPOCHS ? MAX_EPOCHS : n;
     }
 
-    function slashing(uint128 eb, uint32 s) public pure returns (uint128) {
+    function slashing(uint128 eb, uint32 s) public pure returns (uint256) {
         return Penalty.slashing(_clampBalance(eb), _clampStake(s));
     }
 
-    function missingAttestations(uint128 eb, uint32 s, uint32 n) public pure returns (uint128) {
+    function missingAttestations(uint128 eb, uint32 s, uint32 n) public pure returns (uint256) {
         return Penalty.missingAttestations(_clampBalance(eb), _clampStake(s), _clampEpochs(n));
     }
 
@@ -84,12 +84,12 @@ contract PenaltyInvariantTest is Test {
     PenaltyWrapper public wrapper;
 
     // Constants matching the library
-    uint16 constant INITIAL_SLASHING_PENALTY_QUOTIENT = 4096;
-    uint8 constant PROPORTIONAL_SLASHING_MULTIPLIER = 3;
-    uint32 constant SLASHING_PENALTY_DURATION_IN_EPOCH = 8192;
-    uint8 constant BASE_REWARD = 40;
-    uint64 constant WEI_DECIMALS = 1e18;
-    uint64 constant GWEI_DECIMALS = 1e9;
+    uint256 constant INITIAL_SLASHING_PENALTY_QUOTIENT = 4096;
+    uint256 constant PROPORTIONAL_SLASHING_MULTIPLIER = 3;
+    uint256 constant SLASHING_PENALTY_DURATION_IN_EPOCH = 8192;
+    uint256 constant BASE_REWARD = 40;
+    uint256 constant WEI_DECIMALS = 1e18;
+    uint256 constant GWEI_DECIMALS = 1e9;
 
     // Input bounds
     uint128 constant MAX_BALANCE = 2048 ether;
@@ -146,7 +146,7 @@ contract PenaltyInvariantTest is Test {
         s = uint32(bound(uint256(s), 1, type(uint32).max));
         n = uint32(bound(uint256(n), 0, MAX_EPOCHS));
 
-        uint128 result = Penalty.addMaximumPenalty(eb, s, n);
+        uint256 result = Penalty.addMaximumPenalty(eb, s, n);
         assertLe(result, eb, "addMaximumPenalty result must never exceed input balance");
     }
 
@@ -158,19 +158,18 @@ contract PenaltyInvariantTest is Test {
         eb = uint128(bound(uint256(eb), 0, MAX_BALANCE));
         s = uint32(bound(uint256(s), 1, type(uint32).max));
 
-        uint128 totalSlashing = Penalty.slashing(eb, s);
+        uint256 totalSlashing = Penalty.slashing(eb, s);
 
         // Compute individual components (same formulas as library)
-        uint128 initialPenalty = eb / INITIAL_SLASHING_PENALTY_QUOTIENT;
+        uint256 initialPenalty = eb / INITIAL_SLASHING_PENALTY_QUOTIENT;
 
         uint256 correlationPenalty = uint256(eb) * eb * PROPORTIONAL_SLASHING_MULTIPLIER
-            / (uint128(s) * WEI_DECIMALS);
+            / (uint256(s) * WEI_DECIMALS);
 
         uint256 leakingPenalty =
             Penalty.missingAttestations(eb, s, SLASHING_PENALTY_DURATION_IN_EPOCH);
 
-        // forge-lint: disable-next-line(unsafe-typecast) bounded by eb and s inputs
-        uint128 expectedTotal = initialPenalty + uint128(correlationPenalty) + uint128(leakingPenalty);
+        uint256 expectedTotal = initialPenalty + correlationPenalty + leakingPenalty;
         assertEq(totalSlashing, expectedTotal, "Slashing must equal sum of initial + correlation + leaking");
     }
 
@@ -185,8 +184,8 @@ contract PenaltyInvariantTest is Test {
 
         if (eb1 > eb2) (eb1, eb2) = (eb2, eb1);
 
-        uint128 penalty1 = Penalty.slashing(eb1, s);
-        uint128 penalty2 = Penalty.slashing(eb2, s);
+        uint256 penalty1 = Penalty.slashing(eb1, s);
+        uint256 penalty2 = Penalty.slashing(eb2, s);
         assertLe(penalty1, penalty2, "Slashing must be monotonically increasing with balance");
     }
 
@@ -201,8 +200,8 @@ contract PenaltyInvariantTest is Test {
 
         if (s1 > s2) (s1, s2) = (s2, s1);
 
-        uint128 penalty1 = Penalty.slashing(eb, s1);
-        uint128 penalty2 = Penalty.slashing(eb, s2);
+        uint256 penalty1 = Penalty.slashing(eb, s1);
+        uint256 penalty2 = Penalty.slashing(eb, s2);
         assertGe(penalty1, penalty2, "Slashing must be anti-monotonic with stake (higher stake -> lower penalty)");
     }
 
@@ -217,12 +216,12 @@ contract PenaltyInvariantTest is Test {
         n1 = uint32(bound(uint256(n1), 0, MAX_EPOCHS / 2));
         n2 = uint32(bound(uint256(n2), 0, MAX_EPOCHS / 2));
 
-        uint128 combined = Penalty.missingAttestations(eb, s, n1 + n2);
-        uint128 separate1 = Penalty.missingAttestations(eb, s, n1);
-        uint128 separate2 = Penalty.missingAttestations(eb, s, n2);
+        uint256 combined = Penalty.missingAttestations(eb, s, n1 + n2);
+        uint256 separate1 = Penalty.missingAttestations(eb, s, n1);
+        uint256 separate2 = Penalty.missingAttestations(eb, s, n2);
 
         // Due to integer floor division, attest(n1+n2) may differ from attest(n1)+attest(n2) by at most 1 wei
-        uint128 separateSum = separate1 + separate2;
+        uint256 separateSum = separate1 + separate2;
         assertApproxEqAbs(combined, separateSum, 1, "missingAttestations should be linear with epochs (+-1 wei)");
     }
 
@@ -266,8 +265,8 @@ contract PenaltyInvariantTest is Test {
 
         if (n1 > n2) (n1, n2) = (n2, n1);
 
-        uint128 result1 = Penalty.addMaximumPenalty(eb, s, n1);
-        uint128 result2 = Penalty.addMaximumPenalty(eb, s, n2);
+        uint256 result1 = Penalty.addMaximumPenalty(eb, s, n1);
+        uint256 result2 = Penalty.addMaximumPenalty(eb, s, n2);
 
         // More epochs => more penalty => lower or equal remaining balance
         assertGe(result1, result2, "addMaximumPenalty: more epochs must yield lower or equal remaining balance");
@@ -297,12 +296,12 @@ contract PenaltyInvariantTest is Test {
         s = uint32(bound(uint256(s), 1, type(uint32).max));
         n = uint32(bound(uint256(n), 0, MAX_EPOCHS));
 
-        uint128 result = Penalty.addMaximumPenalty(eb, s, n);
+        uint256 result = Penalty.addMaximumPenalty(eb, s, n);
 
         // Compute total penalty
-        uint128 slashPenalty = Penalty.slashing(eb, s);
-        uint128 attestPenalty = Penalty.missingAttestations(eb, s, n);
-        uint128 totalPenalty = slashPenalty + attestPenalty;
+        uint256 slashPenalty = Penalty.slashing(eb, s);
+        uint256 attestPenalty = Penalty.missingAttestations(eb, s, n);
+        uint256 totalPenalty = slashPenalty + attestPenalty;
 
         if (totalPenalty >= eb) {
             assertEq(result, 0, "When total penalty >= balance, result must be 0");
@@ -320,14 +319,14 @@ contract PenaltyInvariantTest is Test {
         s = uint32(bound(uint256(s), 1, type(uint32).max));
         n = uint32(bound(uint256(n), 0, MAX_EPOCHS));
 
-        uint128 result = Penalty.addMaximumPenalty(eb, s, n);
+        uint256 result = Penalty.addMaximumPenalty(eb, s, n);
 
         // Decompose: addMaximumPenalty = eb - slashing(eb) - missingAttestations(eb, s, n), clamped to 0
-        uint128 slashPenalty = Penalty.slashing(eb, s);
-        uint128 attestPenalty = Penalty.missingAttestations(eb, s, n);
-        uint128 totalPenalty = slashPenalty + attestPenalty;
+        uint256 slashPenalty = Penalty.slashing(eb, s);
+        uint256 attestPenalty = Penalty.missingAttestations(eb, s, n);
+        uint256 totalPenalty = slashPenalty + attestPenalty;
 
-        uint128 expected = totalPenalty >= eb ? 0 : eb - totalPenalty;
+        uint256 expected = totalPenalty >= eb ? 0 : eb - totalPenalty;
         assertEq(result, expected, "addMaximumPenalty must match eb - slashing - attestation (clamped)");
     }
 
@@ -341,21 +340,17 @@ contract PenaltyInvariantTest is Test {
         s = uint32(bound(uint256(s), 1, type(uint32).max));
 
         uint256 corr1 = uint256(eb) * eb * PROPORTIONAL_SLASHING_MULTIPLIER
-            / (uint128(s) * WEI_DECIMALS);
+            / (uint256(s) * WEI_DECIMALS);
 
-        uint128 eb2 = eb * 2;
-        uint256 corr2 = uint256(eb2) * eb2 * PROPORTIONAL_SLASHING_MULTIPLIER
-            / (uint128(s) * WEI_DECIMALS);
+        uint256 eb2 = uint256(eb) * 2;
+        uint256 corr2 = eb2 * eb2 * PROPORTIONAL_SLASHING_MULTIPLIER
+            / (uint256(s) * WEI_DECIMALS);
 
         // corr(2*eb) should be 4 * corr(eb), with tolerance for integer floor division
         // 4 * corr1 may differ from corr2 by up to 4 wei due to independent floor divisions
-        // forge-lint: disable-next-line(unsafe-typecast) test helper, bounded by inputs
-        uint128 corr2Casted = uint128(corr2);
-        // forge-lint: disable-next-line(unsafe-typecast) test helper, bounded by inputs
-        uint128 corr1x4Casted = uint128(corr1 * 4);
         assertApproxEqAbs(
-            corr2Casted,
-            corr1x4Casted,
+            corr2,
+            corr1 * 4,
             4,
             "Doubling balance should quadruple correlation penalty (+-4 wei)"
         );

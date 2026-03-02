@@ -5,6 +5,7 @@ import {BaseTest, CofferEvents, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS} from "./Ba
 import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
+import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 
 /// @dev Contract that rejects all ETH transfers
 contract RejectEther {
@@ -32,7 +33,7 @@ contract CofferHolderOpsTest is BaseTest {
     }
 
     /// @dev Compute expected amountWithInterest for a bond
-    function _expectedAmountWithInterest(uint128 amount, uint32 duration) internal view returns (uint128) {
+    function _expectedAmountWithInterest(uint128 amount, uint32 duration) internal view returns (uint256) {
         return amount + Interest.calculateInterest(amount, duration, defaultInterestRate);
     }
 
@@ -50,7 +51,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         // HolderConditions stored
         (uint128 amount, uint32 duration, uint32 startTs) = coffer.sHolderConditions(holderId);
-        uint128 expectedAmt = _expectedAmountWithInterest(1 ether, ONE_MONTH);
+        uint256 expectedAmt = _expectedAmountWithInterest(1 ether, ONE_MONTH);
         assertEq(amount, expectedAmt);
         assertEq(duration, ONE_MONTH);
         assertGt(startTs, 0);
@@ -59,19 +60,21 @@ contract CofferHolderOpsTest is BaseTest {
     function test_BuyBond_EmitsHolderAcceptedOffer() public {
         uint32 version = _enableBonding(10 ether);
 
-        uint128 amtWithInterest = _expectedAmountWithInterest(1 ether, ONE_MONTH);
+        uint256 amtWithInterest = _expectedAmountWithInterest(1 ether, ONE_MONTH);
 
         vm.expectEmit(true, true, false, true);
-        emit CofferEvents.HolderAcceptedOffer(holder1, 1, 1 ether, ONE_MONTH, amtWithInterest);
+        // forge-lint: disable-next-line(unsafe-typecast) test value from _expectedAmountWithInterest fits uint128
+        emit CofferEvents.HolderAcceptedOffer(holder1, 1, 1 ether, ONE_MONTH, uint128(amtWithInterest));
 
         vm.prank(holder1);
         coffer.buyBond{value: 1 ether}(ONE_MONTH, version);
+        vm.snapshotGasLastCall("buyBond");
     }
 
     function test_BuyBond_DecrementsAvailableAmount() public {
         uint32 version = _enableBonding(10 ether);
 
-        uint128 amtWithInterest = _expectedAmountWithInterest(1 ether, ONE_MONTH);
+        uint256 amtWithInterest = _expectedAmountWithInterest(1 ether, ONE_MONTH);
 
         buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -139,8 +142,9 @@ contract CofferHolderOpsTest is BaseTest {
         // We need to buy an amount whose amountWithInterest exactly equals available
         // Since interest > 0, we can't buy exactly 2 ether. Buy a smaller amount
         // that when adding interest fits.
-        uint128 interest = Interest.calculateInterest(1 ether, ONE_MONTH, defaultInterestRate);
-        uint128 totalNeeded = 1 ether + interest;
+        uint256 interest = Interest.calculateInterest(1 ether, ONE_MONTH, defaultInterestRate);
+        // forge-lint: disable-next-line(unsafe-typecast) 1 ether + small interest fits uint128
+        uint128 totalNeeded = uint128(1 ether + interest);
 
         // Set available to exactly what's needed
         vm.prank(validator);
@@ -179,7 +183,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 holderId = buyBond(cofferAddr, holder1, 2 ether, SIX_MONTHS, version);
 
         (uint128 storedAmount,,) = coffer.sHolderConditions(holderId);
-        uint128 expectedInterest = Interest.calculateInterest(2 ether, SIX_MONTHS, defaultInterestRate);
+        uint256 expectedInterest = Interest.calculateInterest(2 ether, SIX_MONTHS, defaultInterestRate);
         assertEq(storedAmount, 2 ether + expectedInterest);
     }
 
@@ -288,7 +292,7 @@ contract CofferHolderOpsTest is BaseTest {
         Coffer(payable(rejectorCofferAddr)).changeIssueSize(10 ether);
 
         vm.prank(holder1);
-        vm.expectRevert(Coffer.SendAmountFailed.selector);
+        vm.expectRevert(Errors.FailedCall.selector);
         Coffer(payable(rejectorCofferAddr)).buyBond{value: 1 ether}(ONE_MONTH, 2);
     }
 
@@ -309,6 +313,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(holderId);
+        vm.snapshotGasLastCall("holderWithdrawFromExecution");
 
         assertEq(holder1.balance, balBefore + amtOwed);
     }
@@ -490,7 +495,7 @@ contract CofferHolderOpsTest is BaseTest {
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(address(rejector));
-        vm.expectRevert(Coffer.SendAmountFailed.selector);
+        vm.expectRevert(Errors.FailedCall.selector);
         coffer.holderWithdrawFromExecution(holderId);
     }
 
@@ -514,6 +519,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder1);
         coffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        vm.snapshotGasLastCall("holderWithdrawFromConsensus");
     }
 
     function test_HolderWithdrawFromConsensus_ExitNotAllowed_VerifyPayloadAmount() public {

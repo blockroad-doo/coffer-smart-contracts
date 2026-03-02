@@ -7,6 +7,7 @@ import {ICofferBondNft} from "./interfaces/ICofferBondNft.sol";
 import {IDepositContract} from "./interfaces/IDepositContract.sol";
 import {Interest} from "./libraries/Interest.sol";
 import {Penalty} from "./libraries/Penalty.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 /**
  * @title Coffer
@@ -41,7 +42,7 @@ contract Coffer is Ownable, Multicall {
 
     error CallerIsNotHolder();
     error ContractBalanceLessThanAmount();
-    error SendAmountFailed();
+
     error WithdrawlContractCallFailed();
     error ConsolidationContractCallFailed();
     error InsufficientFee();
@@ -85,14 +86,14 @@ contract Coffer is Ownable, Multicall {
         0x0000BBdDc7CE488642fb579F8B00f3a590007251;
 
     /// @notice every validator created by CofferFactory is initially validator with 32 ETH effective balance
-    uint128 private constant STARTING_EFFECTIVE_BALANCE_FOR_0X00 = 32 ether;
-    uint16 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
-    uint32 private constant MAX_DURATION = 1_576_800_000; // 50 years
-    uint32 private constant MAX_SAFE_TOTAL_STAKE = 300_000_000; // total ETH amount that size shouldn't be reached in 100 years
+    uint256 private constant STARTING_EFFECTIVE_BALANCE_FOR_0X00 = 32 ether;
+    uint256 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
+    uint256 private constant MAX_DURATION = 1_576_800_000; // 50 years
+    uint256 private constant MAX_SAFE_TOTAL_STAKE = 300_000_000; // total ETH amount that size shouldn't be reached in 100 years
 
     /// @notice 100% interest rate is the maximum allowed, it can have up to 8 decimal places, for example, 10% interest rate is represented as 1e7
-    uint32 private constant MAX_RATE = 1e8; // 1e8 = 100%, so rate has precision of 6 decimals
-    uint128 private constant GWEI_RATE = 1e9;
+    uint256 private constant MAX_RATE = 1e8; // 1e8 = 100%, so rate has precision of 6 decimals
+    uint256 private constant GWEI_RATE = 1e9;
 
     address public immutable I_COFFER_BOND_NFT_ADDRESS;
     // signing public key must stay immutable, it shouldn't be changed in any possible way so that validator cannot point this contract do different validator
@@ -178,11 +179,12 @@ contract Coffer is Ownable, Multicall {
         });
 
         if (_exitAllowed) {
-            sValidatorConditions.issueSize = Penalty.addMaximumPenalty(
+            // forge-lint: disable-next-line(unsafe-typecast) penalty always fits uint128 because of amount, safe total stake and duration limits introduced in CofferFactory
+            sValidatorConditions.issueSize = uint128(Penalty.addMaximumPenalty(
                 STARTING_EFFECTIVE_BALANCE_FOR_0X00,
                 _safeTotalStake,
                 _maximumDuration / NUMBER_OF_SECONDS_IN_EPOCH
-            );
+            ));
         }
     }
 
@@ -211,16 +213,12 @@ contract Coffer is Ownable, Multicall {
             revert AmountTooSmallToAccept();
         if (vs.isActive == false) revert ValidatorIsNotActive();
         if (msg.sender == owner()) revert HolderCannotBeValidator();
-        if (
-            (_duration > vs.maximumDuration ||
-                _duration < vs.minimumDuration) || _duration == 0
-        ) {
-            revert InvalidDuration();
-        }
+        if (_duration == 0) revert InvalidDuration();
+        if (_duration < vs.minimumDuration) revert InvalidDuration();
+        if (_duration > vs.maximumDuration) revert InvalidDuration();
 
-        uint128 msgValue128 = uint128(msg.value);
-        uint128 amountWithInterest = msgValue128 +
-            Interest.calculateInterest(msgValue128, _duration, vs.interestRate);
+        uint256 amountWithInterest = msg.value +
+            Interest.calculateInterest(msg.value, _duration, vs.interestRate);
 
         if (amountWithInterest > vs.issueSize) {
             revert ValidatorDoesntCoverTheAmount();
@@ -234,22 +232,25 @@ contract Coffer is Ownable, Multicall {
         sHolderConditions[holderId] = HolderConditions({
             duration: _duration,
             startTimestamp: uint32(block.timestamp),
-            amount: amountWithInterest
+            // forge-lint: disable-next-line(unsafe-typecast) amountWithInterest ≤ issueSize which is uint128
+            amount: uint128(amountWithInterest)
         });
 
-        vs.issueSize -= amountWithInterest;
+        // forge-lint: disable-next-line(unsafe-typecast) amountWithInterest ≤ issueSize which is uint128
+        vs.issueSize -= uint128(amountWithInterest);
         ++vs.outstandingBonds;
 
         emit HolderAcceptedOffer(
             msg.sender,
             holderId,
-            msgValue128,
+            // forge-lint: disable-next-line(unsafe-typecast) msg.value bounded by uint128 issueSize check
+            uint128(msg.value),
             _duration,
-            amountWithInterest
+            // forge-lint: disable-next-line(unsafe-typecast) amountWithInterest ≤ issueSize which is uint128
+            uint128(amountWithInterest)
         );
 
-        (bool success, ) = owner().call{value: msgValue128}("");
-        if (!success) revert SendAmountFailed();
+        Address.sendValue(payable(owner()), msg.value);
     }
 
     /// @notice Reddem bonds early
@@ -258,31 +259,32 @@ contract Coffer is Ownable, Multicall {
     /// @notice If contract doesn't have enough amount to repay, validator can send additional amount using msg.value
     /// @param _holderIds Holder IDs which bonds are intended to redeem early
     function redeemBondsEarly(
-        uint256[] memory _holderIds
+        uint256[] calldata _holderIds
     ) external payable onlyOwner {
         for (uint256 i = 0; i < _holderIds.length; ++i) {
-            HolderConditions memory holder = sHolderConditions[_holderIds[i]];
+            uint256 holderId = _holderIds[i];
+            HolderConditions storage holder = sHolderConditions[holderId];
+            uint128 amount = holder.amount;
 
-            if (holder.amount == 0) {
+            if (amount == 0) {
                 revert HolderDoesNotExistOrAlreadyWithdrawnAmount();
             }
 
-            if (address(this).balance < holder.amount) {
+            if (address(this).balance < amount) {
                 revert ContractBalanceLessThanAmount();
             }
 
             address holderAddress = ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS)
-                .ownerOf(_holderIds[i]);
-            removeHolder(_holderIds[i]);
+                .ownerOf(holderId);
+            removeHolder(holderId, amount);
 
             emit ValidatorsBondRedeem(
                 holderAddress,
-                _holderIds[i],
-                holder.amount
+                holderId,
+                amount
             );
 
-            (bool success, ) = holderAddress.call{value: holder.amount}("");
-            if (!success) revert SendAmountFailed();
+            Address.sendValue(payable(holderAddress), amount);
         }
     }
 
@@ -290,8 +292,9 @@ contract Coffer is Ownable, Multicall {
     /// @notice If validator wants to stop issuing bonds it can flip from active to inactive and vice versa
     function changeCofferActivity() external onlyOwner {
         ValidatorConditions storage vc = sValidatorConditions;
-        vc.isActive = !vc.isActive;
-        if (vc.isActive == true) emit CofferActivated();
+        bool newState = !vc.isActive;
+        vc.isActive = newState;
+        if (newState) emit CofferActivated();
         else emit CofferDeactivated();
     }
 
@@ -420,12 +423,11 @@ contract Coffer is Ownable, Multicall {
 
         uint128 amountToWithdraw = holder.amount;
 
-        removeHolder(_holderId);
+        removeHolder(_holderId, amountToWithdraw);
 
         emit HolderWithdrawFromExecutionSuccess(msg.sender, _holderId);
 
-        (bool success, ) = msg.sender.call{value: amountToWithdraw}("");
-        if (!success) revert SendAmountFailed();
+        Address.sendValue(payable(msg.sender), amountToWithdraw);
     }
 
     /// @notice if validator allows exits, we cannot have proper way to check if holder should withdraw its exact amount or exit validator, thus holder will always exit validator if it's possible
@@ -454,7 +456,7 @@ contract Coffer is Ownable, Multicall {
 
         // if contract allows exits 0 should be sent in data, if not amount should be converted to gwei
         if (!sValidatorConditions.exitAllowed) {
-            // forge-lint: disable-next-line(unsafe-typecast) holder.amount / GWEI_RATE fits in uint64
+            // forge-lint: disable-next-line(unsafe-typecast) holder.amount is always < 2048 ETH = 2.048 ** 21 and GWEI_RATE fits in uint64, so (holder.amount / GWEI_RATE) < 2.048 ** 13
             amountToWithdrawInGwei = uint64(holder.amount / GWEI_RATE);
         }
 
@@ -513,8 +515,7 @@ contract Coffer is Ownable, Multicall {
 
         emit ValidatorWithdrawFromExecution(_amount);
 
-        (bool success, ) = msg.sender.call{value: _amount}("");
-        if (!success) revert SendAmountFailed();
+        Address.sendValue(payable(msg.sender), _amount);
     }
 
     /// @notice Validator can withdraw from consensus as much as it wants, even perform an exit. Holders' funds are still covered
@@ -575,14 +576,15 @@ contract Coffer is Ownable, Multicall {
 
         ValidatorConditions storage vc = sValidatorConditions;
 
-        uint128 msgValue128 = uint128(msg.value);
-        vc.issueSize += Penalty.addMaximumPenalty(
-            msgValue128,
+        // forge-lint: disable-next-line(unsafe-typecast) penalty on msg.value (≤ validator balance) fits uint128
+        vc.issueSize += uint128(Penalty.addMaximumPenalty(
+            msg.value,
             vc.safeTotalStake,
             vc.maximumDuration / NUMBER_OF_SECONDS_IN_EPOCH
-        );
+        ));
 
-        emit ValidatorFundsAdded(msgValue128);
+        // forge-lint: disable-next-line(unsafe-typecast) msg.value checked ≥ 1 ether and is gwei-aligned, fits uint128
+        emit ValidatorFundsAdded(uint128(msg.value));
     }
 
     /// @notice this should be called after contract address is successfully assigned to validator's BLS public key
@@ -627,9 +629,10 @@ contract Coffer is Ownable, Multicall {
     /// @notice Function which cleans up holders data and updates validators data
     /// @notice Used in: closeOfferWithExactAmountFromValidator, closeOfferFromCofferContract & holderWithdrawFromExecution
     /// @dev It's checked in all functions that _holderId indeed is in storage sHolderConditions, so we do not check here
-    function removeHolder(uint256 _holderId) private {
+    function removeHolder(uint256 _holderId, uint256 _amount) private {
         ValidatorConditions storage vc = sValidatorConditions;
-        vc.issueSize += sHolderConditions[_holderId].amount;
+        // forge-lint: disable-next-line(unsafe-typecast) _amount originates from uint128 HolderConditions.amount
+        vc.issueSize += uint128(_amount);
         --vc.outstandingBonds;
         ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).burnCofferBond(_holderId);
         delete sHolderConditions[_holderId];

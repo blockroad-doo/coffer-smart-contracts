@@ -17,10 +17,10 @@ contract CofferFactoryTest is BaseTest {
     // CONSTANTS (must match CofferFactory)
     // ========================================
 
-    uint32 private constant MAX_RATE = 1e8;
-    uint128 private constant VALIDATOR_STARTING_ETH = 32 ether;
-    uint32 private constant MAX_DURATION = 1_576_800_000; // 50 years
-    uint16 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
+    uint256 private constant MAX_RATE = 1e8;
+    uint256 private constant VALIDATOR_STARTING_ETH = 32 ether;
+    uint256 private constant MAX_DURATION = 1_576_800_000; // 50 years
+    uint256 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
 
     // ========================================
     // DRY HELPERS
@@ -112,7 +112,7 @@ contract CofferFactoryTest is BaseTest {
     }
 
     /// @dev Computes the dynamic max for _minimumAmountToAccept given safeTotalStake and maxDuration
-    function _maxMinimumAmount(uint32 safeTotalStake, uint32 maxDuration) internal pure returns (uint128) {
+    function _maxMinimumAmount(uint256 safeTotalStake, uint256 maxDuration) internal pure returns (uint256) {
         return Penalty.addMaximumPenalty(VALIDATOR_STARTING_ETH, safeTotalStake, maxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
     }
 
@@ -236,7 +236,7 @@ contract CofferFactoryTest is BaseTest {
             true // exitAllowed
         );
 
-        uint128 expectedAvailable =
+        uint256 expectedAvailable =
             Penalty.addMaximumPenalty(VALIDATOR_STARTING_ETH, defaultSafeTotalStake, defaultMaxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
 
         Coffer c = Coffer(payable(cofferAddr));
@@ -335,7 +335,8 @@ contract CofferFactoryTest is BaseTest {
             validPublicKeyPart2,
             defaultInterestRate,
             ONE_DAY,
-            MAX_DURATION + 1, // exceeds 50-year cap
+            // forge-lint: disable-next-line(unsafe-typecast)
+            uint32(MAX_DURATION) + 1, // exceeds 50-year cap
             defaultMinimumAmount,
             defaultSafeTotalStake,
             defaultExitAllowed
@@ -363,7 +364,8 @@ contract CofferFactoryTest is BaseTest {
         factory.createCoffer(
             validPublicKeyPart1,
             validPublicKeyPart2,
-            MAX_RATE + 1, // 1e8 + 1
+            // forge-lint: disable-next-line(unsafe-typecast) MAX_RATE is a small constant that fits uint32
+            uint32(MAX_RATE) + 1, // 1e8 + 1
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
@@ -418,7 +420,7 @@ contract CofferFactoryTest is BaseTest {
     }
 
     function test_CreateCoffer_Revert_MinAmountExceedsMax() public {
-        uint128 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, defaultMaxDuration);
+        uint256 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, defaultMaxDuration);
         // Ensure maxAllowed is positive so the +1 actually exceeds it
         assertTrue(maxAllowed > 0, "maxAllowed should be positive for default params");
 
@@ -430,7 +432,8 @@ contract CofferFactoryTest is BaseTest {
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
-            maxAllowed + 1,
+            // forge-lint: disable-next-line(unsafe-typecast) maxAllowed derived from safe test params fits uint128
+            uint128(maxAllowed) + 1,
             defaultSafeTotalStake,
             defaultExitAllowed
         );
@@ -458,7 +461,7 @@ contract CofferFactoryTest is BaseTest {
     function test_CreateCoffer_Boundary_ExactMaxDuration() public {
         // Use MAX_DURATION for both max and min (min must be > 0 and <= max)
         // With very long duration, penalty is large, so use a very small minimumAmount
-        uint128 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, MAX_DURATION);
+        uint256 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, MAX_DURATION);
         // If maxAllowed is 0, the only way to create would fail on minAmount validation.
         // Use a small minAmount if possible, otherwise skip boundary check.
         if (maxAllowed > 0) {
@@ -468,7 +471,8 @@ contract CofferFactoryTest is BaseTest {
                 validPublicKeyPart2,
                 defaultInterestRate,
                 1, // smallest valid min duration
-                MAX_DURATION,
+                // forge-lint: disable-next-line(unsafe-typecast) MAX_DURATION is a small constant that fits uint32
+                uint32(MAX_DURATION),
                 1, // smallest valid amount
                 defaultSafeTotalStake,
                 defaultExitAllowed
@@ -482,7 +486,8 @@ contract CofferFactoryTest is BaseTest {
             validator,
             validPublicKeyPart1,
             validPublicKeyPart2,
-            MAX_RATE, // exactly 1e8 = 100%
+            // forge-lint: disable-next-line(unsafe-typecast) MAX_RATE is a small constant that fits uint32
+            uint32(MAX_RATE), // exactly 1e8 = 100%
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
@@ -508,7 +513,7 @@ contract CofferFactoryTest is BaseTest {
     }
 
     function test_CreateCoffer_Boundary_ExactMaxMinimumAmount() public {
-        uint128 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, defaultMaxDuration);
+        uint256 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, defaultMaxDuration);
         assertTrue(maxAllowed > 0, "maxAllowed should be positive for default params");
 
         address cofferAddr = _createCofferAndGetAddress(
@@ -518,7 +523,8 @@ contract CofferFactoryTest is BaseTest {
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
-            maxAllowed, // exactly at the boundary
+            // forge-lint: disable-next-line(unsafe-typecast) maxAllowed derived from safe test params fits uint128
+            uint128(maxAllowed), // exactly at the boundary
             defaultSafeTotalStake,
             defaultExitAllowed
         );

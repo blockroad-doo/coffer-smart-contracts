@@ -17,12 +17,12 @@ contract PenaltyTest is BaseTest {
     // ========================================
 
     // Penalty library constants (must match library)
-    uint16 constant INITIAL_SLASHING_PENALTY_QUOTIENT = 4096;
-    uint8 constant PROPORTIONAL_SLASHING_MULTIPLIER = 3;
-    uint32 constant SLASHING_PENALTY_DURATION_IN_EPOCH = 8192;
-    uint8 constant BASE_REWARD = 40;
-    uint64 constant WEI_DECIMALS = 1e18;
-    uint64 constant GWEI_DECIMALS = 1e9;
+    uint256 constant INITIAL_SLASHING_PENALTY_QUOTIENT = 4096;
+    uint256 constant PROPORTIONAL_SLASHING_MULTIPLIER = 3;
+    uint256 constant SLASHING_PENALTY_DURATION_IN_EPOCH = 8192;
+    uint256 constant BASE_REWARD = 40;
+    uint256 constant WEI_DECIMALS = 1e18;
+    uint256 constant GWEI_DECIMALS = 1e9;
 
     // Realistic validator balance limits (max 2048 ETH as specified)
     uint128 constant MIN_VALIDATOR_BALANCE = 1 wei;
@@ -45,7 +45,7 @@ contract PenaltyTest is BaseTest {
     uint32 constant TEN_EPOCHS = 10;
     uint32 constant HUNDRED_EPOCHS = 100;
     uint32 constant THOUSAND_EPOCHS = 1000;
-    uint32 constant MAX_EPOCHS = SLASHING_PENALTY_DURATION_IN_EPOCH; // 8192
+    uint256 constant MAX_EPOCHS = SLASHING_PENALTY_DURATION_IN_EPOCH; // 8192
 
     // Ethereum has ~225 epochs per day (32 slots per epoch, 12 second slot time)
     uint32 constant EPOCHS_PER_DAY = 225;
@@ -69,61 +69,57 @@ contract PenaltyTest is BaseTest {
     /**
      * @dev Calculate expected initial penalty component
      */
-    function calculateExpectedInitialPenalty(uint128 effectiveBalance) internal pure returns (uint128) {
+    function calculateExpectedInitialPenalty(uint256 effectiveBalance) internal pure returns (uint256) {
         return effectiveBalance / INITIAL_SLASHING_PENALTY_QUOTIENT;
     }
 
     /**
      * @dev Calculate expected correlation penalty component
      */
-    function calculateExpectedCorrelationPenalty(uint128 effectiveBalance, uint32 safeTotalStake)
+    function calculateExpectedCorrelationPenalty(uint256 effectiveBalance, uint256 safeTotalStake)
         internal
         pure
-        returns (uint128)
+        returns (uint256)
     {
         // Formula matches library: (effectiveBalance * effectiveBalance * MULTIPLIER) / (safeTotalStake * WEI_DECIMALS)
-        uint256 penalty = uint256(effectiveBalance) * effectiveBalance * PROPORTIONAL_SLASHING_MULTIPLIER
-            / (uint128(safeTotalStake) * WEI_DECIMALS);
-        // forge-lint: disable-next-line(unsafe-typecast) test helper, bounded by inputs
-        return uint128(penalty);
+        return effectiveBalance * effectiveBalance * PROPORTIONAL_SLASHING_MULTIPLIER
+            / (safeTotalStake * WEI_DECIMALS);
     }
 
     /**
      * @dev Calculate expected leaking penalty component
      */
-    function calculateExpectedLeakingPenalty(uint128 effectiveBalance, uint32 safeTotalStake, uint32 epochs)
+    function calculateExpectedLeakingPenalty(uint256 effectiveBalance, uint256 safeTotalStake, uint256 epochs)
         internal
         pure
-        returns (uint128)
+        returns (uint256)
     {
-        uint256 penalty = uint256(effectiveBalance) * BASE_REWARD * epochs
-            / Math.sqrt(uint256(safeTotalStake) * GWEI_DECIMALS);
-        // forge-lint: disable-next-line(unsafe-typecast) test helper, bounded by inputs
-        return uint128(penalty);
+        return effectiveBalance * BASE_REWARD * epochs
+            / Math.sqrt(safeTotalStake * GWEI_DECIMALS);
     }
 
     /**
      * @dev Calculate full expected slashing penalty (all components)
      */
-    function calculateExpectedSlashingPenalty(uint128 effectiveBalance, uint32 safeTotalStake)
+    function calculateExpectedSlashingPenalty(uint256 effectiveBalance, uint256 safeTotalStake)
         internal
         pure
-        returns (uint128)
+        returns (uint256)
     {
-        uint128 initial = calculateExpectedInitialPenalty(effectiveBalance);
-        uint128 correlation = calculateExpectedCorrelationPenalty(effectiveBalance, safeTotalStake);
-        uint128 leaking = calculateExpectedLeakingPenalty(effectiveBalance, safeTotalStake, MAX_EPOCHS);
+        uint256 initial = calculateExpectedInitialPenalty(effectiveBalance);
+        uint256 correlation = calculateExpectedCorrelationPenalty(effectiveBalance, safeTotalStake);
+        uint256 leaking = calculateExpectedLeakingPenalty(effectiveBalance, safeTotalStake, MAX_EPOCHS);
         return initial + correlation + leaking;
     }
 
     /**
      * @dev Assert slashing penalty matches expected value
      */
-    function assertSlashingPenalty(uint128 effectiveBalance, uint32 safeTotalStake, string memory errorMessage)
+    function assertSlashingPenalty(uint256 effectiveBalance, uint256 safeTotalStake, string memory errorMessage)
         internal
     {
-        uint128 actual = Penalty.slashing(effectiveBalance, safeTotalStake);
-        uint128 expected = calculateExpectedSlashingPenalty(effectiveBalance, safeTotalStake);
+        uint256 actual = Penalty.slashing(effectiveBalance, safeTotalStake);
+        uint256 expected = calculateExpectedSlashingPenalty(effectiveBalance, safeTotalStake);
         assertEq(actual, expected, errorMessage);
     }
 
@@ -131,13 +127,13 @@ contract PenaltyTest is BaseTest {
      * @dev Assert missing attestations penalty matches expected value
      */
     function assertMissingAttestationsPenalty(
-        uint128 effectiveBalance,
-        uint32 safeTotalStake,
-        uint32 epochs,
+        uint256 effectiveBalance,
+        uint256 safeTotalStake,
+        uint256 epochs,
         string memory errorMessage
     ) internal {
-        uint128 actual = Penalty.missingAttestations(effectiveBalance, safeTotalStake, epochs);
-        uint128 expected = calculateExpectedLeakingPenalty(effectiveBalance, safeTotalStake, epochs);
+        uint256 actual = Penalty.missingAttestations(effectiveBalance, safeTotalStake, epochs);
+        uint256 expected = calculateExpectedLeakingPenalty(effectiveBalance, safeTotalStake, epochs);
         assertEq(actual, expected, errorMessage);
     }
 
@@ -177,7 +173,7 @@ contract PenaltyTest is BaseTest {
     // ========================================
 
     function test_Slashing_ZeroBalance() public {
-        uint128 penalty = Penalty.slashing(0, SAFE_TOTAL_STAKE_20M);
+        uint256 penalty = Penalty.slashing(0, SAFE_TOTAL_STAKE_20M);
         assertEq(penalty, 0, "Zero balance should return zero penalty");
     }
 
@@ -243,7 +239,7 @@ contract PenaltyTest is BaseTest {
     function test_Slashing_NoOverflow() public {
         // Verify no overflow with maximum allowed values
         // This should not revert
-        uint128 penalty = Penalty.slashing(MAX_VALIDATOR_BALANCE, MAX_SAFE_TOTAL_STAKE);
+        uint256 penalty = Penalty.slashing(MAX_VALIDATOR_BALANCE, MAX_SAFE_TOTAL_STAKE);
 
         // The penalty can exceed balance in extreme cases (by design)
         // Just verify it doesn't overflow/revert
@@ -311,12 +307,12 @@ contract PenaltyTest is BaseTest {
     // ========================================
 
     function test_MissingAttestations_ZeroBalance() public {
-        uint128 penalty = Penalty.missingAttestations(0, SAFE_TOTAL_STAKE_20M, HUNDRED_EPOCHS);
+        uint256 penalty = Penalty.missingAttestations(0, SAFE_TOTAL_STAKE_20M, HUNDRED_EPOCHS);
         assertEq(penalty, 0, "Zero balance should return zero penalty");
     }
 
     function test_MissingAttestations_ZeroEpochs() public {
-        uint128 penalty = Penalty.missingAttestations(STANDARD_VALIDATOR_BALANCE, SAFE_TOTAL_STAKE_20M, 0);
+        uint256 penalty = Penalty.missingAttestations(STANDARD_VALIDATOR_BALANCE, SAFE_TOTAL_STAKE_20M, 0);
         assertEq(penalty, 0, "Zero epochs should return zero penalty");
     }
 
@@ -393,12 +389,12 @@ contract PenaltyTest is BaseTest {
         uint128 balance = STANDARD_VALIDATOR_BALANCE;
         uint32 stake = SAFE_TOTAL_STAKE_20M;
 
-        uint128 slashingPenalty = Penalty.slashing(balance, stake);
+        uint256 slashingPenalty = Penalty.slashing(balance, stake);
 
         // Calculate individual components
-        uint128 initial = calculateExpectedInitialPenalty(balance);
-        uint128 correlation = calculateExpectedCorrelationPenalty(balance, stake);
-        uint128 leaking = calculateExpectedLeakingPenalty(balance, stake, MAX_EPOCHS);
+        uint256 initial = calculateExpectedInitialPenalty(balance);
+        uint256 correlation = calculateExpectedCorrelationPenalty(balance, stake);
+        uint256 leaking = calculateExpectedLeakingPenalty(balance, stake, MAX_EPOCHS);
 
         // Verify total equals sum of components
         assertEq(slashingPenalty, initial + correlation + leaking, "Total penalty != sum of components");
@@ -420,12 +416,12 @@ contract PenaltyTest is BaseTest {
         uint128 balance = MAX_VALIDATOR_BALANCE;
         uint32 stake = SAFE_TOTAL_STAKE_20M;
 
-        uint128 slashingPenalty = Penalty.slashing(balance, stake);
+        uint256 slashingPenalty = Penalty.slashing(balance, stake);
 
         // Calculate individual components
-        uint128 initial = calculateExpectedInitialPenalty(balance);
-        uint128 correlation = calculateExpectedCorrelationPenalty(balance, stake);
-        uint128 leaking = calculateExpectedLeakingPenalty(balance, stake, MAX_EPOCHS);
+        uint256 initial = calculateExpectedInitialPenalty(balance);
+        uint256 correlation = calculateExpectedCorrelationPenalty(balance, stake);
+        uint256 leaking = calculateExpectedLeakingPenalty(balance, stake, MAX_EPOCHS);
 
         // Verify total equals sum of components
         assertEq(slashingPenalty, initial + correlation + leaking, "Max validator penalty != sum of components");
@@ -443,10 +439,10 @@ contract PenaltyTest is BaseTest {
         uint128 balance = STANDARD_VALIDATOR_BALANCE;
 
         // With small total stake, correlation penalty dominates
-        uint128 penalty1 = Penalty.slashing(balance, SAFE_TOTAL_STAKE_1M);
+        uint256 penalty1 = Penalty.slashing(balance, SAFE_TOTAL_STAKE_1M);
 
         // With large total stake, correlation penalty is smaller
-        uint128 penalty2 = Penalty.slashing(balance, SAFE_TOTAL_STAKE_100M);
+        uint256 penalty2 = Penalty.slashing(balance, SAFE_TOTAL_STAKE_100M);
 
         // Higher total stake should result in lower penalty
         assertTrue(penalty2 < penalty1, "Higher stake should result in lower penalty");
@@ -483,15 +479,15 @@ contract PenaltyTest is BaseTest {
         uint32 stake = SAFE_TOTAL_STAKE_20M;
         uint32 epochs = HUNDRED_EPOCHS;
 
-        uint128 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
+        uint256 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
 
         // Calculate expected penalties
-        uint128 slashingPenalty = Penalty.slashing(balance, stake);
-        uint128 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
-        uint128 totalPenalty = slashingPenalty + attestationPenalty;
+        uint256 slashingPenalty = Penalty.slashing(balance, stake);
+        uint256 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
+        uint256 totalPenalty = slashingPenalty + attestationPenalty;
 
         // Result should be balance minus total penalty
-        uint128 expectedBalance = balance > totalPenalty ? balance - totalPenalty : 0;
+        uint256 expectedBalance =balance > totalPenalty ? balance - totalPenalty : 0;
         assertEq(resultBalance, expectedBalance, "AddMaximumPenalty result incorrect for standard validator");
 
         emit log_named_uint("Original Balance", balance);
@@ -504,7 +500,7 @@ contract PenaltyTest is BaseTest {
         uint32 stake = SAFE_TOTAL_STAKE_20M;
         uint32 epochs = THOUSAND_EPOCHS;
 
-        uint128 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
+        uint256 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
 
         // Should return balance after penalties
         assertTrue(resultBalance < balance, "Penalty should reduce balance");
@@ -517,14 +513,14 @@ contract PenaltyTest is BaseTest {
         // Small stake and max epochs can cause penalty to exceed balance
         uint128 balance = STANDARD_VALIDATOR_BALANCE;
         uint32 stake = MIN_SAFE_TOTAL_STAKE; // Very small stake
-        uint32 epochs = MAX_EPOCHS;
+        uint256 epochs = MAX_EPOCHS;
 
-        uint128 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
+        uint256 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
 
         // When penalty exceeds balance, should return 0
-        uint128 slashingPenalty = Penalty.slashing(balance, stake);
-        uint128 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
-        uint128 totalPenalty = slashingPenalty + attestationPenalty;
+        uint256 slashingPenalty = Penalty.slashing(balance, stake);
+        uint256 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
+        uint256 totalPenalty = slashingPenalty + attestationPenalty;
 
         if (totalPenalty >= balance) {
             assertEq(resultBalance, 0, "Should return 0 when penalty exceeds balance");
@@ -536,7 +532,7 @@ contract PenaltyTest is BaseTest {
     }
 
     function test_AddMaximumPenalty_ZeroBalance() public {
-        uint128 resultBalance = Penalty.addMaximumPenalty(0, SAFE_TOTAL_STAKE_20M, HUNDRED_EPOCHS);
+        uint256 resultBalance = Penalty.addMaximumPenalty(0, SAFE_TOTAL_STAKE_20M, HUNDRED_EPOCHS);
         assertEq(resultBalance, 0, "Zero balance should return zero");
     }
 
@@ -544,11 +540,11 @@ contract PenaltyTest is BaseTest {
         uint128 balance = STANDARD_VALIDATOR_BALANCE;
         uint32 stake = SAFE_TOTAL_STAKE_20M;
 
-        uint128 resultBalance = Penalty.addMaximumPenalty(balance, stake, 0);
+        uint256 resultBalance = Penalty.addMaximumPenalty(balance, stake, 0);
 
         // With zero epochs, only slashing penalty applies
-        uint128 slashingPenalty = Penalty.slashing(balance, stake);
-        uint128 expectedBalance = balance > slashingPenalty ? balance - slashingPenalty : 0;
+        uint256 slashingPenalty = Penalty.slashing(balance, stake);
+        uint256 expectedBalance =balance > slashingPenalty ? balance - slashingPenalty : 0;
 
         assertEq(resultBalance, expectedBalance, "Zero epochs should only apply slashing penalty");
     }
@@ -563,11 +559,11 @@ contract PenaltyTest is BaseTest {
         uint32 epochs = EPOCHS_10_YEARS;
 
         // Test missingAttestations doesn't overflow
-        uint128 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
+        uint256 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
         assertTrue(attestationPenalty > 0, "10-year attestation penalty should be non-zero");
 
         // Test addPenalty doesn't overflow
-        uint128 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
+        uint256 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
 
         emit log_named_uint("10-Year Epochs", epochs);
         emit log_named_uint("Attestation Penalty", attestationPenalty);
@@ -580,11 +576,11 @@ contract PenaltyTest is BaseTest {
         uint32 epochs = EPOCHS_20_YEARS;
 
         // Test missingAttestations doesn't overflow
-        uint128 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
+        uint256 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
         assertTrue(attestationPenalty > 0, "20-year attestation penalty should be non-zero");
 
         // Test addPenalty doesn't overflow
-        uint128 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
+        uint256 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
 
         emit log_named_uint("20-Year Epochs", epochs);
         emit log_named_uint("Attestation Penalty", attestationPenalty);
@@ -597,11 +593,11 @@ contract PenaltyTest is BaseTest {
         uint32 epochs = EPOCHS_50_YEARS;
 
         // Test missingAttestations doesn't overflow
-        uint128 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
+        uint256 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
         assertTrue(attestationPenalty > 0, "50-year attestation penalty should be non-zero");
 
         // Test addPenalty doesn't overflow
-        uint128 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
+        uint256 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
 
         emit log_named_uint("50-Year Epochs", epochs);
         emit log_named_uint("Attestation Penalty", attestationPenalty);
@@ -618,8 +614,8 @@ contract PenaltyTest is BaseTest {
         uint32 stake = SAFE_TOTAL_STAKE_20M;
         uint32 epochs = EPOCHS_10_YEARS;
 
-        uint128 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
-        uint128 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
+        uint256 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
+        uint256 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
 
         emit log_named_uint("Max Validator (2048 ETH) - 10 Years", epochs);
         emit log_named_uint("Attestation Penalty", attestationPenalty);
@@ -631,8 +627,8 @@ contract PenaltyTest is BaseTest {
         uint32 stake = SAFE_TOTAL_STAKE_100M; // Larger stake for more realistic scenario
         uint32 epochs = EPOCHS_50_YEARS;
 
-        uint128 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
-        uint128 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
+        uint256 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
+        uint256 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
 
         emit log_named_uint("Max Validator (2048 ETH) - 50 Years", epochs);
         emit log_named_uint("Attestation Penalty", attestationPenalty);
@@ -660,7 +656,7 @@ contract PenaltyTest is BaseTest {
         uint32 maxEpochs = type(uint32).max; // Maximum epochs
 
         // This should calculate without overflow for realistic values
-        uint128 penalty = Penalty.missingAttestations(realisticMaxBalance, minStake, maxEpochs);
+        uint256 penalty = Penalty.missingAttestations(realisticMaxBalance, minStake, maxEpochs);
 
         emit log_named_uint("Realistic Max Balance (2048 ETH)", realisticMaxBalance);
         emit log_named_uint("Min Stake", minStake);
@@ -670,7 +666,7 @@ contract PenaltyTest is BaseTest {
         assertTrue(penalty > 0, "Should calculate penalty for realistic maximum values");
 
         // Also test with a more reasonable epoch count (50 years)
-        uint128 penalty50Years = Penalty.missingAttestations(realisticMaxBalance, minStake, EPOCHS_50_YEARS);
+        uint256 penalty50Years = Penalty.missingAttestations(realisticMaxBalance, minStake, EPOCHS_50_YEARS);
 
         emit log_named_uint("Penalty for 50 years", penalty50Years);
         assertTrue(penalty50Years > 0 && penalty50Years < penalty, "50-year penalty should be less than max epochs");
@@ -683,11 +679,11 @@ contract PenaltyTest is BaseTest {
         uint32 epochs = EPOCHS_50_YEARS;
 
         // Calculate individual penalties
-        uint128 slashingPenalty = Penalty.slashing(balance, stake);
-        uint128 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
+        uint256 slashingPenalty = Penalty.slashing(balance, stake);
+        uint256 attestationPenalty = Penalty.missingAttestations(balance, stake, epochs);
 
         // Test addPenalty with these values
-        uint128 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
+        uint256 resultBalance = Penalty.addMaximumPenalty(balance, stake, epochs);
 
         emit log_named_uint("Slashing Penalty", slashingPenalty);
         emit log_named_uint("Attestation Penalty (50 years)", attestationPenalty);
@@ -704,18 +700,16 @@ contract PenaltyTest is BaseTest {
         uint32 stake = MIN_SAFE_TOTAL_STAKE;
 
         // Initial penalty component
-        uint128 initialPenalty = balance / INITIAL_SLASHING_PENALTY_QUOTIENT;
+        uint256 initialPenalty = balance / INITIAL_SLASHING_PENALTY_QUOTIENT;
         assertTrue(initialPenalty > 0, "Initial penalty calculated");
 
         // Correlation penalty component (highest risk of overflow)
-        uint256 correlationCalc = uint256(balance) * balance * PROPORTIONAL_SLASHING_MULTIPLIER
-            / (uint128(stake) * WEI_DECIMALS);
-        // forge-lint: disable-next-line(unsafe-typecast) test helper, bounded by inputs
-        uint128 correlationPenalty = uint128(correlationCalc);
+        uint256 correlationPenalty = uint256(balance) * balance * PROPORTIONAL_SLASHING_MULTIPLIER
+            / (uint256(stake) * WEI_DECIMALS);
         assertTrue(correlationPenalty > 0 || correlationPenalty == 0, "Correlation penalty calculated");
 
         // Leaking penalty component
-        uint128 leakingPenalty = calculateExpectedLeakingPenalty(balance, stake, MAX_EPOCHS);
+        uint256 leakingPenalty = calculateExpectedLeakingPenalty(balance, stake, MAX_EPOCHS);
         assertTrue(leakingPenalty > 0 || leakingPenalty == 0, "Leaking penalty calculated");
 
         emit log_named_uint("Initial Penalty", initialPenalty);
@@ -737,7 +731,7 @@ contract PenaltyTest is BaseTest {
             TestCase memory tc = cases[i];
 
             // Should not revert
-            uint128 result = Penalty.addMaximumPenalty(tc.balance, tc.stake, tc.epochs);
+            uint256 result = Penalty.addMaximumPenalty(tc.balance, tc.stake, tc.epochs);
 
             emit log_string(tc.description);
             emit log_named_uint("Balance", tc.balance);
@@ -756,9 +750,9 @@ contract PenaltyTest is BaseTest {
         uint32 stake = SAFE_TOTAL_STAKE_10M;
 
         // Calculate penalties for increasing durations
-        uint128 penalty1Year = Penalty.missingAttestations(balance, stake, EPOCHS_PER_YEAR);
-        uint128 penalty10Years = Penalty.missingAttestations(balance, stake, EPOCHS_10_YEARS);
-        uint128 penalty50Years = Penalty.missingAttestations(balance, stake, EPOCHS_50_YEARS);
+        uint256 penalty1Year = Penalty.missingAttestations(balance, stake, EPOCHS_PER_YEAR);
+        uint256 penalty10Years = Penalty.missingAttestations(balance, stake, EPOCHS_10_YEARS);
+        uint256 penalty50Years = Penalty.missingAttestations(balance, stake, EPOCHS_50_YEARS);
 
         // Penalties should scale linearly with epochs
         // Allow small rounding differences

@@ -90,7 +90,7 @@ contract CofferMainOpsTest is BaseTest {
 
         (uint128 issueSize,,,,,,,,, ) = exitCoffer.sValidatorConditions();
 
-        uint128 expected = Penalty.addMaximumPenalty(
+        uint256 expected = Penalty.addMaximumPenalty(
             32 ether,
             defaultSafeTotalStake,
             defaultMaxDuration / 384
@@ -143,7 +143,7 @@ contract CofferMainOpsTest is BaseTest {
             bool exitAllowed
         ) = exitCoffer.sValidatorConditions();
 
-        uint128 expectedAvailable = Penalty.addMaximumPenalty(
+        uint256 expectedAvailable = Penalty.addMaximumPenalty(
             32 ether,
             defaultSafeTotalStake,
             defaultMaxDuration / 384

@@ -13,9 +13,9 @@ contract CofferHandler is Test {
     uint16 constant SECONDS_PER_EPOCH = 384;
     uint256 constant EXIT_QUEUE_DELAY = (EXIT_QUEUE_ETH * SECONDS_PER_EPOCH) / ETH_PER_EPOCH;
 
-    uint32 constant MAX_RATE = 1e8;
-    uint128 constant GWEI_RATE = 1e9;
-    uint32 constant SECONDS_IN_YEAR = 31_536_000;
+    uint256 constant MAX_RATE = 1e8;
+    uint256 constant GWEI_RATE = 1e9;
+    uint256 constant SECONDS_IN_YEAR = 31_536_000;
 
     address private constant WITHDRAWAL_CONTRACT = 0x00000961Ef480Eb55e80D19ad83579A64c007002;
 
@@ -166,7 +166,7 @@ contract CofferHandler is Test {
         uint128 amt = uint128(bound(amount, p.minimumAmountToAccept, upperBound));
 
         // Verify amountWithInterest fits
-        uint128 amountWithInterest = amt + Interest.calculateInterest(amt, dur, p.interestRate);
+        uint128 amountWithInterest = uint128(amt + Interest.calculateInterest(amt, dur, p.interestRate));
         if (amountWithInterest > p.issueSize) return;
 
         // Buy the bond
@@ -352,8 +352,10 @@ contract CofferHandler is Test {
 
         // Clamp amount to [1 ether, 100 ether], round down to gwei multiple
         uint128 amt = uint128(bound(amount, 1 ether, 100 ether));
-        // forge-lint: disable-next-line(divide-before-multiply)
-        amt = (amt / GWEI_RATE) * GWEI_RATE;
+        
+        // casting to 'uint128' is safe because bounds are intorduced
+        // forge-lint: disable-next-line(unsafe-typecast) bounded to [1 ether, 100 ether] fits uint128
+        amt = uint128((amt * GWEI_RATE) / GWEI_RATE);
         if (amt < 1 ether) amt = 1 ether;
 
         // Check validator can afford it

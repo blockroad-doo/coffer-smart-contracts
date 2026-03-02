@@ -2,8 +2,9 @@
 pragma solidity ^0.8.33;
 
 library Interest {
-    uint32 private constant MAX_RATE = 1e8; // 1e8 = 100%
-    uint32 private constant SECONDS_IN_YEAR = 31_536_000; // 365 days * 24 hours * 60 minutes * 60 seconds
+    uint256 private constant MAX_RATE = 1e8; // 1e8 = 100%
+    uint256 private constant SECONDS_IN_YEAR = 31_536_000; // 365 days * 24 hours * 60 minutes * 60 seconds
+    uint256 private constant MAX_RATE_IN_YEAR_SECONDS = MAX_RATE * SECONDS_IN_YEAR;
 
     /// @notice Function to calculate the interest based on the amount, duration and interest rate
     /// @notice We use simple interest calculation with timestamp to calculate the interest
@@ -11,11 +12,10 @@ library Interest {
     /// @param _amount The amount for which interest is to be calculated
     /// @param _duration The duration for which interest is to be calculated
     /// @param _rate The yearly interest rate to be applied, should be in the range (0, 10e18)
-
-    function calculateInterest(uint128 _amount, uint32 _duration, uint32 _rate) internal pure returns (uint128) {
+    function calculateInterest(uint256 _amount, uint256 _duration, uint256 _rate) internal pure returns (uint256) {
         if (_amount == 0 || _duration == 0 || _rate == 0) return 0;
 
         // Calculate the interest based on the amount, interest rate and duration
-        return (_amount * uint64(_rate) * _duration) / (uint64(MAX_RATE) * SECONDS_IN_YEAR);
+        return (_amount * _rate * _duration) / MAX_RATE_IN_YEAR_SECONDS;
     }
 }

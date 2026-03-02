@@ -9,9 +9,9 @@ contract CofferFactoryHandler is Test {
     CofferFactory public factory;
     address[] public actors;
 
-    uint32 private constant MAX_RATE = 1e8;
-    uint32 private constant MAX_DURATION = 157_68_00_000; // 50 years
-    uint16 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
+    uint256 private constant MAX_RATE = 1e8;
+    uint256 private constant MAX_DURATION = 157_68_00_000; // 50 years
+    uint256 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
 
     // Ghost state
     address[] public ghostDeployedCoffers;
@@ -50,7 +50,7 @@ contract CofferFactoryHandler is Test {
         safeTotalStake = uint32(bound(uint256(safeTotalStake), 1, 300_000_000));
 
         // Compute maxMinAmount
-        uint128 maxMinAmount = Penalty.addMaximumPenalty(
+        uint256 maxMinAmount = Penalty.addMaximumPenalty(
             32 ether,
             safeTotalStake,
             maxDur / NUMBER_OF_SECONDS_IN_EPOCH

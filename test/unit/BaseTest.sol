@@ -61,7 +61,6 @@ abstract contract BaseTest is Test {
     string constant ERROR_HOLDER_CANNOT_BE_VALIDATOR = "HolderCannotBeValidator()";
     string constant ERROR_NOT_HOLDER = "CallerIsNotHolder()";
     string constant ERROR_INSUFFICIENT_BALANCE = "ContractBalanceLessThanAmount()";
-    string constant ERROR_SEND_FAILED = "SendAmountFailed()";
 
     // CofferFactory errors
     string constant ERROR_FACTORY_INVALID_DURATION = "InvalidDuration()";
@@ -297,7 +296,7 @@ abstract contract BaseTest is Test {
     // HELPER FUNCTIONS - INTEREST CALCULATION
     // ========================================
 
-    function calculateExpectedInterest(uint128 amount, uint32 duration, uint32 rate) public pure returns (uint128) {
+    function calculateExpectedInterest(uint256 amount, uint256 duration, uint256 rate) public pure returns (uint256) {
         return Interest.calculateInterest(amount, duration, rate);
     }
 
@@ -305,11 +304,11 @@ abstract contract BaseTest is Test {
     // HELPER FUNCTIONS - PENALTY CALCULATION
     // ========================================
 
-    function calculateExpectedIssueSize(uint32 safeTotalStake, uint32 maxDuration) public pure returns (uint128) {
-        uint128 slashingPenalty = Penalty.slashing(32 ether, safeTotalStake);
+    function calculateExpectedIssueSize(uint256 safeTotalStake, uint256 maxDuration) public pure returns (uint256) {
+        uint256 slashingPenalty = Penalty.slashing(32 ether, safeTotalStake);
         // Convert duration in seconds to epochs (384 seconds per epoch)
-        uint32 epochs = maxDuration / 384;
-        uint128 attestationPenalty = Penalty.missingAttestations(32 ether, safeTotalStake, epochs);
+        uint256 epochs = maxDuration / 384;
+        uint256 attestationPenalty = Penalty.missingAttestations(32 ether, safeTotalStake, epochs);
         return 32 ether - (slashingPenalty + attestationPenalty);
     }
 
