@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install solhint
+        run: npm i -g solhint
+
+      - name: Run lint
+        run: make lint
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build
+        run: forge build --sizes --deny warnings
+
+  slither:
+    name: Slither
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Build for Slither
+        run: forge build --build-info --skip test script
+
+      - name: Run Slither
+        uses: crytic/slither-action@v0.4.0
+        with:
+          fail-on: low
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      HOODI_RPC_URL: ${{ secrets.HOODI_RPC_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Set weekly fuzz seed
+        run: >
+          echo "FOUNDRY_FUZZ_SEED=$(
+            echo $(($EPOCHSECONDS / 604800))
+          )" >> $GITHUB_ENV
+
+      - name: Build
+        run: forge build
+
+      - name: Run local tests
+        run: >
+          FOUNDRY_PROFILE=ci forge test
+          --isolate
+          -vvv
+          --show-progress
+
+      - name: Run Hoodi fork tests
+        if: env.HOODI_RPC_URL != ''
+        run: >
+          HOODI_RPC_URL=${{ secrets.HOODI_RPC_URL }} forge test
+          --match-path "test/integration/hoodi/*"
+          -vvv
+
+      - name: Coverage
+        run: >
+          forge coverage
+          --no-match-coverage "^test/|^script/"
+          --report summary

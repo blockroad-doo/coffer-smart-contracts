@@ -163,11 +163,9 @@ contract PenaltyInvariantTest is Test {
         // Compute individual components (same formulas as library)
         uint256 initialPenalty = eb / INITIAL_SLASHING_PENALTY_QUOTIENT;
 
-        uint256 correlationPenalty = uint256(eb) * eb * PROPORTIONAL_SLASHING_MULTIPLIER
-            / (uint256(s) * WEI_DECIMALS);
+        uint256 correlationPenalty = uint256(eb) * eb * PROPORTIONAL_SLASHING_MULTIPLIER / (uint256(s) * WEI_DECIMALS);
 
-        uint256 leakingPenalty =
-            Penalty.missingAttestations(eb, s, SLASHING_PENALTY_DURATION_IN_EPOCH);
+        uint256 leakingPenalty = Penalty.missingAttestations(eb, s, SLASHING_PENALTY_DURATION_IN_EPOCH);
 
         uint256 expectedTotal = initialPenalty + correlationPenalty + leakingPenalty;
         assertEq(totalSlashing, expectedTotal, "Slashing must equal sum of initial + correlation + leaking");
@@ -246,11 +244,7 @@ contract PenaltyInvariantTest is Test {
         eb = uint128(bound(uint256(eb), 0, MAX_BALANCE));
         s = uint32(bound(uint256(s), 1, type(uint32).max));
 
-        assertEq(
-            Penalty.missingAttestations(eb, s, 0),
-            0,
-            "missingAttestations with 0 epochs must return 0"
-        );
+        assertEq(Penalty.missingAttestations(eb, s, 0), 0, "missingAttestations with 0 epochs must return 0");
     }
 
     // ========================================
@@ -339,21 +333,14 @@ contract PenaltyInvariantTest is Test {
         eb = uint128(bound(uint256(eb), 1, MAX_BALANCE / 2));
         s = uint32(bound(uint256(s), 1, type(uint32).max));
 
-        uint256 corr1 = uint256(eb) * eb * PROPORTIONAL_SLASHING_MULTIPLIER
-            / (uint256(s) * WEI_DECIMALS);
+        uint256 corr1 = uint256(eb) * eb * PROPORTIONAL_SLASHING_MULTIPLIER / (uint256(s) * WEI_DECIMALS);
 
         uint256 eb2 = uint256(eb) * 2;
-        uint256 corr2 = eb2 * eb2 * PROPORTIONAL_SLASHING_MULTIPLIER
-            / (uint256(s) * WEI_DECIMALS);
+        uint256 corr2 = eb2 * eb2 * PROPORTIONAL_SLASHING_MULTIPLIER / (uint256(s) * WEI_DECIMALS);
 
         // corr(2*eb) should be 4 * corr(eb), with tolerance for integer floor division
         // 4 * corr1 may differ from corr2 by up to 4 wei due to independent floor divisions
-        assertApproxEqAbs(
-            corr2,
-            corr1 * 4,
-            4,
-            "Doubling balance should quadruple correlation penalty (+-4 wei)"
-        );
+        assertApproxEqAbs(corr2, corr1 * 4, 4, "Doubling balance should quadruple correlation penalty (+-4 wei)");
     }
 
     // // ========================================

@@ -1,6 +1,9 @@
 //SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.33;
 
+/// @title Interest
+/// @author Coffer Team
+/// @notice Library for calculating simple interest on bond amounts
 library Interest {
     uint256 private constant MAX_RATE = 1e8; // 1e8 = 100%
     uint256 private constant SECONDS_IN_YEAR = 31_536_000; // 365 days * 24 hours * 60 minutes * 60 seconds
@@ -12,6 +15,7 @@ library Interest {
     /// @param _amount The amount for which interest is to be calculated
     /// @param _duration The duration for which interest is to be calculated
     /// @param _rate The yearly interest rate to be applied, should be in the range (0, 10e18)
+    /// @return The calculated interest amount
     function calculateInterest(uint256 _amount, uint256 _duration, uint256 _rate) internal pure returns (uint256) {
         if (_amount == 0 || _duration == 0 || _rate == 0) return 0;
 

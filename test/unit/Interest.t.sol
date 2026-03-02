@@ -326,8 +326,7 @@ contract InterestTest is BaseTest {
         uint256 interest = Interest.calculateInterest(amount, duration, rate);
 
         // Manual calculation to verify
-        uint256 expectedInterest =
-            (uint256(amount) * rate * duration) / (uint256(RATE_DIVISOR) * SECONDS_IN_YEAR);
+        uint256 expectedInterest = (uint256(amount) * rate * duration) / (uint256(RATE_DIVISOR) * SECONDS_IN_YEAR);
         assertEq(interest, expectedInterest, "Precision calculation mismatch");
     }
 

@@ -7,6 +7,7 @@ import {console} from "forge-std/console.sol";
 
 /**
  * @title DeployCofferFactory
+ * @author Coffer Team
  * @notice Deployment script for CofferFactory contract
  * @dev CofferFactory constructor automatically deploys CofferBondNft internally
  * @dev Automatically updates .env file with deployed contract addresses
@@ -20,9 +21,11 @@ import {console} from "forge-std/console.sol";
  * Note: Requires ffi = true in foundry.toml
  */
 contract DeployCofferFactory is Script {
-    /// @dev Path to .env file relative to script directory
-    string constant ENV_FILE_PATH = "../.env";
+    /// @notice Path to .env file relative to script directory
+    string private constant ENV_FILE_PATH = "../.env";
 
+    /// @notice Deploys CofferFactory and updates .env with deployed addresses
+    /// @return The deployed CofferFactory instance
     function run() external returns (CofferFactory) {
         vm.startBroadcast();
 
@@ -41,12 +44,13 @@ contract DeployCofferFactory is Script {
 
         address nftAddress = cofferFactory.I_COFFER_BOND_NFT_ADDRESS();
         console.log("CofferBondNft deployed at:", nftAddress);
+        // solhint-disable-next-line gas-small-strings
         updateEnvVariable("HOODI_COFFER_RECEIVABLE_NFT_ADDRESS", addressToString(nftAddress));
 
         return cofferFactory;
     }
 
-    /// @dev Update an environment variable in the .env file using sed
+    /// @notice Update an environment variable in the .env file using sed
     /// @param key The environment variable name
     /// @param value The new value to set
     function updateEnvVariable(string memory key, string memory value) internal {
@@ -61,7 +65,7 @@ contract DeployCofferFactory is Script {
         vm.ffi(inputs);
     }
 
-    /// @dev Convert address to string (without 0x prefix for sed compatibility)
+    /// @notice Convert address to string (without 0x prefix for sed compatibility)
     /// @param addr The address to convert
     /// @return The address as a checksummed string with 0x prefix
     function addressToString(address addr) internal pure returns (string memory) {
@@ -72,7 +76,7 @@ contract DeployCofferFactory is Script {
         str[0] = "0";
         str[1] = "x";
 
-        for (uint256 i = 0; i < data.length; i++) {
+        for (uint256 i = 0; i < data.length; ++i) {
             str[2 + i * 2] = alphabet[uint8(data[i] >> 4)];
             str[3 + i * 2] = alphabet[uint8(data[i] & 0x0f)];
         }

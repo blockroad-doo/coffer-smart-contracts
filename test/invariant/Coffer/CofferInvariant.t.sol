@@ -45,9 +45,7 @@ contract CofferInvariantTest is BaseTest {
             uint256 bondId = handler.getActiveBondIdAt(i);
             (uint128 amount,,) = coffer.sHolderConditions(bondId);
             assertEq(
-                uint256(handler.ghostBondAmount(bondId)),
-                uint256(amount),
-                "ghostBondAmount must match on-chain amount"
+                uint256(handler.ghostBondAmount(bondId)), uint256(amount), "ghostBondAmount must match on-chain amount"
             );
         }
     }
@@ -99,11 +97,7 @@ contract CofferInvariantTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
-            assertEq(
-                handler.ghostBondHolder(bondId),
-                bondNft.ownerOf(bondId),
-                "ghostBondHolder must match NFT owner"
-            );
+            assertEq(handler.ghostBondHolder(bondId), bondNft.ownerOf(bondId), "ghostBondHolder must match NFT owner");
         }
     }
 
@@ -135,7 +129,7 @@ contract CofferInvariantTest is BaseTest {
     }
 
     function invariant_durationRangeValid() public view {
-        (, , uint32 minimumDuration, uint32 maximumDuration,,,,,,) = coffer.sValidatorConditions();
+        (,, uint32 minimumDuration, uint32 maximumDuration,,,,,,) = coffer.sValidatorConditions();
         assertGe(maximumDuration, minimumDuration, "maximumDuration must be >= minimumDuration");
         assertGt(minimumDuration, 0, "minimumDuration must be > 0");
     }
@@ -155,10 +149,7 @@ contract CofferInvariantTest is BaseTest {
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
             if (handler.ghostHasPendingConsensusWithdrawal(bondId)) {
-                assertTrue(
-                    handler.ghostIsBondActive(bondId),
-                    "Pending consensus withdrawal implies bond is active"
-                );
+                assertTrue(handler.ghostIsBondActive(bondId), "Pending consensus withdrawal implies bond is active");
             }
         }
     }

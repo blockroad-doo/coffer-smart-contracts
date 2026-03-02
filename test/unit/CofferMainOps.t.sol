@@ -40,7 +40,7 @@ contract CofferMainOpsTest is BaseTest {
     }
 
     function test_Constructor_ExitNotAllowed_AvailableAmountIsZero() public view {
-        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(issueSize, 0);
     }
 
@@ -88,13 +88,9 @@ contract CofferMainOpsTest is BaseTest {
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
 
-        (uint128 issueSize,,,,,,,,, ) = exitCoffer.sValidatorConditions();
+        (uint128 issueSize,,,,,,,,,) = exitCoffer.sValidatorConditions();
 
-        uint256 expected = Penalty.addMaximumPenalty(
-            32 ether,
-            defaultSafeTotalStake,
-            defaultMaxDuration / 384
-        );
+        uint256 expected = Penalty.addMaximumPenalty(32 ether, defaultSafeTotalStake, defaultMaxDuration / 384);
         assertEq(issueSize, expected);
     }
 
@@ -112,7 +108,7 @@ contract CofferMainOpsTest is BaseTest {
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
 
-        (uint128 issueSize,,,,,,,,, ) = exitCoffer.sValidatorConditions();
+        (uint128 issueSize,,,,,,,,,) = exitCoffer.sValidatorConditions();
         assertGt(issueSize, 0);
     }
 
@@ -143,11 +139,7 @@ contract CofferMainOpsTest is BaseTest {
             bool exitAllowed
         ) = exitCoffer.sValidatorConditions();
 
-        uint256 expectedAvailable = Penalty.addMaximumPenalty(
-            32 ether,
-            defaultSafeTotalStake,
-            defaultMaxDuration / 384
-        );
+        uint256 expectedAvailable = Penalty.addMaximumPenalty(32 ether, defaultSafeTotalStake, defaultMaxDuration / 384);
 
         assertEq(issueSize, expectedAvailable);
         assertEq(interestRate, defaultInterestRate);
@@ -168,32 +160,32 @@ contract CofferMainOpsTest is BaseTest {
     function test_Receive_AcceptsEthFromAnyone() public {
         vm.deal(unauthorizedUser, 10 ether);
         vm.prank(unauthorizedUser);
-        (bool success, ) = cofferAddr.call{value: 1 ether}("");
+        (bool success,) = cofferAddr.call{value: 1 ether}("");
         assertTrue(success);
         assertEq(cofferAddr.balance, 1 ether);
     }
 
     function test_Receive_AcceptsEthFromValidator() public {
         vm.prank(validator);
-        (bool success, ) = cofferAddr.call{value: 5 ether}("");
+        (bool success,) = cofferAddr.call{value: 5 ether}("");
         assertTrue(success);
         assertEq(cofferAddr.balance, 5 ether);
     }
 
     function test_Receive_AcceptsZeroValue() public {
         vm.prank(holder1);
-        (bool success, ) = cofferAddr.call{value: 0}("");
+        (bool success,) = cofferAddr.call{value: 0}("");
         assertTrue(success);
         assertEq(cofferAddr.balance, 0);
     }
 
     function test_Receive_AcceptsMultipleDeposits() public {
         vm.prank(holder1);
-        (bool s1, ) = cofferAddr.call{value: 1 ether}("");
+        (bool s1,) = cofferAddr.call{value: 1 ether}("");
         assertTrue(s1);
 
         vm.prank(holder2);
-        (bool s2, ) = cofferAddr.call{value: 2 ether}("");
+        (bool s2,) = cofferAddr.call{value: 2 ether}("");
         assertTrue(s2);
 
         assertEq(cofferAddr.balance, 3 ether);
@@ -249,7 +241,7 @@ contract CofferMainOpsTest is BaseTest {
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
         // Get availableAmount after buying bond
-        (uint128 availableAfterBuy,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 availableAfterBuy,,,,,,,,,) = coffer.sValidatorConditions();
 
         // Fund contract and advance time
         vm.deal(cofferAddr, 10 ether);
@@ -258,7 +250,7 @@ contract CofferMainOpsTest is BaseTest {
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(bondId);
 
-        (uint128 availableAfterWithdraw,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 availableAfterWithdraw,,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(availableAfterWithdraw, 10 ether); // fully restored
     }
 
@@ -268,7 +260,7 @@ contract CofferMainOpsTest is BaseTest {
 
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
-        (,,,,, , uint32 bondsBefore,,,) = coffer.sValidatorConditions();
+        (,,,,,, uint32 bondsBefore,,,) = coffer.sValidatorConditions();
         assertEq(bondsBefore, 1);
 
         vm.deal(cofferAddr, 10 ether);
@@ -277,7 +269,7 @@ contract CofferMainOpsTest is BaseTest {
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(bondId);
 
-        (,,,,, , uint32 bondsAfter,,,) = coffer.sValidatorConditions();
+        (,,,,,, uint32 bondsAfter,,,) = coffer.sValidatorConditions();
         assertEq(bondsAfter, 0);
     }
 
@@ -313,7 +305,7 @@ contract CofferMainOpsTest is BaseTest {
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(bondId);
 
-        (uint128 amount, , ) = coffer.sHolderConditions(bondId);
+        (uint128 amount,,) = coffer.sHolderConditions(bondId);
         assertEq(amount, 0);
     }
 

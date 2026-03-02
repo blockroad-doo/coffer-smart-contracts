@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.30;
+pragma solidity ^0.8.33;
 
 import {BaseTest} from "./BaseTest.sol";
 import {
@@ -318,9 +318,7 @@ contract EIP7251MockTest is BaseTest {
     // ========================================
 
     function test_Revert_Condition1_ExcessInhibitor() public {
-        vm.store(
-            CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS, bytes32(uint256(0)), bytes32(CONSOLIDATION_EXCESS_INHIBITOR)
-        );
+        vm.store(CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS, bytes32(uint256(0)), bytes32(CONSOLIDATION_EXCESS_INHIBITOR));
 
         vm.expectRevert();
         // forge-lint: disable-next-line(unchecked-call)

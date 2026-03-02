@@ -1,0 +1,12 @@
+{
+  "extends": "solhint:recommended",
+  "rules": {
+    "func-name-mixedcase": "off",
+    "import-path-check": "off",
+    "no-empty-blocks": "off",
+    "reason-string": "off",
+    "max-line-length": "off",
+    "not-rely-on-time": "off",
+    "no-inline-assembly": "off"
+  }
+}

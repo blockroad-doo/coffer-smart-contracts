@@ -258,7 +258,7 @@ contract EIP7002Mock {
             // For bytes16, we want the first 16 bytes of calldataload(32)
             // calldataload(32) already gives us pubkeyPart2 in the high-order 16 bytes
             let temp := calldataload(32)
-            pubkeyPart2 := temp  // implicit truncation to bytes16 takes the first 16 bytes
+            pubkeyPart2 := temp // implicit truncation to bytes16 takes the first 16 bytes
             // amount is big-endian uint64 at calldata offset 48
             amount := shr(192, calldataload(48))
         }
@@ -473,11 +473,11 @@ contract EIP7002Mock {
      * @return actualAmount Amount that would actually be withdrawn in Gwei
      * @return wouldProcess Whether the request would be processed (not ignored)
      */
-    function simulateConsensusWithdrawal(
-        uint8 credentialType,
-        uint256 validatorBalance,
-        uint64 requestedAmount
-    ) external pure returns (uint64 actualAmount, bool wouldProcess) {
+    function simulateConsensusWithdrawal(uint8 credentialType, uint256 validatorBalance, uint64 requestedAmount)
+        external
+        pure
+        returns (uint64 actualAmount, bool wouldProcess)
+    {
         // Convert Gwei amount to wei for calculation
         uint256 requestedWei = uint256(requestedAmount) * 1 gwei;
 
@@ -534,20 +534,15 @@ contract EIP7002Mock {
         uint256 validatorBalance = 40 ether;
         uint64 requestedGwei = 10_000_000_000; // 10 ETH in Gwei
 
-        (uint64 actualAmount, bool wouldProcess) = this.simulateConsensusWithdrawal(
-            credentialType,
-            validatorBalance,
-            requestedGwei
-        );
+        (uint64 actualAmount, bool wouldProcess) =
+            this.simulateConsensusWithdrawal(credentialType, validatorBalance, requestedGwei);
 
         if (credentialType == CREDENTIAL_TYPE_EXECUTION) {
             return (0, "0x01 credentials: Partial withdrawal ignored, fee lost");
         } else if (credentialType == CREDENTIAL_TYPE_COMPOUNDING) {
             if (wouldProcess) {
-                return (
-                    actualAmount,
-                    "0x02 credentials: Withdrew 8 ETH (clamped from 10 ETH to maintain 32 ETH minimum)"
-                );
+                return
+                    (actualAmount, "0x02 credentials: Withdrew 8 ETH (clamped from 10 ETH to maintain 32 ETH minimum)");
             }
         }
 

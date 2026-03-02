@@ -16,11 +16,7 @@ contract CofferBondNftInvariantTest is Test {
     }
 
     function invariant_CounterMonotonicallyIncreases() public view {
-        assertEq(
-            handler.ghostNextExpectedId(),
-            handler.ghostTotalMinted(),
-            "Counter must equal total minted"
-        );
+        assertEq(handler.ghostNextExpectedId(), handler.ghostTotalMinted(), "Counter must equal total minted");
     }
 
     function invariant_ActiveSupplyEqualsMintsMinusBurns() public view {
@@ -44,11 +40,7 @@ contract CofferBondNftInvariantTest is Test {
         uint256 len = handler.getActiveIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 tokenId = handler.getActiveIdAt(i);
-            assertEq(
-                nft.ownerOf(tokenId),
-                handler.ghostOwner(tokenId),
-                "On-chain owner must match ghost owner"
-            );
+            assertEq(nft.ownerOf(tokenId), handler.ghostOwner(tokenId), "On-chain owner must match ghost owner");
         }
     }
 
@@ -64,10 +56,6 @@ contract CofferBondNftInvariantTest is Test {
     }
 
     function invariant_TotalBurnedNeverExceedsTotalMinted() public view {
-        assertLe(
-            handler.ghostTotalBurned(),
-            handler.ghostTotalMinted(),
-            "Total burned must never exceed total minted"
-        );
+        assertLe(handler.ghostTotalBurned(), handler.ghostTotalMinted(), "Total burned must never exceed total minted");
     }
 }

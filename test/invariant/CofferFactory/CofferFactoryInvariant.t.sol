@@ -47,25 +47,15 @@ contract CofferFactoryInvariantTest is BaseTest {
     }
 
     function invariant_FactoryNftAddressIsImmutable() public view {
-        assertTrue(
-            factory.I_COFFER_BOND_NFT_ADDRESS() != address(0),
-            "Factory NFT address must not be zero"
-        );
-        assertEq(
-            factory.I_COFFER_BOND_NFT_ADDRESS(),
-            storedNftAddress,
-            "Factory NFT address must remain immutable"
-        );
+        assertTrue(factory.I_COFFER_BOND_NFT_ADDRESS() != address(0), "Factory NFT address must not be zero");
+        assertEq(factory.I_COFFER_BOND_NFT_ADDRESS(), storedNftAddress, "Factory NFT address must remain immutable");
     }
 
     function invariant_EveryDeployedCofferIsValidContract() public view {
         uint256 len = handler.getDeployedCoffersLength();
         for (uint256 i = 0; i < len; i++) {
             address cofferAddr = handler.getDeployedCofferAt(i);
-            assertTrue(
-                cofferAddr.code.length > 0,
-                "Deployed coffer must have code"
-            );
+            assertTrue(cofferAddr.code.length > 0, "Deployed coffer must have code");
         }
     }
 
@@ -73,7 +63,7 @@ contract CofferFactoryInvariantTest is BaseTest {
         uint256 len = handler.getDeployedCoffersLength();
         for (uint256 i = 0; i < len; i++) {
             address cofferAddr = handler.getDeployedCofferAt(i);
-            (,,,,,,,,bool isActive,) = Coffer(payable(cofferAddr)).sValidatorConditions();
+            (,,,,,,,, bool isActive,) = Coffer(payable(cofferAddr)).sValidatorConditions();
             assertTrue(isActive, "Newly deployed coffer must be active");
         }
     }

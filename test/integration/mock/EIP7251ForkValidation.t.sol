@@ -46,11 +46,7 @@ contract EIP7251ForkValidation is Test {
     // HELPERS
     // ========================================================================
 
-    function _fakeExponential(uint256 factor, uint256 numerator, uint256 denominator)
-        internal
-        pure
-        returns (uint256)
-    {
+    function _fakeExponential(uint256 factor, uint256 numerator, uint256 denominator) internal pure returns (uint256) {
         uint256 i = 1;
         uint256 output = 0;
         uint256 numeratorAccum = factor * denominator;
@@ -63,11 +59,7 @@ contract EIP7251ForkValidation is Test {
     }
 
     function _setExcess(uint256 excess) internal {
-        vm.store(
-            PREDEPLOY,
-            bytes32(EXCESS_CONSOLIDATION_REQUESTS_STORAGE_SLOT),
-            bytes32(excess)
-        );
+        vm.store(PREDEPLOY, bytes32(EXCESS_CONSOLIDATION_REQUESTS_STORAGE_SLOT), bytes32(excess));
     }
 
     function _getFee() internal view returns (uint256) {
@@ -83,11 +75,8 @@ contract EIP7251ForkValidation is Test {
     function test_FeeMatchesAtZeroExcess() public skipIfNoRpc {
         _setExcess(0);
         uint256 realFee = _getFee();
-        uint256 expectedFee = _fakeExponential(
-            MIN_CONSOLIDATION_REQUEST_FEE,
-            0,
-            CONSOLIDATION_REQUEST_FEE_UPDATE_FRACTION
-        );
+        uint256 expectedFee =
+            _fakeExponential(MIN_CONSOLIDATION_REQUEST_FEE, 0, CONSOLIDATION_REQUEST_FEE_UPDATE_FRACTION);
         assertEq(realFee, expectedFee, "Fee mismatch at excess=0");
         assertEq(realFee, 1, "Fee at excess=0 should be 1 wei");
     }
@@ -99,30 +88,19 @@ contract EIP7251ForkValidation is Test {
             _setExcess(excessValues[i]);
             uint256 realFee = _getFee();
             uint256 expectedFee = _fakeExponential(
-                MIN_CONSOLIDATION_REQUEST_FEE,
-                excessValues[i],
-                CONSOLIDATION_REQUEST_FEE_UPDATE_FRACTION
+                MIN_CONSOLIDATION_REQUEST_FEE, excessValues[i], CONSOLIDATION_REQUEST_FEE_UPDATE_FRACTION
             );
-            assertEq(
-                realFee,
-                expectedFee,
-                string.concat("Fee mismatch at excess=", vm.toString(excessValues[i]))
-            );
+            assertEq(realFee, expectedFee, string.concat("Fee mismatch at excess=", vm.toString(excessValues[i])));
         }
     }
 
     function test_FeeMatchesAtActualExcess() public skipIfNoRpc {
-        uint256 actualExcess = uint256(
-            vm.load(PREDEPLOY, bytes32(EXCESS_CONSOLIDATION_REQUESTS_STORAGE_SLOT))
-        );
+        uint256 actualExcess = uint256(vm.load(PREDEPLOY, bytes32(EXCESS_CONSOLIDATION_REQUESTS_STORAGE_SLOT)));
         // Skip if excess is the inhibitor (contract not initialized at this block)
         vm.assume(actualExcess != type(uint256).max);
 
-        uint256 expectedFee = _fakeExponential(
-            MIN_CONSOLIDATION_REQUEST_FEE,
-            actualExcess,
-            CONSOLIDATION_REQUEST_FEE_UPDATE_FRACTION
-        );
+        uint256 expectedFee =
+            _fakeExponential(MIN_CONSOLIDATION_REQUEST_FEE, actualExcess, CONSOLIDATION_REQUEST_FEE_UPDATE_FRACTION);
         uint256 realFee = _getFee();
         assertEq(realFee, expectedFee, "Fee mismatch at actual excess value");
     }
@@ -136,12 +114,8 @@ contract EIP7251ForkValidation is Test {
         uint256 fee = _getFee();
 
         // Read state before
-        uint256 countBefore = uint256(
-            vm.load(PREDEPLOY, bytes32(CONSOLIDATION_REQUEST_COUNT_STORAGE_SLOT))
-        );
-        uint256 tailBefore = uint256(
-            vm.load(PREDEPLOY, bytes32(CONSOLIDATION_REQUEST_QUEUE_TAIL_STORAGE_SLOT))
-        );
+        uint256 countBefore = uint256(vm.load(PREDEPLOY, bytes32(CONSOLIDATION_REQUEST_COUNT_STORAGE_SLOT)));
+        uint256 tailBefore = uint256(vm.load(PREDEPLOY, bytes32(CONSOLIDATION_REQUEST_QUEUE_TAIL_STORAGE_SLOT)));
 
         // 96-byte calldata: source pubkey (48 bytes) + target pubkey (48 bytes)
         bytes memory requestData = abi.encodePacked(
@@ -156,12 +130,8 @@ contract EIP7251ForkValidation is Test {
         assertTrue(success, "Add request should succeed");
 
         // Verify queue state
-        uint256 countAfter = uint256(
-            vm.load(PREDEPLOY, bytes32(CONSOLIDATION_REQUEST_COUNT_STORAGE_SLOT))
-        );
-        uint256 tailAfter = uint256(
-            vm.load(PREDEPLOY, bytes32(CONSOLIDATION_REQUEST_QUEUE_TAIL_STORAGE_SLOT))
-        );
+        uint256 countAfter = uint256(vm.load(PREDEPLOY, bytes32(CONSOLIDATION_REQUEST_COUNT_STORAGE_SLOT)));
+        uint256 tailAfter = uint256(vm.load(PREDEPLOY, bytes32(CONSOLIDATION_REQUEST_QUEUE_TAIL_STORAGE_SLOT)));
         assertEq(countAfter, countBefore + 1, "Count should increment by 1");
         assertEq(tailAfter, tailBefore + 1, "Tail should increment by 1");
     }
@@ -184,10 +154,7 @@ contract EIP7251ForkValidation is Test {
         for (uint256 i = 0; i < lengths.length; i++) {
             bytes memory data = new bytes(lengths[i]);
             (bool success,) = PREDEPLOY.call(data);
-            assertFalse(
-                success,
-                string.concat("Should revert for calldata length ", vm.toString(lengths[i]))
-            );
+            assertFalse(success, string.concat("Should revert for calldata length ", vm.toString(lengths[i])));
         }
     }
 

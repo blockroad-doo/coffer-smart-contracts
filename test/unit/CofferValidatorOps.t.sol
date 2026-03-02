@@ -1,7 +1,12 @@
 //SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.33;
 
-import {BaseTest, CofferEvents, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS} from "./BaseTest.sol";
+import {
+    BaseTest,
+    CofferEvents,
+    WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS,
+    CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS
+} from "./BaseTest.sol";
 import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
@@ -11,7 +16,9 @@ import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 
 /// @dev Contract that rejects all ETH transfers
 contract RejectEther {
-    receive() external payable { revert(); }
+    receive() external payable {
+        revert();
+    }
 }
 
 contract CofferValidatorOpsTest is BaseTest {
@@ -82,7 +89,7 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.redeemBondsEarly(ids);
 
         // Both bonds redeemed - outstandingBonds should be 0
-        (,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
+        (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 0);
     }
 
@@ -115,7 +122,7 @@ contract CofferValidatorOpsTest is BaseTest {
     }
 
     function test_RedeemBondsEarly_RestoresState() public {
-        (uint256 bondId, ) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+        (uint256 bondId,) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
         vm.deal(cofferAddr, 10 ether);
 
         vm.prank(validator);
@@ -123,7 +130,7 @@ contract CofferValidatorOpsTest is BaseTest {
         ids[0] = bondId;
         coffer.redeemBondsEarly(ids);
 
-        (uint128 issueSize,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
+        (uint128 issueSize,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 0);
         assertEq(issueSize, 10 ether); // fully restored
     }
@@ -164,7 +171,7 @@ contract CofferValidatorOpsTest is BaseTest {
     }
 
     function test_RedeemBondsEarly_RevertsIfInsufficientBalance() public {
-        (uint256 bondId, ) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+        (uint256 bondId,) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
         // Do NOT fund contract
 
         vm.prank(validator);
@@ -300,13 +307,13 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeInterestRate(3e6);
 
-        (, , , , , uint32 version,,,,) = coffer.sValidatorConditions();
+        (,,,,, uint32 version,,,,) = coffer.sValidatorConditions();
         assertEq(version, 2);
 
         vm.prank(validator);
         coffer.changeInterestRate(4e6);
 
-        (, , , , , uint32 version2,,,,) = coffer.sValidatorConditions();
+        (,,,,, uint32 version2,,,,) = coffer.sValidatorConditions();
         assertEq(version2, 3);
     }
 
@@ -359,7 +366,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeMinimumAndMaximumDuration(newMin, newMax);
 
-        (, , uint32 minDur, uint32 maxDur,,,,,,) = coffer.sValidatorConditions();
+        (,, uint32 minDur, uint32 maxDur,,,,,,) = coffer.sValidatorConditions();
         assertEq(minDur, newMin);
         assertEq(maxDur, newMax);
     }
@@ -368,18 +375,18 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeMinimumAndMaximumDuration(ONE_MONTH, ONE_MONTH);
 
-        (, , uint32 minDur, uint32 maxDur,,,,,,) = coffer.sValidatorConditions();
+        (,, uint32 minDur, uint32 maxDur,,,,,,) = coffer.sValidatorConditions();
         assertEq(minDur, ONE_MONTH);
         assertEq(maxDur, ONE_MONTH);
     }
 
     function test_ChangeMinimumAndMaximumDuration_DoesNotIncrementVersion() public {
-        (, , , , , uint32 vBefore,,,,) = coffer.sValidatorConditions();
+        (,,,,, uint32 vBefore,,,,) = coffer.sValidatorConditions();
 
         vm.prank(validator);
         coffer.changeMinimumAndMaximumDuration(ONE_WEEK, FIVE_YEARS);
 
-        (, , , , , uint32 vAfter,,,,) = coffer.sValidatorConditions();
+        (,,,,, uint32 vAfter,,,,) = coffer.sValidatorConditions();
         assertEq(vAfter, vBefore);
     }
 
@@ -414,17 +421,17 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeMinimumAmountToAccept(newMin);
 
-        (, , , , uint128 minAmt,,,,,) = coffer.sValidatorConditions();
+        (,,,, uint128 minAmt,,,,,) = coffer.sValidatorConditions();
         assertEq(minAmt, newMin);
     }
 
     function test_ChangeMinimumAmountToAccept_DoesNotIncrementVersion() public {
-        (, , , , , uint32 vBefore,,,,) = coffer.sValidatorConditions();
+        (,,,,, uint32 vBefore,,,,) = coffer.sValidatorConditions();
 
         vm.prank(validator);
         coffer.changeMinimumAmountToAccept(0.5 ether);
 
-        (, , , , , uint32 vAfter,,,,) = coffer.sValidatorConditions();
+        (,,,,, uint32 vAfter,,,,) = coffer.sValidatorConditions();
         assertEq(vAfter, vBefore);
     }
 
@@ -453,7 +460,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(newAmt);
 
-        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(issueSize, newAmt);
     }
 
@@ -462,7 +469,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(defaultMinimumAmount);
 
-        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(issueSize, defaultMinimumAmount);
     }
 
@@ -470,7 +477,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(5 ether);
 
-        (, , , , , uint32 version,,,,) = coffer.sValidatorConditions();
+        (,,,,, uint32 version,,,,) = coffer.sValidatorConditions();
         assertEq(version, 2);
     }
 
@@ -524,7 +531,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeExitAllowed();
 
-        (, , , , , uint32 version,,,,) = coffer.sValidatorConditions();
+        (,,,,, uint32 version,,,,) = coffer.sValidatorConditions();
         assertEq(version, 2);
     }
 
@@ -555,7 +562,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeSafeTotalStake(newStake);
 
-        (, , , , , , , uint32 stake,,) = coffer.sValidatorConditions();
+        (,,,,,,, uint32 stake,,) = coffer.sValidatorConditions();
         assertEq(stake, newStake);
     }
 
@@ -563,7 +570,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeSafeTotalStake(25_000_000);
 
-        (, , , , , uint32 version,,,,) = coffer.sValidatorConditions();
+        (,,,,, uint32 version,,,,) = coffer.sValidatorConditions();
         assertEq(version, 2);
     }
 
@@ -592,7 +599,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(5 ether);
 
-        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(issueSize, 5 ether);
     }
 
@@ -600,7 +607,7 @@ contract CofferValidatorOpsTest is BaseTest {
         _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
 
         // Read current issueSize (it's less than 10 ether because a bond was bought)
-        (uint128 currentIssueSize,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 currentIssueSize,,,,,,,,,) = coffer.sValidatorConditions();
 
         // Same value counts as >= so should revert
         vm.prank(validator);
@@ -615,7 +622,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeSafeTotalStake(15_000_000); // decrease from 20_000_000
 
-        (, , , , , , , uint32 stake,,) = coffer.sValidatorConditions();
+        (,,,,,,, uint32 stake,,) = coffer.sValidatorConditions();
         assertEq(stake, 15_000_000);
     }
 
@@ -777,19 +784,10 @@ contract CofferValidatorOpsTest is BaseTest {
 
         // Build the exact 56-byte payload that Coffer will send
         uint64 amount = 5_000_000_000;
-        bytes memory data = abi.encodePacked(
-            validPublicKeyPart1,
-            validPublicKeyPart2,
-            amount
-        );
+        bytes memory data = abi.encodePacked(validPublicKeyPart1, validPublicKeyPart2, amount);
 
         // Mock the write call to revert (fee getter staticcall still works)
-        vm.mockCallRevert(
-            WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS,
-            fee,
-            data,
-            ""
-        );
+        vm.mockCallRevert(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, fee, data, "");
 
         vm.prank(validator);
         vm.expectRevert(Coffer.WithdrawlContractCallFailed.selector);
@@ -805,7 +803,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(5 ether); // version -> 2
 
-        (uint128 issueSizeBefore,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
 
         // Mock DepositContract.deposit to accept any call
         vm.mockCall(
@@ -820,13 +818,9 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.validatorAddFundsToConsensus{value: 1 ether}(bytes32(0));
 
-        (uint128 issueSizeAfter,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
 
-        uint256 expectedIncrease = Penalty.addMaximumPenalty(
-            1 ether,
-            defaultSafeTotalStake,
-            defaultMaxDuration / 384
-        );
+        uint256 expectedIncrease = Penalty.addMaximumPenalty(1 ether, defaultSafeTotalStake, defaultMaxDuration / 384);
         assertEq(issueSizeAfter, issueSizeBefore + expectedIncrease);
     }
 
@@ -851,12 +845,12 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         coffer.validatorAddFundsToConsensus{value: 2 ether}(bytes32(0));
 
-        (uint128 issueSize1,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 issueSize1,,,,,,,,,) = coffer.sValidatorConditions();
 
         vm.prank(validator);
         coffer.validatorAddFundsToConsensus{value: 3 ether}(bytes32(0));
 
-        (uint128 issueSize2,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 issueSize2,,,,,,,,,) = coffer.sValidatorConditions();
         assertGt(issueSize2, issueSize1);
     }
 
@@ -935,20 +929,11 @@ contract CofferValidatorOpsTest is BaseTest {
         uint256 fee = getConsolidationFee();
 
         // Build the exact 96-byte payload that Coffer will send (source + target pubkeys)
-        bytes memory data = abi.encodePacked(
-            validPublicKeyPart1,
-            validPublicKeyPart2,
-            validPublicKeyPart1,
-            validPublicKeyPart2
-        );
+        bytes memory data =
+            abi.encodePacked(validPublicKeyPart1, validPublicKeyPart2, validPublicKeyPart1, validPublicKeyPart2);
 
         // Mock the write call to revert (fee getter staticcall still works)
-        vm.mockCallRevert(
-            CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS,
-            fee,
-            data,
-            ""
-        );
+        vm.mockCallRevert(CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS, fee, data, "");
 
         vm.prank(validator);
         vm.expectRevert(Coffer.ConsolidationContractCallFailed.selector);

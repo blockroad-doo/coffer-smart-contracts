@@ -8,6 +8,7 @@ import {Vm} from "forge-std/Vm.sol";
 
 /**
  * @title CreateCoffer
+ * @author Coffer Team
  * @notice Script to call createCoffer on existing CofferFactory using .env parameters
  * @dev Reads validator offer parameters from .env, creates a Coffer, and saves the address back to .env
  *
@@ -20,9 +21,13 @@ import {Vm} from "forge-std/Vm.sol";
  *       `set -a` exports all vars so forge's vm.env*() cheatcodes can read them.
  */
 contract CreateCoffer is Script {
-    /// @dev Path to .env file relative to script directory
-    string constant ENV_FILE_PATH = "../.env";
+    error InvalidPublicKeyLength();
+    error CofferIssuedEventNotFound();
 
+    /// @notice Path to .env file relative to script directory
+    string private constant ENV_FILE_PATH = "../.env";
+
+    /// @notice Creates a new Coffer via CofferFactory using parameters from .env
     function run() external {
         // Load factory address
         address factoryAddr = vm.envAddress("HOODI_COFFER_FACTORY_ADDRESS");
@@ -30,7 +35,7 @@ contract CreateCoffer is Script {
 
         // Load and split the 48-byte BLS public key into bytes32 + bytes16
         bytes memory pubKey = vm.envBytes("VALIDATOR_PUBLIC_KEY");
-        require(pubKey.length == 48, "Public key must be 48 bytes");
+        if (pubKey.length != 48) revert InvalidPublicKeyLength();
         bytes32 publicKeyPart1;
         bytes16 publicKeyPart2;
         assembly {
@@ -64,26 +69,31 @@ contract CreateCoffer is Script {
         vm.stopBroadcast();
 
         // Extract coffer address from CofferIssued event
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 cofferIssuedTopic = keccak256("CofferIssued(address,address)");
-        address cofferAddress;
-        for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].topics[0] == cofferIssuedTopic) {
-                cofferAddress = address(uint160(uint256(logs[i].topics[2])));
-                break;
-            }
-        }
-        require(cofferAddress != address(0), "CofferIssued event not found");
+        address cofferAddress = _extractCofferAddress(vm.getRecordedLogs());
+        if (cofferAddress == address(0)) revert CofferIssuedEventNotFound();
 
         console.log("Coffer created at:", cofferAddress);
 
         // Update .env file with the new Coffer address
         console.log("\nUpdating .env file...");
         updateEnvVariable("HOODI_COFFER_ADDRESS", addressToString(cofferAddress));
-        console.log("HOODI_COFFER_ADDRESS updated in .env");
+        console.log("COFFER_ADDRESS saved to .env");
     }
 
-    /// @dev Update an environment variable in the .env file using sed
+    /// @notice Extracts the Coffer address from CofferIssued event logs
+    /// @param logs The recorded VM logs to search
+    /// @return cofferAddress The address of the newly created Coffer
+    function _extractCofferAddress(Vm.Log[] memory logs) private pure returns (address cofferAddress) {
+        bytes32 cofferIssuedTopic = keccak256("CofferIssued(address,address)");
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics[0] == cofferIssuedTopic) {
+                cofferAddress = address(uint160(uint256(logs[i].topics[2])));
+                break;
+            }
+        }
+    }
+
+    /// @notice Update an environment variable in the .env file using sed
     /// @param key The environment variable name
     /// @param value The new value to set
     function updateEnvVariable(string memory key, string memory value) internal {
@@ -98,7 +108,7 @@ contract CreateCoffer is Script {
         vm.ffi(inputs);
     }
 
-    /// @dev Convert address to string (without 0x prefix for sed compatibility)
+    /// @notice Convert address to string (without 0x prefix for sed compatibility)
     /// @param addr The address to convert
     /// @return The address as a checksummed string with 0x prefix
     function addressToString(address addr) internal pure returns (string memory) {
@@ -109,7 +119,7 @@ contract CreateCoffer is Script {
         str[0] = "0";
         str[1] = "x";
 
-        for (uint256 i = 0; i < data.length; i++) {
+        for (uint256 i = 0; i < data.length; ++i) {
             str[2 + i * 2] = alphabet[uint8(data[i] >> 4)];
             str[3 + i * 2] = alphabet[uint8(data[i] & 0x0f)];
         }

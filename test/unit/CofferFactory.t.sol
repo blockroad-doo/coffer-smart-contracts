@@ -113,7 +113,8 @@ contract CofferFactoryTest is BaseTest {
 
     /// @dev Computes the dynamic max for _minimumAmountToAccept given safeTotalStake and maxDuration
     function _maxMinimumAmount(uint256 safeTotalStake, uint256 maxDuration) internal pure returns (uint256) {
-        return Penalty.addMaximumPenalty(VALIDATOR_STARTING_ETH, safeTotalStake, maxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
+        return
+            Penalty.addMaximumPenalty(VALIDATOR_STARTING_ETH, safeTotalStake, maxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
     }
 
     // ========================================
@@ -236,11 +237,12 @@ contract CofferFactoryTest is BaseTest {
             true // exitAllowed
         );
 
-        uint256 expectedAvailable =
-            Penalty.addMaximumPenalty(VALIDATOR_STARTING_ETH, defaultSafeTotalStake, defaultMaxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
+        uint256 expectedAvailable = Penalty.addMaximumPenalty(
+            VALIDATOR_STARTING_ETH, defaultSafeTotalStake, defaultMaxDuration / NUMBER_OF_SECONDS_IN_EPOCH
+        );
 
         Coffer c = Coffer(payable(cofferAddr));
-        (uint128 issueSize,,,,,,,,, ) = c.sValidatorConditions();
+        (uint128 issueSize,,,,,,,,,) = c.sValidatorConditions();
         assertEq(issueSize, expectedAvailable, "Issue size should match penalty calculation");
         assertTrue(expectedAvailable > 0, "Expected issue size should be positive for these params");
     }
@@ -259,7 +261,7 @@ contract CofferFactoryTest is BaseTest {
         );
 
         Coffer c = Coffer(payable(cofferAddr));
-        (uint128 issueSize,,,,,,,,, ) = c.sValidatorConditions();
+        (uint128 issueSize,,,,,,,,,) = c.sValidatorConditions();
         assertEq(issueSize, 0, "Issue size should be 0 when exitAllowed is false");
     }
 

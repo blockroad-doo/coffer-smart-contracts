@@ -50,11 +50,7 @@ contract CofferFactoryHandler is Test {
         safeTotalStake = uint32(bound(uint256(safeTotalStake), 1, 300_000_000));
 
         // Compute maxMinAmount
-        uint256 maxMinAmount = Penalty.addMaximumPenalty(
-            32 ether,
-            safeTotalStake,
-            maxDur / NUMBER_OF_SECONDS_IN_EPOCH
-        );
+        uint256 maxMinAmount = Penalty.addMaximumPenalty(32 ether, safeTotalStake, maxDur / NUMBER_OF_SECONDS_IN_EPOCH);
         if (maxMinAmount == 0) return;
 
         // Clamp minAmount
@@ -62,16 +58,7 @@ contract CofferFactoryHandler is Test {
 
         vm.recordLogs();
         vm.prank(actor);
-        factory.createCoffer(
-            pk1,
-            pk2,
-            rate,
-            minDur,
-            maxDur,
-            minAmount,
-            safeTotalStake,
-            exitAllowed
-        );
+        factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, safeTotalStake, exitAllowed);
 
         // Extract deployed address from CofferIssued event
         Vm.Log[] memory entries = vm.getRecordedLogs();
@@ -101,16 +88,7 @@ contract CofferFactoryHandler is Test {
         address actor = actors[actorSeed % actors.length];
         // Pass raw unclamped inputs — expected to revert
         vm.prank(actor);
-        factory.createCoffer(
-            pk1,
-            pk2,
-            rate,
-            minDur,
-            maxDur,
-            minAmount,
-            safeTotalStake,
-            exitAllowed
-        );
+        factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, safeTotalStake, exitAllowed);
         // Ghost state NOT updated
     }
 

@@ -5,8 +5,7 @@ import {SYSTEM_ADDRESS} from "./EIP7002Mock.sol";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-address payable constant CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS =
-    payable(0x0000BBdDc7CE488642fb579F8B00f3a590007251);
+address payable constant CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS = payable(0x0000BBdDc7CE488642fb579F8B00f3a590007251);
 
 // Storage layout
 uint256 constant EXCESS_CONSOLIDATION_REQUESTS_STORAGE_SLOT = 0;
@@ -111,11 +110,7 @@ contract EIP7251Mock {
         return _fakeExponential(MIN_CONSOLIDATION_REQUEST_FEE, excess, CONSOLIDATION_REQUEST_FEE_UPDATE_FRACTION);
     }
 
-    function _fakeExponential(uint256 factor, uint256 numerator, uint256 denominator)
-        internal
-        pure
-        returns (uint256)
-    {
+    function _fakeExponential(uint256 factor, uint256 numerator, uint256 denominator) internal pure returns (uint256) {
         uint256 i = 1;
         uint256 output = 0;
         uint256 numeratorAccum = factor * denominator;

@@ -82,8 +82,7 @@ contract PenaltyTest is BaseTest {
         returns (uint256)
     {
         // Formula matches library: (effectiveBalance * effectiveBalance * MULTIPLIER) / (safeTotalStake * WEI_DECIMALS)
-        return effectiveBalance * effectiveBalance * PROPORTIONAL_SLASHING_MULTIPLIER
-            / (safeTotalStake * WEI_DECIMALS);
+        return effectiveBalance * effectiveBalance * PROPORTIONAL_SLASHING_MULTIPLIER / (safeTotalStake * WEI_DECIMALS);
     }
 
     /**
@@ -94,8 +93,7 @@ contract PenaltyTest is BaseTest {
         pure
         returns (uint256)
     {
-        return effectiveBalance * BASE_REWARD * epochs
-            / Math.sqrt(safeTotalStake * GWEI_DECIMALS);
+        return effectiveBalance * BASE_REWARD * epochs / Math.sqrt(safeTotalStake * GWEI_DECIMALS);
     }
 
     /**
@@ -487,7 +485,7 @@ contract PenaltyTest is BaseTest {
         uint256 totalPenalty = slashingPenalty + attestationPenalty;
 
         // Result should be balance minus total penalty
-        uint256 expectedBalance =balance > totalPenalty ? balance - totalPenalty : 0;
+        uint256 expectedBalance = balance > totalPenalty ? balance - totalPenalty : 0;
         assertEq(resultBalance, expectedBalance, "AddMaximumPenalty result incorrect for standard validator");
 
         emit log_named_uint("Original Balance", balance);
@@ -544,7 +542,7 @@ contract PenaltyTest is BaseTest {
 
         // With zero epochs, only slashing penalty applies
         uint256 slashingPenalty = Penalty.slashing(balance, stake);
-        uint256 expectedBalance =balance > slashingPenalty ? balance - slashingPenalty : 0;
+        uint256 expectedBalance = balance > slashingPenalty ? balance - slashingPenalty : 0;
 
         assertEq(resultBalance, expectedBalance, "Zero epochs should only apply slashing penalty");
     }
@@ -704,8 +702,8 @@ contract PenaltyTest is BaseTest {
         assertTrue(initialPenalty > 0, "Initial penalty calculated");
 
         // Correlation penalty component (highest risk of overflow)
-        uint256 correlationPenalty = uint256(balance) * balance * PROPORTIONAL_SLASHING_MULTIPLIER
-            / (uint256(stake) * WEI_DECIMALS);
+        uint256 correlationPenalty =
+            uint256(balance) * balance * PROPORTIONAL_SLASHING_MULTIPLIER / (uint256(stake) * WEI_DECIMALS);
         assertTrue(correlationPenalty > 0 || correlationPenalty == 0, "Correlation penalty calculated");
 
         // Leaking penalty component
@@ -720,14 +718,39 @@ contract PenaltyTest is BaseTest {
     function test_Overflow_EdgeCase_Combinations() public {
         // Test various edge case combinations
         TestCase[5] memory cases = [
-            TestCase({ balance: MAX_VALIDATOR_BALANCE, stake: MIN_SAFE_TOTAL_STAKE, epochs: EPOCHS_50_YEARS, description: "Max balance, min stake, 50 years" }),
-            TestCase({ balance: MAX_VALIDATOR_BALANCE, stake: MAX_SAFE_TOTAL_STAKE, epochs: EPOCHS_50_YEARS, description: "Max balance, max stake, 50 years" }),
-            TestCase({ balance: 1 ether, stake: MIN_SAFE_TOTAL_STAKE, epochs: EPOCHS_50_YEARS, description: "Small balance, min stake, 50 years" }),
-            TestCase({ balance: MAX_VALIDATOR_BALANCE, stake: 1000000, epochs: EPOCHS_20_YEARS, description: "Max balance, medium stake, 20 years" }),
-            TestCase({ balance: 100 ether, stake: 10000, epochs: EPOCHS_10_YEARS, description: "Medium balance, small stake, 10 years" })
+            TestCase({
+                balance: MAX_VALIDATOR_BALANCE,
+                stake: MIN_SAFE_TOTAL_STAKE,
+                epochs: EPOCHS_50_YEARS,
+                description: "Max balance, min stake, 50 years"
+            }),
+            TestCase({
+                balance: MAX_VALIDATOR_BALANCE,
+                stake: MAX_SAFE_TOTAL_STAKE,
+                epochs: EPOCHS_50_YEARS,
+                description: "Max balance, max stake, 50 years"
+            }),
+            TestCase({
+                balance: 1 ether,
+                stake: MIN_SAFE_TOTAL_STAKE,
+                epochs: EPOCHS_50_YEARS,
+                description: "Small balance, min stake, 50 years"
+            }),
+            TestCase({
+                balance: MAX_VALIDATOR_BALANCE,
+                stake: 1000000,
+                epochs: EPOCHS_20_YEARS,
+                description: "Max balance, medium stake, 20 years"
+            }),
+            TestCase({
+                balance: 100 ether,
+                stake: 10000,
+                epochs: EPOCHS_10_YEARS,
+                description: "Medium balance, small stake, 10 years"
+            })
         ];
 
-        for (uint i = 0; i < cases.length; i++) {
+        for (uint256 i = 0; i < cases.length; i++) {
             TestCase memory tc = cases[i];
 
             // Should not revert

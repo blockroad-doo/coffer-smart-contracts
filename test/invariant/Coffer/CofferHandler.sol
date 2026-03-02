@@ -100,9 +100,7 @@ contract CofferHandler is Test {
             uint32 minimumDuration,
             uint32 maximumDuration,
             uint128 minimumAmountToAccept,
-            uint32 version,
-            ,
-            ,
+            uint32 version,,,
             bool isActive,
         ) = coffer.sValidatorConditions();
         p.issueSize = issueSize;
@@ -256,10 +254,7 @@ contract CofferHandler is Test {
         // Push pending withdrawal
         ghostPendingWithdrawals.push(
             PendingWithdrawal({
-                bondId: bondId,
-                amount: amount,
-                arrivalTime: block.timestamp + EXIT_QUEUE_DELAY,
-                holderAddress: holder
+                bondId: bondId, amount: amount, arrivalTime: block.timestamp + EXIT_QUEUE_DELAY, holderAddress: holder
             })
         );
         ghostHasPendingConsensusWithdrawal[bondId] = true;
@@ -335,7 +330,7 @@ contract CofferHandler is Test {
         ++callsValidatorWithdrawFromExecution;
 
         // Read outstandingBonds
-        (,,,,, , uint32 outstandingBonds,,,) = coffer.sValidatorConditions();
+        (,,,,,, uint32 outstandingBonds,,,) = coffer.sValidatorConditions();
         if (outstandingBonds != 0) return;
 
         uint256 contractBalance = address(coffer).balance;
@@ -352,7 +347,7 @@ contract CofferHandler is Test {
 
         // Clamp amount to [1 ether, 100 ether], round down to gwei multiple
         uint128 amt = uint128(bound(amount, 1 ether, 100 ether));
-        
+
         // casting to 'uint128' is safe because bounds are intorduced
         // forge-lint: disable-next-line(unsafe-typecast) bounded to [1 ether, 100 ether] fits uint128
         amt = uint128((amt * GWEI_RATE) / GWEI_RATE);
@@ -371,12 +366,8 @@ contract CofferHandler is Test {
         // signature is 96 zero bytes; split into first 64 and last 32
         bytes memory sigFirst64 = new bytes(64);
         bytes memory sigLast32 = new bytes(32);
-        bytes32 signatureRoot = sha256(
-            abi.encodePacked(
-                sha256(sigFirst64),
-                sha256(abi.encodePacked(sigLast32, bytes32(0)))
-            )
-        );
+        bytes32 signatureRoot =
+            sha256(abi.encodePacked(sha256(sigFirst64), sha256(abi.encodePacked(sigLast32, bytes32(0)))));
 
         // withdrawal_credentials is 32 zero bytes = bytes32(0)
         bytes32 depositDataRoot = sha256(

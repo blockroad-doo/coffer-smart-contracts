@@ -156,14 +156,7 @@ abstract contract BaseTest is Test {
         vm.recordLogs();
 
         factory.createCoffer(
-            pubKeyPart1,
-            pubKeyPart2,
-            interestRate,
-            minDuration,
-            maxDuration,
-            minimumAmount,
-            safeTotalStake,
-            exitAllowed
+            pubKeyPart1, pubKeyPart2, interestRate, minDuration, maxDuration, minimumAmount, safeTotalStake, exitAllowed
         );
 
         // Get the deployed coffer address from the recorded logs
@@ -278,12 +271,9 @@ abstract contract BaseTest is Test {
         assertEq(isActive, expectedActive, "Active status mismatch");
     }
 
-    function assertHolderConditions(
-        address cofferAddr,
-        uint256 bondId,
-        uint128 expectedAmount,
-        uint32 expectedDuration
-    ) public {
+    function assertHolderConditions(address cofferAddr, uint256 bondId, uint128 expectedAmount, uint32 expectedDuration)
+        public
+    {
         Coffer targetCoffer = Coffer(payable(cofferAddr));
         (uint128 amount, uint64 duration, uint64 startTimestamp) = targetCoffer.sHolderConditions(bondId);
 
@@ -389,12 +379,7 @@ abstract contract BaseTest is Test {
     /**
      * @dev Helper to add a withdrawal request
      */
-    function addWithdrawalRequest(
-        bytes32 pubkeyPart1,
-        bytes16 pubkeyPart2,
-        uint64 amount,
-        uint256 fee
-    ) public {
+    function addWithdrawalRequest(bytes32 pubkeyPart1, bytes16 pubkeyPart2, uint64 amount, uint256 fee) public {
         bytes memory data = abi.encodePacked(pubkeyPart1, pubkeyPart2, amount);
         (bool success,) = WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS.call{value: fee}(data);
         require(success, "Failed to add withdrawal request");
@@ -413,12 +398,7 @@ abstract contract BaseTest is Test {
     /**
      * @dev Get current queue state from mock
      */
-    function getQueueState() public view returns (
-        uint256 excess,
-        uint256 count,
-        uint256 queueHead,
-        uint256 queueTail
-    ) {
+    function getQueueState() public view returns (uint256 excess, uint256 count, uint256 queueHead, uint256 queueTail) {
         excess = EIP7002Mock(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS).getExcess();
         count = EIP7002Mock(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS).getCount();
         queueHead = EIP7002Mock(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS).getQueueHead();
@@ -460,13 +440,23 @@ abstract contract BaseTest is Test {
             let ptr := add(add(returnData, 0x20), add(offset, 68))
             amount := or(
                 byte(0, mload(ptr)),
-                or(shl(8, byte(0, mload(add(ptr, 1)))),
-                or(shl(16, byte(0, mload(add(ptr, 2)))),
-                or(shl(24, byte(0, mload(add(ptr, 3)))),
-                or(shl(32, byte(0, mload(add(ptr, 4)))),
-                or(shl(40, byte(0, mload(add(ptr, 5)))),
-                or(shl(48, byte(0, mload(add(ptr, 6)))),
-                   shl(56, byte(0, mload(add(ptr, 7)))))))))))
+                or(
+                    shl(8, byte(0, mload(add(ptr, 1)))),
+                    or(
+                        shl(16, byte(0, mload(add(ptr, 2)))),
+                        or(
+                            shl(24, byte(0, mload(add(ptr, 3)))),
+                            or(
+                                shl(32, byte(0, mload(add(ptr, 4)))),
+                                or(
+                                    shl(40, byte(0, mload(add(ptr, 5)))),
+                                    or(shl(48, byte(0, mload(add(ptr, 6)))), shl(56, byte(0, mload(add(ptr, 7)))))
+                                )
+                            )
+                        )
+                    )
+                )
+            )
         }
 
         assertEq(source, expectedSource, "Source address mismatch");
@@ -485,27 +475,27 @@ interface CofferEvents {
     event HolderAcceptedOffer(
         address indexed holderAddress,
         uint256 indexed bondId,
-        uint128 amount,
+        uint128 indexed amount,
         uint32 duration,
         uint128 amountWithInterest
     );
     event HolderWithdrawFromExecutionSuccess(address indexed holderAddress, uint256 indexed bondId);
     event HolderWithdrawFromConsensusSuccess(
-        address indexed holderAddress, uint256 indexed bondId, uint128 amount, bool isFullExit
+        address indexed holderAddress, uint256 indexed bondId, uint128 amount, bool indexed isFullExit
     );
-    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId, uint128 amountOwed);
-    event ValidatorWithdrawFromExecution(uint128 amount);
-    event ValidatorWithdrawFromConsensus(uint128 amount);
-    event ValidatorFundsAdded(uint128 amount);
+    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId, uint128 indexed amountOwed);
+    event ValidatorWithdrawFromExecution(uint128 indexed amount);
+    event ValidatorWithdrawFromConsensus(uint128 indexed amount);
+    event ValidatorFundsAdded(uint128 indexed amount);
     event CofferActivated();
     event CofferDeactivated();
     event CofferAllowsHolderToExit();
     event CofferForbidsHolderToExit();
-    event InterestRateChanged(uint32 oldRate, uint32 newRate);
-    event DurationRangeChanged(uint32 minimumDuration, uint32 maximumDuration);
-    event IssueSizeChanged(uint128 oldAmount, uint128 newAmount);
-    event MinimumAmountChanged(uint128 newMinimum);
-    event SafeTotalStakeChanged(uint32 oldSafeTotalStake, uint32 newSafeTotalStake);
+    event InterestRateChanged(uint32 indexed oldRate, uint32 indexed newRate);
+    event DurationRangeChanged(uint32 indexed minimumDuration, uint32 indexed maximumDuration);
+    event IssueSizeChanged(uint128 indexed oldAmount, uint128 indexed newAmount);
+    event MinimumAmountChanged(uint128 indexed newMinimum);
+    event SafeTotalStakeChanged(uint32 indexed oldSafeTotalStake, uint32 indexed newSafeTotalStake);
     event ValidatorConvertedToCompounding();
 }
 

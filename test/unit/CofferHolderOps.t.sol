@@ -9,7 +9,9 @@ import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 
 /// @dev Contract that rejects all ETH transfers
 contract RejectEther {
-    receive() external payable { revert(); }
+    receive() external payable {
+        revert();
+    }
 }
 
 contract CofferHolderOpsTest is BaseTest {
@@ -78,7 +80,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(issueSize, 10 ether - amtWithInterest);
     }
 
@@ -87,7 +89,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
+        (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 1);
     }
 
@@ -110,7 +112,7 @@ contract CofferHolderOpsTest is BaseTest {
         assertEq(bondNft.ownerOf(id1), holder1);
         assertEq(bondNft.ownerOf(id2), holder2);
 
-        (,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
+        (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 2);
     }
 
@@ -120,7 +122,7 @@ contract CofferHolderOpsTest is BaseTest {
         // defaultMinimumAmount is 1 ether — buy exactly that
         buyBond(cofferAddr, holder1, defaultMinimumAmount, ONE_MONTH, version);
 
-        (,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
+        (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 1);
     }
 
@@ -152,7 +154,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 3);
 
-        (uint128 issueSize,,,,,,,,, ) = coffer.sValidatorConditions();
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(issueSize, 0);
     }
 
@@ -173,7 +175,7 @@ contract CofferHolderOpsTest is BaseTest {
         // exitAllowed coffer starts with availableAmount set by constructor, version=1
         buyBond(exitCofferAddr, holder1, 1 ether, ONE_MONTH, 1);
 
-        (,,,,, , uint32 bonds,,,) = exitCoffer.sValidatorConditions();
+        (,,,,,, uint32 bonds,,,) = exitCoffer.sValidatorConditions();
         assertEq(bonds, 1);
     }
 
@@ -343,7 +345,7 @@ contract CofferHolderOpsTest is BaseTest {
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(bondId);
 
-        (uint128 issueSize,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
+        (uint128 issueSize,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 0);
         assertEq(issueSize, 10 ether); // fully restored
     }
@@ -360,14 +362,14 @@ contract CofferHolderOpsTest is BaseTest {
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(id1);
 
-        (,,,,, , uint32 bonds1,,,) = coffer.sValidatorConditions();
+        (,,,,,, uint32 bonds1,,,) = coffer.sValidatorConditions();
         assertEq(bonds1, 1);
 
         // holder2 withdraws second
         vm.prank(holder2);
         coffer.holderWithdrawFromExecution(id2);
 
-        (,,,,, , uint32 bonds2,,,) = coffer.sValidatorConditions();
+        (,,,,,, uint32 bonds2,,,) = coffer.sValidatorConditions();
         assertEq(bonds2, 0);
     }
 
@@ -684,19 +686,10 @@ contract CofferHolderOpsTest is BaseTest {
         (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
         // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint64
         uint64 amountGwei = uint64(amtOwed / 1e9);
-        bytes memory data = abi.encodePacked(
-            validPublicKeyPart1,
-            validPublicKeyPart2,
-            amountGwei
-        );
+        bytes memory data = abi.encodePacked(validPublicKeyPart1, validPublicKeyPart2, amountGwei);
 
         // Mock the write call to revert (fee getter staticcall still works)
-        vm.mockCallRevert(
-            WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS,
-            fee,
-            data,
-            ""
-        );
+        vm.mockCallRevert(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, fee, data, "");
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.WithdrawlContractCallFailed.selector);

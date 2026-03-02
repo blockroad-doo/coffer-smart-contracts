@@ -5,24 +5,34 @@ import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
 /**
  * @title CofferBondNft
+ * @author Coffer Team
  * @notice ERC-721 contract representing transferable ownership of Coffer Accepted Offer
  * @notice When a holder accepts Coffer offer, they receive an NFT representing a bond
  */
 contract CofferBondNft is ERC721 {
     error OnlyDelegateCanBurn();
 
+    /// @notice Counter for generating unique bond IDs
     uint256 private sBondIdCounter;
+    /// @notice Mapping from bond ID to the address allowed to burn it
     mapping(uint256 => address) private burnDelegates;
 
-    event CofferBondTokenMinted(
-        uint256 indexed bondId,
-        address indexed holder
-    );
+    /// @notice Emitted when a new bond NFT is minted
+    /// @param bondId The ID of the newly minted bond
+    /// @param holder The address that received the bond NFT
+    event CofferBondTokenMinted(uint256 indexed bondId, address indexed holder);
+    /// @notice Emitted when a bond NFT is burned
+    /// @param bondId The ID of the burned bond
     event CofferBondTokenBurned(uint256 indexed bondId);
 
     constructor() ERC721("Coffer Bond", "CB") {}
 
-    /// @notice we set msg.sender for delegate to burn tokens so all calls coming from Coffer contract will set that exact Coffer contract as the only delegator which would be allowed to burn
+    /// @notice Mints a bond NFT and sets msg.sender as burn delegate
+    /// @notice We set msg.sender for delegate to burn tokens so all calls
+    /// coming from Coffer contract will set that exact Coffer contract
+    /// as the only delegator which would be allowed to burn
+    /// @param _holderAddress The address to receive the bond NFT
+    /// @return bondId The ID of the newly minted bond
     function mintCofferBond(address _holderAddress) external returns (uint256) {
         uint256 bondId = ++sBondIdCounter;
         burnDelegates[bondId] = msg.sender;
@@ -31,7 +41,8 @@ contract CofferBondNft is ERC721 {
         return bondId;
     }
 
-    /// @notice simple function for burning NFTs which checks only if the original minter is caller
+    /// @notice Burns a bond NFT, only callable by the original minter
+    /// @param _bondId The ID of the bond NFT to burn
     function burnCofferBond(uint256 _bondId) external {
         if (msg.sender != burnDelegates[_bondId]) revert OnlyDelegateCanBurn();
         _burn(_bondId);
