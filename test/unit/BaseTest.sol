@@ -186,10 +186,10 @@ abstract contract BaseTest is Test {
     // HELPER FUNCTIONS - BOND OPERATIONS
     // ========================================
 
-    uint256 private holderIdCounter = 0;
+    uint256 private bondIdCounter = 0;
 
-    function getNextHolderId() private returns (uint256) {
-        return ++holderIdCounter;
+    function getNextBondId() private returns (uint256) {
+        return ++bondIdCounter;
     }
 
     function buyBond(address cofferAddr, address buyer, uint128 amount, uint32 duration, uint32 version)
@@ -199,7 +199,7 @@ abstract contract BaseTest is Test {
         Coffer targetCoffer = Coffer(payable(cofferAddr));
 
         // Track current supply before minting
-        uint256 currentSupply = getNextHolderId();
+        uint256 currentSupply = getNextBondId();
 
         vm.startPrank(buyer);
         targetCoffer.buyBond{value: amount}(duration, version);
@@ -280,12 +280,12 @@ abstract contract BaseTest is Test {
 
     function assertHolderConditions(
         address cofferAddr,
-        uint256 holderId,
+        uint256 bondId,
         uint128 expectedAmount,
         uint32 expectedDuration
     ) public {
         Coffer targetCoffer = Coffer(payable(cofferAddr));
-        (uint128 amount, uint64 duration, uint64 startTimestamp) = targetCoffer.sHolderConditions(holderId);
+        (uint128 amount, uint64 duration, uint64 startTimestamp) = targetCoffer.sHolderConditions(bondId);
 
         assertEq(amount, expectedAmount, "Holder amount mismatch");
         assertEq(duration, expectedDuration, "Holder duration mismatch");
@@ -318,13 +318,13 @@ abstract contract BaseTest is Test {
 
     function expectHolderAcceptedOfferEvent(
         address holder,
-        uint256 holderId,
+        uint256 bondId,
         uint128 amount,
         uint32 duration,
         uint128 amountWithInterest
     ) public {
         vm.expectEmit(true, true, false, true);
-        emit CofferEvents.HolderAcceptedOffer(holder, holderId, amount, duration, amountWithInterest);
+        emit CofferEvents.HolderAcceptedOffer(holder, bondId, amount, duration, amountWithInterest);
     }
 
     // ========================================
@@ -484,16 +484,16 @@ interface CofferFactoryEvents {
 interface CofferEvents {
     event HolderAcceptedOffer(
         address indexed holderAddress,
-        uint256 indexed holderId,
+        uint256 indexed bondId,
         uint128 amount,
         uint32 duration,
         uint128 amountWithInterest
     );
-    event HolderWithdrawFromExecutionSuccess(address indexed holderAddress, uint256 indexed holderId);
+    event HolderWithdrawFromExecutionSuccess(address indexed holderAddress, uint256 indexed bondId);
     event HolderWithdrawFromConsensusSuccess(
-        address indexed holderAddress, uint256 indexed holderId, uint128 amount, bool isFullExit
+        address indexed holderAddress, uint256 indexed bondId, uint128 amount, bool isFullExit
     );
-    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed holderId, uint128 amountOwed);
+    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId, uint128 amountOwed);
     event ValidatorWithdrawFromExecution(uint128 amount);
     event ValidatorWithdrawFromConsensus(uint128 amount);
     event ValidatorFundsAdded(uint128 amount);
@@ -510,6 +510,6 @@ interface CofferEvents {
 }
 
 interface CofferBondNftEvents {
-    event CofferBondTokenMinted(uint256 indexed holderId, address indexed holder);
-    event CofferBondTokenBurned(uint256 indexed holderId);
+    event CofferBondTokenMinted(uint256 indexed bondId, address indexed holder);
+    event CofferBondTokenBurned(uint256 indexed bondId);
 }

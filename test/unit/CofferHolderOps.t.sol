@@ -44,13 +44,13 @@ contract CofferHolderOpsTest is BaseTest {
     function test_BuyBond_MintsNftAndStoresHolderConditions() public {
         uint32 version = _enableBonding(10 ether);
 
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         // NFT owner is holder1
-        assertEq(bondNft.ownerOf(holderId), holder1);
+        assertEq(bondNft.ownerOf(bondId), holder1);
 
         // HolderConditions stored
-        (uint128 amount, uint32 duration, uint32 startTs) = coffer.sHolderConditions(holderId);
+        (uint128 amount, uint32 duration, uint32 startTs) = coffer.sHolderConditions(bondId);
         uint256 expectedAmt = _expectedAmountWithInterest(1 ether, ONE_MONTH);
         assertEq(amount, expectedAmt);
         assertEq(duration, ONE_MONTH);
@@ -180,9 +180,9 @@ contract CofferHolderOpsTest is BaseTest {
     function test_BuyBond_InterestCalculationVerification() public {
         uint32 version = _enableBonding(10 ether);
 
-        uint256 holderId = buyBond(cofferAddr, holder1, 2 ether, SIX_MONTHS, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 2 ether, SIX_MONTHS, version);
 
-        (uint128 storedAmount,,) = coffer.sHolderConditions(holderId);
+        (uint128 storedAmount,,) = coffer.sHolderConditions(bondId);
         uint256 expectedInterest = Interest.calculateInterest(2 ether, SIX_MONTHS, defaultInterestRate);
         assertEq(storedAmount, 2 ether + expectedInterest);
     }
@@ -302,9 +302,9 @@ contract CofferHolderOpsTest is BaseTest {
 
     function test_HolderWithdrawFromExecution_WithdrawsAmountWithInterest() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
 
         vm.deal(cofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
@@ -312,7 +312,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 balBefore = holder1.balance;
 
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
         vm.snapshotGasLastCall("holderWithdrawFromExecution");
 
         assertEq(holder1.balance, balBefore + amtOwed);
@@ -320,28 +320,28 @@ contract CofferHolderOpsTest is BaseTest {
 
     function test_HolderWithdrawFromExecution_EmitsEvent() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
         vm.deal(cofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
 
         vm.expectEmit(true, true, false, false);
-        emit CofferEvents.HolderWithdrawFromExecutionSuccess(holder1, holderId);
+        emit CofferEvents.HolderWithdrawFromExecutionSuccess(holder1, bondId);
 
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
     }
 
     function test_HolderWithdrawFromExecution_RestoresState() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         vm.deal(cofferAddr, 10 ether);
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
 
         (uint128 issueSize,,,,, , uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 0);
@@ -373,13 +373,13 @@ contract CofferHolderOpsTest is BaseTest {
 
     function test_HolderWithdrawFromExecution_AfterNftTransfer() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
 
         // Transfer NFT to holder2
         vm.prank(holder1);
-        bondNft.transferFrom(holder1, holder2, holderId);
+        bondNft.transferFrom(holder1, holder2, bondId);
 
         vm.deal(cofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
@@ -387,7 +387,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 balBefore = holder2.balance;
 
         vm.prank(holder2);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
 
         assertEq(holder2.balance, balBefore + amtOwed);
     }
@@ -405,16 +405,16 @@ contract CofferHolderOpsTest is BaseTest {
             true
         );
 
-        uint256 holderId = buyBond(exitCofferAddr, holder1, 1 ether, ONE_MONTH, 1);
+        uint256 bondId = buyBond(exitCofferAddr, holder1, 1 ether, ONE_MONTH, 1);
 
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
-        (uint128 amtOwed,,) = exitCoffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = exitCoffer.sHolderConditions(bondId);
 
         vm.deal(exitCofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);
-        exitCoffer.holderWithdrawFromExecution(holderId);
+        exitCoffer.holderWithdrawFromExecution(bondId);
     }
 
     // ========================================
@@ -429,53 +429,53 @@ contract CofferHolderOpsTest is BaseTest {
 
     function test_HolderWithdrawFromExecution_RevertsIfAlreadyWithdrawn() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         vm.deal(cofferAddr, 10 ether);
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnAmount.selector);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
     }
 
     function test_HolderWithdrawFromExecution_RevertsIfNotNftOwner() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         vm.deal(cofferAddr, 10 ether);
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder2);
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
     }
 
     function test_HolderWithdrawFromExecution_RevertsIfNotMatured() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         vm.deal(cofferAddr, 10 ether);
         // Do NOT advance time
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.HoldersTimeHasNotExpiredYet.selector);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
     }
 
     function test_HolderWithdrawFromExecution_RevertsIfInsufficientBalance() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         // Do NOT fund contract
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.ContractBalanceLessThanAmount.selector);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
     }
 
     function test_HolderWithdrawFromExecution_RevertsIfSendAmountFailed() public {
@@ -488,15 +488,15 @@ contract CofferHolderOpsTest is BaseTest {
         // Buy bond from rejector
         vm.prank(address(rejector));
         coffer.buyBond{value: 1 ether}(ONE_MONTH, version);
-        uint256 holderId = 1;
+        uint256 bondId = 1;
 
-        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
         vm.deal(cofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(address(rejector));
         vm.expectRevert(Errors.FailedCall.selector);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
     }
 
     // ========================================
@@ -505,38 +505,38 @@ contract CofferHolderOpsTest is BaseTest {
 
     function test_HolderWithdrawFromConsensus_ExitNotAllowed_PartialWithdraw() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         advanceTime(ONE_MONTH + 1);
         uint256 fee = getWithdrawalFee();
 
-        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
         // forge-lint: disable-next-line(unsafe-typecast) amtOwed / 1e9 fits in uint64
         uint64 expectedGwei = uint64(amtOwed / 1e9);
 
         vm.expectEmit(true, true, false, true);
-        emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, holderId, amtOwed, false);
+        emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, bondId, amtOwed, false);
 
         vm.prank(holder1);
-        coffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
         vm.snapshotGasLastCall("holderWithdrawFromConsensus");
     }
 
     function test_HolderWithdrawFromConsensus_ExitNotAllowed_VerifyPayloadAmount() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         advanceTime(ONE_MONTH + 1);
         uint256 fee = getWithdrawalFee();
 
         // The event's isFullExit should be false when exitAllowed=false (partial amount)
-        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
 
         vm.expectEmit(true, true, false, true);
-        emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, holderId, amtOwed, false);
+        emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, bondId, amtOwed, false);
 
         vm.prank(holder1);
-        coffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
     function test_HolderWithdrawFromConsensus_ExitAllowed_FullExit() public {
@@ -553,19 +553,19 @@ contract CofferHolderOpsTest is BaseTest {
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
 
-        uint256 holderId = buyBond(exitCofferAddr, holder1, 1 ether, ONE_MONTH, 1);
+        uint256 bondId = buyBond(exitCofferAddr, holder1, 1 ether, ONE_MONTH, 1);
 
         advanceTime(ONE_MONTH + 1);
         uint256 fee = getWithdrawalFee();
 
-        (uint128 amtOwed,,) = exitCoffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = exitCoffer.sHolderConditions(bondId);
 
         // isFullExit should be true because exitAllowed=true means amountToWithdrawInGwei=0
         vm.expectEmit(true, true, false, true);
-        emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, holderId, amtOwed, true);
+        emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, bondId, amtOwed, true);
 
         vm.prank(holder1);
-        exitCoffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        exitCoffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
     function test_HolderWithdrawFromConsensus_ExitAllowed_VerifyPayload() public {
@@ -582,18 +582,18 @@ contract CofferHolderOpsTest is BaseTest {
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
 
-        uint256 holderId = buyBond(exitCofferAddr, holder1, 1 ether, ONE_MONTH, 1);
+        uint256 bondId = buyBond(exitCofferAddr, holder1, 1 ether, ONE_MONTH, 1);
 
         advanceTime(ONE_MONTH + 1);
         uint256 fee = getWithdrawalFee();
 
         // Full exit: amount in payload is 0, so isFullExit = true
         vm.expectEmit(true, true, false, true);
-        (uint128 amtOwed,,) = exitCoffer.sHolderConditions(holderId);
-        emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, holderId, amtOwed, true);
+        (uint128 amtOwed,,) = exitCoffer.sHolderConditions(bondId);
+        emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, bondId, amtOwed, true);
 
         vm.prank(holder1);
-        exitCoffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        exitCoffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
     // ========================================
@@ -610,21 +610,21 @@ contract CofferHolderOpsTest is BaseTest {
 
     function test_HolderWithdrawFromConsensus_RevertsIfNotNftOwner() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         advanceTime(ONE_MONTH + 1);
         uint256 fee = getWithdrawalFee();
 
         vm.prank(holder2);
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
     function test_HolderWithdrawFromConsensus_RevertsIfContractHasEnoughBalance() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
         vm.deal(cofferAddr, amtOwed); // fund contract with enough
 
         advanceTime(ONE_MONTH + 1);
@@ -632,36 +632,36 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.HolderConsensusWithdrawNotPossibleContractHasEnoughBalance.selector);
-        coffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
     function test_HolderWithdrawFromConsensus_RevertsIfNotMatured() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         // Do NOT advance time
         uint256 fee = getWithdrawalFee();
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.HoldersTimeHasNotExpiredYet.selector);
-        coffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
     function test_HolderWithdrawFromConsensus_RevertsIfInsufficientFee() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         advanceTime(ONE_MONTH + 1);
         uint256 fee = getWithdrawalFee();
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.InsufficientFee.selector);
-        coffer.holderWithdrawFromConsensus{value: fee - 1}(holderId);
+        coffer.holderWithdrawFromConsensus{value: fee - 1}(bondId);
     }
 
     function test_HolderWithdrawFromConsensus_RevertsIfWithdrawalContractFails() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         advanceTime(ONE_MONTH + 1);
 
@@ -670,18 +670,18 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.WithdrawlContractCallFailed.selector);
-        coffer.holderWithdrawFromConsensus{value: 1 ether}(holderId);
+        coffer.holderWithdrawFromConsensus{value: 1 ether}(bondId);
     }
 
     function test_HolderWithdrawFromConsensus_RevertsIfWriteCallFails() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         advanceTime(ONE_MONTH + 1);
         uint256 fee = getWithdrawalFee();
 
         // Build the exact 56-byte payload that Coffer will send
-        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
         // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint64
         uint64 amountGwei = uint64(amtOwed / 1e9);
         bytes memory data = abi.encodePacked(
@@ -700,26 +700,26 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.WithdrawlContractCallFailed.selector);
-        coffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
     function test_HolderWithdrawFromConsensus_RevertsIfAlreadyWithdrawn() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
         vm.deal(cofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
 
         // Withdraw from execution first (which deletes the holder)
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
 
         uint256 fee = getWithdrawalFee();
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnAmount.selector);
-        coffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
     // ========================================
@@ -728,13 +728,13 @@ contract CofferHolderOpsTest is BaseTest {
 
     function test_EdgeCase_BuyBondTransferNftNewOwnerWithdraws() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
 
         // Transfer NFT holder1 -> holder2
         vm.prank(holder1);
-        bondNft.transferFrom(holder1, holder2, holderId);
+        bondNft.transferFrom(holder1, holder2, bondId);
 
         vm.deal(cofferAddr, amtOwed);
         advanceTime(ONE_MONTH + 1);
@@ -742,26 +742,26 @@ contract CofferHolderOpsTest is BaseTest {
         // holder1 can no longer withdraw
         vm.prank(holder1);
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
 
         // holder2 can withdraw
         uint256 balBefore = holder2.balance;
         vm.prank(holder2);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
         assertEq(holder2.balance, balBefore + amtOwed);
     }
 
     function test_EdgeCase_ValidatorRedeemsEarly_HolderCannotWithdraw() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        (uint128 amtOwed,,) = coffer.sHolderConditions(holderId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
         vm.deal(cofferAddr, amtOwed);
 
         // Validator redeems early
         vm.prank(validator);
         uint256[] memory ids = new uint256[](1);
-        ids[0] = holderId;
+        ids[0] = bondId;
         coffer.redeemBondsEarly(ids);
 
         advanceTime(ONE_MONTH + 1);
@@ -769,18 +769,18 @@ contract CofferHolderOpsTest is BaseTest {
         // Holder tries to withdraw — should fail because bond was already redeemed
         vm.prank(holder1);
         vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnAmount.selector);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
     }
 
     function test_EdgeCase_ExactFeePaymentSucceeds() public {
         uint32 version = _enableBonding(10 ether);
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
         advanceTime(ONE_MONTH + 1);
         uint256 fee = getWithdrawalFee();
 
         // Exact fee should succeed
         vm.prank(holder1);
-        coffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 }

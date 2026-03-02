@@ -42,10 +42,10 @@ contract CofferInvariantTest is BaseTest {
     function invariant_ghostAmountsMatchOnChain() public view {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
-            uint256 holderId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,) = coffer.sHolderConditions(holderId);
+            uint256 bondId = handler.getActiveBondIdAt(i);
+            (uint128 amount,,) = coffer.sHolderConditions(bondId);
             assertEq(
-                uint256(handler.ghostBondAmount(holderId)),
+                uint256(handler.ghostBondAmount(bondId)),
                 uint256(amount),
                 "ghostBondAmount must match on-chain amount"
             );
@@ -58,8 +58,8 @@ contract CofferInvariantTest is BaseTest {
         uint256 totalBondAmounts = 0;
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
-            uint256 holderId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,) = coffer.sHolderConditions(holderId);
+            uint256 bondId = handler.getActiveBondIdAt(i);
+            (uint128 amount,,) = coffer.sHolderConditions(bondId);
             totalBondAmounts += uint256(amount);
         }
 
@@ -77,8 +77,8 @@ contract CofferInvariantTest is BaseTest {
     function invariant_everyActiveBondHasValidNft() public {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
-            uint256 holderId = handler.getActiveBondIdAt(i);
-            try bondNft.ownerOf(holderId) returns (address owner) {
+            uint256 bondId = handler.getActiveBondIdAt(i);
+            try bondNft.ownerOf(bondId) returns (address owner) {
                 assertTrue(owner != address(0), "Active bond NFT owner must be non-zero");
             } catch {
                 fail("ownerOf must not revert for active bond");
@@ -89,8 +89,8 @@ contract CofferInvariantTest is BaseTest {
     function invariant_everyActiveBondHasNonZeroAmount() public view {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
-            uint256 holderId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,) = coffer.sHolderConditions(holderId);
+            uint256 bondId = handler.getActiveBondIdAt(i);
+            (uint128 amount,,) = coffer.sHolderConditions(bondId);
             assertTrue(amount > 0, "Active bond must have non-zero amount");
         }
     }
@@ -98,10 +98,10 @@ contract CofferInvariantTest is BaseTest {
     function invariant_ghostHolderMatchesNftOwner() public view {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
-            uint256 holderId = handler.getActiveBondIdAt(i);
+            uint256 bondId = handler.getActiveBondIdAt(i);
             assertEq(
-                handler.ghostBondHolder(holderId),
-                bondNft.ownerOf(holderId),
+                handler.ghostBondHolder(bondId),
+                bondNft.ownerOf(bondId),
                 "ghostBondHolder must match NFT owner"
             );
         }
@@ -153,10 +153,10 @@ contract CofferInvariantTest is BaseTest {
     function invariant_pendingConsensusImpliesActive() public view {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
-            uint256 holderId = handler.getActiveBondIdAt(i);
-            if (handler.ghostHasPendingConsensusWithdrawal(holderId)) {
+            uint256 bondId = handler.getActiveBondIdAt(i);
+            if (handler.ghostHasPendingConsensusWithdrawal(bondId)) {
                 assertTrue(
-                    handler.ghostIsBondActive(holderId),
+                    handler.ghostIsBondActive(bondId),
                     "Pending consensus withdrawal implies bond is active"
                 );
             }
@@ -166,9 +166,9 @@ contract CofferInvariantTest is BaseTest {
     function invariant_pendingConsensusDataPersists() public view {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
-            uint256 holderId = handler.getActiveBondIdAt(i);
-            if (handler.ghostHasPendingConsensusWithdrawal(holderId)) {
-                (uint128 amount,,) = coffer.sHolderConditions(holderId);
+            uint256 bondId = handler.getActiveBondIdAt(i);
+            if (handler.ghostHasPendingConsensusWithdrawal(bondId)) {
+                (uint128 amount,,) = coffer.sHolderConditions(bondId);
                 assertGt(amount, 0, "Pending consensus bond must have non-zero on-chain amount");
             }
         }

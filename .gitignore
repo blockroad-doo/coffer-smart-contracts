@@ -6,6 +6,7 @@ out/
 broadcast/
 ai_conversations/
 beaconProofVerifier/
+snapshots/
 
 # Docs
 docs/

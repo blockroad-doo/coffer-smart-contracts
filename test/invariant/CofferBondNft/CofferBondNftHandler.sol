@@ -29,13 +29,13 @@ contract CofferBondNftHandler is Test {
     function handlerMint(uint256 actorSeed) external {
         address recipient = actors[actorSeed % actors.length];
 
-        uint256 holderId = nft.mintCofferBond(recipient);
+        uint256 bondId = nft.mintCofferBond(recipient);
 
         ++ghostTotalMinted;
         ++ghostNextExpectedId;
-        ghostActiveIds.push(holderId);
-        ghostIsActive[holderId] = true;
-        ghostOwner[holderId] = recipient;
+        ghostActiveIds.push(bondId);
+        ghostIsActive[bondId] = true;
+        ghostOwner[bondId] = recipient;
     }
 
     function handlerBurn(uint256 idSeed) external {

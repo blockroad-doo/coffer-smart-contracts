@@ -18,11 +18,11 @@ contract CofferMainOpsTest is BaseTest {
     // HELPERS
     // ========================================
 
-    /// @dev Sets up a coffer with availableAmount and buys a bond, returning holderId
-    function _setupBondForModifierTests() internal returns (uint256 holderId) {
+    /// @dev Sets up a coffer with availableAmount and buys a bond, returning bondId
+    function _setupBondForModifierTests() internal returns (uint256 bondId) {
         vm.prank(validator);
         coffer.changeIssueSize(10 ether); // version -> 2
-        holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
+        bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
     }
 
     // ========================================
@@ -246,7 +246,7 @@ contract CofferMainOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(10 ether); // version -> 2
 
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
         // Get availableAmount after buying bond
         (uint128 availableAfterBuy,,,,,,,,, ) = coffer.sValidatorConditions();
@@ -256,7 +256,7 @@ contract CofferMainOpsTest is BaseTest {
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
 
         (uint128 availableAfterWithdraw,,,,,,,,, ) = coffer.sValidatorConditions();
         assertEq(availableAfterWithdraw, 10 ether); // fully restored
@@ -266,7 +266,7 @@ contract CofferMainOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(10 ether); // version -> 2
 
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
         (,,,,, , uint32 bondsBefore,,,) = coffer.sValidatorConditions();
         assertEq(bondsBefore, 1);
@@ -275,7 +275,7 @@ contract CofferMainOpsTest is BaseTest {
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
 
         (,,,,, , uint32 bondsAfter,,,) = coffer.sValidatorConditions();
         assertEq(bondsAfter, 0);
@@ -285,35 +285,35 @@ contract CofferMainOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(10 ether); // version -> 2
 
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
         // Verify NFT exists
-        assertEq(bondNft.ownerOf(holderId), holder1);
+        assertEq(bondNft.ownerOf(bondId), holder1);
 
         vm.deal(cofferAddr, 10 ether);
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
 
         // NFT should be burned — ownerOf should revert
         vm.expectRevert();
-        bondNft.ownerOf(holderId);
+        bondNft.ownerOf(bondId);
     }
 
     function test_RemoveHolder_DeletesHolderConditions() public {
         vm.prank(validator);
         coffer.changeIssueSize(10 ether); // version -> 2
 
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
         vm.deal(cofferAddr, 10 ether);
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
 
-        (uint128 amount, , ) = coffer.sHolderConditions(holderId);
+        (uint128 amount, , ) = coffer.sHolderConditions(bondId);
         assertEq(amount, 0);
     }
 
@@ -325,39 +325,39 @@ contract CofferMainOpsTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(10 ether); // version -> 2
 
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
         vm.deal(cofferAddr, 10 ether);
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder2); // not the NFT owner
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
     }
 
     function test_HolderIsCaller_RevertsIfNotNftOwner_WithdrawFromConsensus() public {
         vm.prank(validator);
         coffer.changeIssueSize(10 ether); // version -> 2
 
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
         advanceTime(ONE_MONTH + 1);
 
         uint256 fee = getWithdrawalFee();
 
         vm.prank(holder2); // not the NFT owner
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
     function test_HolderIsCaller_SucceedsAfterNftTransfer() public {
         vm.prank(validator);
         coffer.changeIssueSize(10 ether); // version -> 2
 
-        uint256 holderId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
 
         // Transfer NFT from holder1 to holder2
         vm.prank(holder1);
-        bondNft.transferFrom(holder1, holder2, holderId);
+        bondNft.transferFrom(holder1, holder2, bondId);
 
         vm.deal(cofferAddr, 10 ether);
         advanceTime(ONE_MONTH + 1);
@@ -365,7 +365,7 @@ contract CofferMainOpsTest is BaseTest {
         // holder2 can now withdraw
         uint256 balBefore = holder2.balance;
         vm.prank(holder2);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
 
         assertGt(holder2.balance, balBefore);
     }

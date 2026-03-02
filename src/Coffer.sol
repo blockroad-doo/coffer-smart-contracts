@@ -106,24 +106,24 @@ contract Coffer is Ownable, Multicall {
 
     event HolderAcceptedOffer(
         address indexed holderAddress,
-        uint256 indexed holderId,
+        uint256 indexed bondId,
         uint128 amount,
         uint32 duration,
         uint128 amountWithInterest
     );
     event HolderWithdrawFromExecutionSuccess(
         address indexed holderAddress,
-        uint256 indexed holderId
+        uint256 indexed bondId
     );
     event HolderWithdrawFromConsensusSuccess(
         address indexed holderAddress,
-        uint256 indexed holderId,
+        uint256 indexed bondId,
         uint128 amount,
         bool isFullExit
     );
     event ValidatorsBondRedeem(
         address indexed holderAddress,
-        uint256 indexed holderId,
+        uint256 indexed bondId,
         uint128 amountOwed
     );
     event ValidatorWithdrawFromExecution(uint128 amount);
@@ -225,11 +225,11 @@ contract Coffer is Ownable, Multicall {
         }
 
         // Mint NFT representing the bond
-        uint256 holderId = ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS)
+        uint256 bondId = ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS)
             .mintCofferBond(msg.sender);
 
-        // Store coffer conditions using holderId as key
-        sHolderConditions[holderId] = HolderConditions({
+        // Store coffer conditions using bondId as key
+        sHolderConditions[bondId] = HolderConditions({
             duration: _duration,
             startTimestamp: uint32(block.timestamp),
             // forge-lint: disable-next-line(unsafe-typecast) amountWithInterest ≤ issueSize which is uint128
@@ -242,7 +242,7 @@ contract Coffer is Ownable, Multicall {
 
         emit HolderAcceptedOffer(
             msg.sender,
-            holderId,
+            bondId,
             // forge-lint: disable-next-line(unsafe-typecast) msg.value bounded by uint128 issueSize check
             uint128(msg.value),
             _duration,
@@ -257,13 +257,13 @@ contract Coffer is Ownable, Multicall {
     /// @notice Only validator can call this function
     /// @notice Amounts are redeemed from Coffer contract
     /// @notice If contract doesn't have enough amount to repay, validator can send additional amount using msg.value
-    /// @param _holderIds Holder IDs which bonds are intended to redeem early
+    /// @param _bondIds Bond IDs which bonds are intended to redeem early
     function redeemBondsEarly(
-        uint256[] calldata _holderIds
+        uint256[] calldata _bondIds
     ) external payable onlyOwner {
-        for (uint256 i = 0; i < _holderIds.length; ++i) {
-            uint256 holderId = _holderIds[i];
-            HolderConditions storage holder = sHolderConditions[holderId];
+        for (uint256 i = 0; i < _bondIds.length; ++i) {
+            uint256 bondId = _bondIds[i];
+            HolderConditions storage holder = sHolderConditions[bondId];
             uint128 amount = holder.amount;
 
             if (amount == 0) {
@@ -275,12 +275,12 @@ contract Coffer is Ownable, Multicall {
             }
 
             address holderAddress = ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS)
-                .ownerOf(holderId);
-            removeHolder(holderId, amount);
+                .ownerOf(bondId);
+            removeHolder(bondId, amount);
 
             emit ValidatorsBondRedeem(
                 holderAddress,
-                holderId,
+                bondId,
                 amount
             );
 
@@ -401,15 +401,15 @@ contract Coffer is Ownable, Multicall {
     /// @notice Validator or holder can trigger consensus withdraw in order to fill up contract with ETH
     /// @notice If validator allows holder to initiate full exit than it can issue bonds for (almost) all the consensus amount, even so it can drop to less than 32. Penalties should be considered only while defining issueSize in this situation.
     /// @notice If validator doesn not allows holder to initiate full exit, a holder can withdraw from consensus only the amount validator owes them and after bond reach its maturity
-    /// @notice BondNft owner can withdraw using their holderId
-    function holderWithdrawFromExecution(uint256 _holderId) external {
-        HolderConditions storage holder = sHolderConditions[_holderId];
+    /// @notice BondNft owner can withdraw using their bondId
+    function holderWithdrawFromExecution(uint256 _bondId) external {
+        HolderConditions storage holder = sHolderConditions[_bondId];
 
         if (holder.amount == 0) {
             revert HolderDoesNotExistOrAlreadyWithdrawnAmount();
         }
 
-        holderIsCaller(_holderId);
+        holderIsCaller(_bondId);
 
         // Has time passed so holder can withdraw
         if (holder.duration + holder.startTimestamp > block.timestamp) {
@@ -423,9 +423,9 @@ contract Coffer is Ownable, Multicall {
 
         uint128 amountToWithdraw = holder.amount;
 
-        removeHolder(_holderId, amountToWithdraw);
+        removeHolder(_bondId, amountToWithdraw);
 
-        emit HolderWithdrawFromExecutionSuccess(msg.sender, _holderId);
+        emit HolderWithdrawFromExecutionSuccess(msg.sender, _bondId);
 
         Address.sendValue(payable(msg.sender), amountToWithdraw);
     }
@@ -434,14 +434,14 @@ contract Coffer is Ownable, Multicall {
     /// @notice if contract has enough amount to redeem holders bond, holder isn't able to withdraw any amount from consensus
     /// @notice in order for validator to avoid exits by holder, topping up a contract with holder amount is necessary
     /// @dev holders amount is represented in wei so we must convert it to gwei
-    function holderWithdrawFromConsensus(uint256 _holderId) external payable {
-        HolderConditions storage holder = sHolderConditions[_holderId];
+    function holderWithdrawFromConsensus(uint256 _bondId) external payable {
+        HolderConditions storage holder = sHolderConditions[_bondId];
 
         if (holder.amount == 0) {
             revert HolderDoesNotExistOrAlreadyWithdrawnAmount();
         }
 
-        holderIsCaller(_holderId);
+        holderIsCaller(_bondId);
 
         if (address(this).balance >= holder.amount) {
             revert HolderConsensusWithdrawNotPossibleContractHasEnoughBalance();
@@ -486,7 +486,7 @@ contract Coffer is Ownable, Multicall {
         bool isFullExit = (amountToWithdrawInGwei == 0);
         emit HolderWithdrawFromConsensusSuccess(
             msg.sender,
-            _holderId,
+            _bondId,
             holder.amount,
             isFullExit
         );
@@ -628,23 +628,23 @@ contract Coffer is Ownable, Multicall {
 
     /// @notice Function which cleans up holders data and updates validators data
     /// @notice Used in: closeOfferWithExactAmountFromValidator, closeOfferFromCofferContract & holderWithdrawFromExecution
-    /// @dev It's checked in all functions that _holderId indeed is in storage sHolderConditions, so we do not check here
-    function removeHolder(uint256 _holderId, uint256 _amount) private {
+    /// @dev It's checked in all functions that _bondId indeed is in storage sHolderConditions, so we do not check here
+    function removeHolder(uint256 _bondId, uint256 _amount) private {
         ValidatorConditions storage vc = sValidatorConditions;
         // forge-lint: disable-next-line(unsafe-typecast) _amount originates from uint128 HolderConditions.amount
         vc.issueSize += uint128(_amount);
         --vc.outstandingBonds;
-        ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).burnCofferBond(_holderId);
-        delete sHolderConditions[_holderId];
+        ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).burnCofferBond(_bondId);
+        delete sHolderConditions[_bondId];
     }
 
     /// @notice Function which checks if msg.sender has BondNft
     /// @notice Used in: holderWithdrawFromConsensus & holderWithdrawFromExecution
-    /// @dev It's checked in both functions that _holderId indeed is in storage sHolderConditions, so we do not check here
-    function holderIsCaller(uint256 _holderId) private view {
+    /// @dev It's checked in both functions that _bondId indeed is in storage sHolderConditions, so we do not check here
+    function holderIsCaller(uint256 _bondId) private view {
         if (
             msg.sender !=
-            ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).ownerOf(_holderId)
+            ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).ownerOf(_bondId)
         ) {
             revert CallerIsNotHolder();
         }

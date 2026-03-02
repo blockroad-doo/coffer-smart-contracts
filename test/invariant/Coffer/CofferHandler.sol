@@ -21,7 +21,7 @@ contract CofferHandler is Test {
 
     // ── Struct ─────────────────────────────────────────────────────────────
     struct PendingWithdrawal {
-        uint256 holderId;
+        uint256 bondId;
         uint128 amount;
         uint256 arrivalTime;
         address holderAddress;
@@ -114,7 +114,7 @@ contract CofferHandler is Test {
         p.isActive = isActive;
     }
 
-    function _extractHolderIdFromLogs() private returns (uint256 holderId) {
+    function _extractBondIdFromLogs() private returns (uint256 bondId) {
         Vm.Log[] memory entries = vm.getRecordedLogs();
         for (uint256 i = 0; i < entries.length; i++) {
             if (entries[i].topics[0] == keccak256("HolderAcceptedOffer(address,uint256,uint128,uint32,uint128)")) {
@@ -174,13 +174,13 @@ contract CofferHandler is Test {
         vm.prank(holder);
         coffer.buyBond{value: amt}(dur, p.version);
 
-        uint256 holderId = _extractHolderIdFromLogs();
+        uint256 bondId = _extractBondIdFromLogs();
 
         // Update ghost state
-        ghostActiveBondIds.push(holderId);
-        ghostIsBondActive[holderId] = true;
-        ghostBondHolder[holderId] = holder;
-        ghostBondAmount[holderId] = amountWithInterest;
+        ghostActiveBondIds.push(bondId);
+        ghostIsBondActive[bondId] = true;
+        ghostBondHolder[bondId] = holder;
+        ghostBondAmount[bondId] = amountWithInterest;
         ++ghostTotalBondsBought;
     }
 
@@ -191,11 +191,11 @@ contract CofferHandler is Test {
         if (len == 0) return;
 
         uint256 idx = idSeed % len;
-        uint256 holderId = ghostActiveBondIds[idx];
-        address holder = ghostBondHolder[holderId];
+        uint256 bondId = ghostActiveBondIds[idx];
+        address holder = ghostBondHolder[bondId];
 
         // Read on-chain holder conditions
-        (uint128 amount, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(holderId);
+        (uint128 amount, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(bondId);
         if (amount == 0) return;
 
         // Check maturity
@@ -205,16 +205,16 @@ contract CofferHandler is Test {
         if (address(coffer).balance < amount) return;
 
         vm.prank(holder);
-        coffer.holderWithdrawFromExecution(holderId);
+        coffer.holderWithdrawFromExecution(bondId);
 
         // Swap-and-pop from ghostActiveBondIds
         ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
         ghostActiveBondIds.pop();
 
-        ghostIsBondActive[holderId] = false;
-        delete ghostBondHolder[holderId];
-        delete ghostBondAmount[holderId];
-        ghostHasPendingConsensusWithdrawal[holderId] = false;
+        ghostIsBondActive[bondId] = false;
+        delete ghostBondHolder[bondId];
+        delete ghostBondAmount[bondId];
+        ghostHasPendingConsensusWithdrawal[bondId] = false;
         ++ghostTotalBondsWithdrawnExecution;
     }
 
@@ -225,11 +225,11 @@ contract CofferHandler is Test {
         if (len == 0) return;
 
         uint256 idx = idSeed % len;
-        uint256 holderId = ghostActiveBondIds[idx];
-        address holder = ghostBondHolder[holderId];
+        uint256 bondId = ghostActiveBondIds[idx];
+        address holder = ghostBondHolder[bondId];
 
         // Read on-chain holder conditions
-        (uint128 amount, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(holderId);
+        (uint128 amount, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(bondId);
         if (amount == 0) return;
 
         // Check maturity
@@ -239,7 +239,7 @@ contract CofferHandler is Test {
         if (address(coffer).balance >= amount) return;
 
         // Prevent double-submission
-        if (ghostHasPendingConsensusWithdrawal[holderId]) return;
+        if (ghostHasPendingConsensusWithdrawal[bondId]) return;
 
         // Get EIP-7002 fee
         (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
@@ -251,18 +251,18 @@ contract CofferHandler is Test {
         if (holder.balance < fee) return;
 
         vm.prank(holder);
-        coffer.holderWithdrawFromConsensus{value: fee}(holderId);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
 
         // Push pending withdrawal
         ghostPendingWithdrawals.push(
             PendingWithdrawal({
-                holderId: holderId,
+                bondId: bondId,
                 amount: amount,
                 arrivalTime: block.timestamp + EXIT_QUEUE_DELAY,
                 holderAddress: holder
             })
         );
-        ghostHasPendingConsensusWithdrawal[holderId] = true;
+        ghostHasPendingConsensusWithdrawal[bondId] = true;
         ++ghostTotalBondsWithdrawnConsensus;
     }
 
@@ -281,7 +281,7 @@ contract CofferHandler is Test {
                 // Deliver ETH to coffer
                 vm.deal(address(coffer), address(coffer).balance + pw.amount);
 
-                ghostHasPendingConsensusWithdrawal[pw.holderId] = false;
+                ghostHasPendingConsensusWithdrawal[pw.bondId] = false;
                 ghostTotalEthArrivedFromConsensus += pw.amount;
 
                 // Swap-and-pop
@@ -298,10 +298,10 @@ contract CofferHandler is Test {
         if (len == 0) return;
 
         uint256 idx = idSeed % len;
-        uint256 holderId = ghostActiveBondIds[idx];
+        uint256 bondId = ghostActiveBondIds[idx];
 
         // Read on-chain amount
-        (uint128 amount,,) = coffer.sHolderConditions(holderId);
+        (uint128 amount,,) = coffer.sHolderConditions(bondId);
         if (amount == 0) return;
 
         // Calculate top-up needed
@@ -314,20 +314,20 @@ contract CofferHandler is Test {
         // Check validator can afford top-up
         if (validator.balance < topUp) return;
 
-        uint256[] memory holderIds = new uint256[](1);
-        holderIds[0] = holderId;
+        uint256[] memory bondIds = new uint256[](1);
+        bondIds[0] = bondId;
 
         vm.prank(validator);
-        coffer.redeemBondsEarly{value: topUp}(holderIds);
+        coffer.redeemBondsEarly{value: topUp}(bondIds);
 
         // Swap-and-pop from ghostActiveBondIds
         ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
         ghostActiveBondIds.pop();
 
-        ghostIsBondActive[holderId] = false;
-        delete ghostBondHolder[holderId];
-        delete ghostBondAmount[holderId];
-        ghostHasPendingConsensusWithdrawal[holderId] = false;
+        ghostIsBondActive[bondId] = false;
+        delete ghostBondHolder[bondId];
+        delete ghostBondAmount[bondId];
+        ghostHasPendingConsensusWithdrawal[bondId] = false;
         ++ghostTotalBondsRedeemed;
     }
 

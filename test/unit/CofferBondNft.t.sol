@@ -15,10 +15,10 @@ contract CofferBondNftTest is BaseTest {
     // DRY HELPERS
     // ========================================
 
-    /// @dev Mints a token to the given address, asserts ownership, returns holderId
-    function _mintAndAssert(address to) internal returns (uint256 holderId) {
-        holderId = bondNft.mintCofferBond(to);
-        assertEq(bondNft.ownerOf(holderId), to, "Owner should match minted address");
+    /// @dev Mints a token to the given address, asserts ownership, returns bondId
+    function _mintAndAssert(address to) internal returns (uint256 bondId) {
+        bondId = bondNft.mintCofferBond(to);
+        assertEq(bondNft.ownerOf(bondId), to, "Owner should match minted address");
     }
 
     // ========================================
@@ -34,10 +34,10 @@ contract CofferBondNftTest is BaseTest {
     // HAPPY CASES — mintCofferBond
     // ========================================
 
-    function test_Mint_Success_ReturnsHolderId() public {
-        uint256 holderId = bondNft.mintCofferBond(holder1);
-        assertEq(holderId, 1, "First minted token should have holderId = 1");
-        assertEq(bondNft.ownerOf(holderId), holder1);
+    function test_Mint_Success_ReturnsBondId() public {
+        uint256 bondId = bondNft.mintCofferBond(holder1);
+        assertEq(bondId, 1, "First minted token should have bondId = 1");
+        assertEq(bondNft.ownerOf(bondId), holder1);
     }
 
     function test_Mint_Success_EmitsEvent() public {
@@ -70,20 +70,20 @@ contract CofferBondNftTest is BaseTest {
     // ========================================
 
     function test_Burn_Success_RemovesToken() public {
-        uint256 holderId = bondNft.mintCofferBond(holder1);
-        bondNft.burnCofferBond(holderId);
+        uint256 bondId = bondNft.mintCofferBond(holder1);
+        bondNft.burnCofferBond(bondId);
 
         // ownerOf (called by ownerOf) should revert for nonexistent token
-        vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, holderId));
-        bondNft.ownerOf(holderId);
+        vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, bondId));
+        bondNft.ownerOf(bondId);
     }
 
     function test_Burn_Success_EmitsEvent() public {
-        uint256 holderId = bondNft.mintCofferBond(holder1);
+        uint256 bondId = bondNft.mintCofferBond(holder1);
 
         vm.expectEmit(true, false, false, false);
-        emit CofferBondNftEvents.CofferBondTokenBurned(holderId);
-        bondNft.burnCofferBond(holderId);
+        emit CofferBondNftEvents.CofferBondTokenBurned(bondId);
+        bondNft.burnCofferBond(bondId);
     }
 
     function test_Burn_Success_UpdatesBalanceOf() public {
@@ -102,18 +102,18 @@ contract CofferBondNftTest is BaseTest {
     // ========================================
 
     function test_ownerOf_ReturnsCorrectOwner() public {
-        uint256 holderId = bondNft.mintCofferBond(holder1);
-        assertEq(bondNft.ownerOf(holderId), holder1);
+        uint256 bondId = bondNft.mintCofferBond(holder1);
+        assertEq(bondNft.ownerOf(bondId), holder1);
     }
 
     function test_ownerOf_ReflectsTransfer() public {
-        uint256 holderId = bondNft.mintCofferBond(holder1);
+        uint256 bondId = bondNft.mintCofferBond(holder1);
 
         // Transfer from holder1 to holder2
         vm.prank(holder1);
-        bondNft.transferFrom(holder1, holder2, holderId);
+        bondNft.transferFrom(holder1, holder2, bondId);
 
-        assertEq(bondNft.ownerOf(holderId), holder2, "Should reflect new owner after transfer");
+        assertEq(bondNft.ownerOf(bondId), holder2, "Should reflect new owner after transfer");
     }
 
     // ========================================
@@ -146,28 +146,28 @@ contract CofferBondNftTest is BaseTest {
     // ========================================
 
     function test_ERC721_TransferFrom() public {
-        uint256 holderId = bondNft.mintCofferBond(holder1);
+        uint256 bondId = bondNft.mintCofferBond(holder1);
 
         vm.prank(holder1);
-        bondNft.transferFrom(holder1, holder2, holderId);
+        bondNft.transferFrom(holder1, holder2, bondId);
 
-        assertEq(bondNft.ownerOf(holderId), holder2);
+        assertEq(bondNft.ownerOf(bondId), holder2);
         assertEq(bondNft.balanceOf(holder1), 0);
         assertEq(bondNft.balanceOf(holder2), 1);
     }
 
     function test_ERC721_Approve_And_TransferFrom() public {
-        uint256 holderId = bondNft.mintCofferBond(holder1);
+        uint256 bondId = bondNft.mintCofferBond(holder1);
 
         // holder1 approves holder2
         vm.prank(holder1);
-        bondNft.approve(holder2, holderId);
+        bondNft.approve(holder2, bondId);
 
         // holder2 transfers using approval
         vm.prank(holder2);
-        bondNft.transferFrom(holder1, holder3, holderId);
+        bondNft.transferFrom(holder1, holder3, bondId);
 
-        assertEq(bondNft.ownerOf(holderId), holder3);
+        assertEq(bondNft.ownerOf(bondId), holder3);
     }
 
     function test_ERC721_BalanceOf() public {
