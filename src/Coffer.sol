@@ -27,6 +27,7 @@ contract Coffer is Ownable, Multicall {
     error AmountTooSmallToAccept();
     error InvalidDuration();
     error InvalidRate();
+    error InvalidSafeTotalStake();
 
     error ValidatorHasExited();
     error ValidatorIsNotActive();
@@ -458,6 +459,10 @@ contract Coffer is Ownable, Multicall {
         // solhint-disable-next-line gas-strict-inequalities
         if (_safeTotalStake >= vc.safeTotalStake && vc.outstandingBonds != 0) {
             revert ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist();
+        }
+
+        if (_safeTotalStake == 0 || _safeTotalStake > MAX_SAFE_TOTAL_STAKE) {
+            revert InvalidSafeTotalStake();
         }
 
         uint32 oldSafeTotalStake = vc.safeTotalStake;

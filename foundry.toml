@@ -7,7 +7,9 @@ unchecked_cheatcode_artifacts = true # we need this so test can run older solc v
 no_match_coverage = "^test/|^script/"
 no_match_path = "test/invariant/*" #comment this line if wan to test invariants with -> forge test --mp "test/invariant/*"
 remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"]
-ignored_warnings_from = ["lib/"]
+#ignored_warnings_from = ["lib/", "test/", "script/"]
+ignored_error_codes = [4591, 2424] #openzeppelin warnings cause too many warnings which have to be ignored
+#deny = "warnings"
 
 [fuzz]
 runs = 1024

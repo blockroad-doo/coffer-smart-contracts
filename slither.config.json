@@ -1,3 +1,4 @@
 {
-    "filter_paths": "lib, test, script"
+    "filter_paths": "lib, test, script",
+    "detectors_to_exclude": "reentrancy-events,naming-convention,timestamp,low-level-calls"
 }

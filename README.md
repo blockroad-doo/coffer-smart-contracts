@@ -34,7 +34,7 @@ Coffer is a **decentralized and trustless peer-to-pool protocol** that allows va
 
 ## Whitepaper
 
-A detailed description of the protocol can be found in the [**Coffer Whitepaper**] TODO-must fix old version.
+A detailed description of the protocol can be found in the [**Coffer Whitepaper**](https://github.com/tomoglava/coffer-whitepaper/blob/main/whitepaper-v0.1.pdf).
 
 ---
 

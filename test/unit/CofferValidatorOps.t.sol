@@ -582,6 +582,18 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.changeSafeTotalStake(25_000_000); // increase from 20_000_000
     }
 
+    function test_ChangeSafeTotalStake_RevertsIfZero() public {
+        vm.prank(validator);
+        vm.expectRevert(Coffer.InvalidSafeTotalStake.selector);
+        coffer.changeSafeTotalStake(0);
+    }
+
+    function test_ChangeSafeTotalStake_RevertsIfAboveMax() public {
+        vm.prank(validator);
+        vm.expectRevert(Coffer.InvalidSafeTotalStake.selector);
+        coffer.changeSafeTotalStake(300_000_001);
+    }
+
     function test_ChangeSafeTotalStake_RevertsIfNotOwner() public {
         vm.prank(holder1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, holder1));

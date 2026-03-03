@@ -2,6 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {ICofferBondNft} from "./interfaces/ICofferBondNft.sol";
 
 /**
  * @title CofferBondNft
@@ -9,7 +10,7 @@ import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
  * @notice ERC-721 contract representing transferable ownership of Coffer Accepted Offer
  * @notice When a holder accepts Coffer offer, they receive an NFT representing a bond
  */
-contract CofferBondNft is ERC721 {
+contract CofferBondNft is ERC721, ICofferBondNft {
     error OnlyDelegateCanBurn();
 
     /// @notice Counter for generating unique bond IDs
@@ -47,5 +48,13 @@ contract CofferBondNft is ERC721 {
         if (msg.sender != burnDelegates[_bondId]) revert OnlyDelegateCanBurn();
         _burn(_bondId);
         emit CofferBondTokenBurned(_bondId);
+    }
+
+    /// @notice this is override must be implemented because CofferBondNft 
+    /// now inherits both ICofferBondNft and ERC721, and both define ownerOf
+    /// @param _bondId The ID of bond we're overriding ownerOf function
+    /// @return address of NFT with _bondId
+    function ownerOf(uint256 _bondId) public view override(ERC721, ICofferBondNft) returns (address) {
+        return super.ownerOf(_bondId);
     }
 }
