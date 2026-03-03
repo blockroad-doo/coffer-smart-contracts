@@ -50,7 +50,7 @@ contract CofferBondNft is ERC721, ICofferBondNft {
         emit CofferBondTokenBurned(_bondId);
     }
 
-    /// @notice this is override must be implemented because CofferBondNft 
+    /// @notice this is override must be implemented because CofferBondNft
     /// now inherits both ICofferBondNft and ERC721, and both define ownerOf
     /// @param _bondId The ID of bond we're overriding ownerOf function
     /// @return address of NFT with _bondId
