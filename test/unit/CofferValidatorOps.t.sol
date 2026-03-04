@@ -535,12 +535,28 @@ contract CofferValidatorOpsTest is BaseTest {
         assertEq(version, 2);
     }
 
-    function test_ChangeExitAllowed_RevertsIfOutstandingBonds() public {
-        _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+    function test_ChangeExitAllowed_RevertsIfForbiddingExitsWithOutstandingBonds() public {
+        vm.prank(validator);
+        coffer.changeExitAllowed(); // version -> 2, exitAllowed = true
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorCannotChangeExitAllowedWhileOutstandingBondExists.selector);
-        coffer.changeExitAllowed();
+        coffer.changeIssueSize(10 ether); // version -> 3
+
+        buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 3);
+
+        vm.prank(validator);
+        vm.expectRevert(Coffer.ValidatorCannotForbidExitsWhileOutstandingBondExists.selector);
+        coffer.changeExitAllowed(); // tries true -> false, should revert
+    }
+
+    function test_ChangeExitAllowed_EnableSucceedsWithOutstandingBonds() public {
+        _setupSingleBond(10 ether, 1 ether, ONE_MONTH); // exitAllowed starts false, bond exists
+
+        vm.prank(validator);
+        coffer.changeExitAllowed(); // false -> true, should succeed
+
+        (,,,,,,,,, bool exitAllowed) = coffer.sValidatorConditions();
+        assertTrue(exitAllowed);
     }
 
     function test_ChangeExitAllowed_RevertsIfNotOwner() public {

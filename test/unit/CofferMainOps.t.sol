@@ -203,12 +203,18 @@ contract CofferMainOpsTest is BaseTest {
         coffer.changeIssueSize(15 ether); // increase from 10 ether triggers revert
     }
 
-    function test_ChangeExitAllowed_RevertsWhenBondsExist() public {
-        _setupBondForModifierTests();
+    function test_ChangeExitAllowed_RevertsWhenForbiddingExitsWithBondsExist() public {
+        vm.prank(validator);
+        coffer.changeExitAllowed(); // version -> 2, exitAllowed = true
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorCannotChangeExitAllowedWhileOutstandingBondExists.selector);
-        coffer.changeExitAllowed();
+        coffer.changeIssueSize(10 ether); // version -> 3
+
+        buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 3);
+
+        vm.prank(validator);
+        vm.expectRevert(Coffer.ValidatorCannotForbidExitsWhileOutstandingBondExists.selector);
+        coffer.changeExitAllowed(); // tries true -> false, should revert
     }
 
     function test_ChangeSafeTotalStake_RevertsWhenIncreasedWithBondsExist() public {

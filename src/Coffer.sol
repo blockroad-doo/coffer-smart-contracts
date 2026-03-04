@@ -18,7 +18,7 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
  * @notice Uses EIP-7002 for withdrawals from consensus layer
  * to smart contract
  * @notice Uses EIP-7251 for transforming validator to compounding
- * (0x02 withdrawl credentials)
+ * (0x02 withdrawal credentials)
  * @notice Uses IDepositContract interface to allow deposits to
  * consensus layer to top up validator's effective balance
  */
@@ -34,7 +34,7 @@ contract Coffer is Ownable, Multicall {
     error ValidatorDoesntCoverTheAmount();
     error ValidatorCannotIncreaseInterestRateWhileOutstandingBondExist();
     error ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist();
-    error ValidatorCannotChangeExitAllowedWhileOutstandingBondExists();
+    error ValidatorCannotForbidExitsWhileOutstandingBondExists();
     error ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist();
     error ValidatorCannotWithdrawFromExecutionWhileOutstandingBondExists();
     error ValidatorConditionsVersionMismatch();
@@ -313,7 +313,7 @@ contract Coffer is Ownable, Multicall {
         Address.sendValue(payable(owner()), msg.value);
     }
 
-    /// @notice Reddem bonds early
+    /// @notice Redeem bonds early
     /// @notice Only validator can call this function
     /// @notice Amounts are redeemed from Coffer contract
     /// @notice If contract doesn't have enough amount to repay,
@@ -433,8 +433,8 @@ contract Coffer is Ownable, Multicall {
     function changeExitAllowed() external onlyOwner {
         ValidatorConditions storage vc = sValidatorConditions;
 
-        if (vc.outstandingBonds != 0) {
-            revert ValidatorCannotChangeExitAllowedWhileOutstandingBondExists();
+        if (vc.exitAllowed == true && vc.outstandingBonds != 0) {
+            revert ValidatorCannotForbidExitsWhileOutstandingBondExists();
         }
 
         vc.exitAllowed = !vc.exitAllowed;
@@ -637,7 +637,7 @@ contract Coffer is Ownable, Multicall {
         }
     }
 
-    /// @notice Validator can add funds at his own will
+    /// @notice Validator can add funds at their own will
     /// @param _depositDataRoot Validator must create deposit data root
     /// off chain using JavaScript with chainsafe/ssz library,
     /// validator public signing key, and the intended amount.

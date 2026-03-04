@@ -18,9 +18,9 @@ library Penalty {
     /// @param effectiveBalance is represented in wei -> maximum is 340.282.366.920.938.463.463,374607431768211456 ETH
     /// @param safeTotalStake is represented in ETH -> maximum is 4.294.967.296 ETH
     /// @return Total slashing penalty amount
-    /// @dev this could theoretically overflow, but it wont since balance is manipulated with eth, e.g. msg.value only
+    /// @dev this could theoretically overflow, but it won't since balance is manipulated with eth, e.g. msg.value only
     function slashing(uint256 effectiveBalance, uint256 safeTotalStake) internal pure returns (uint256) {
-        ///penalty which validator recives when slashing occurs
+        ///penalty which validator receives when slashing occurs
         uint256 initialPenalty = effectiveBalance / INITIAL_SLASHING_PENALTY_QUOTIENT;
 
         uint256 correlationPenalty =

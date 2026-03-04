@@ -71,8 +71,8 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 #### **Holders**
 Can call the following functions:
 - `buyBond(uint32, uint32) external payable`
-- `holderWithdrawFromExecution(uint128) external`
-- `holderWithdrawFromConsensus(uint128) external`
+- `holderWithdrawFromExecution(uint256) external`
+- `holderWithdrawFromConsensus(uint256) external payable`
 
 ---
 
@@ -234,12 +234,13 @@ Before buying a bond, certain conditions must be thoroughly checked on both the 
 > [!CAUTION]
 > **`issueSize` in Coffer contract is too big**
 >
-> Validator can set up `issueSize` so it's greater than effective balance minus possible penalties that could happen before **minimum** duration has passed. Slashing and leaking for not performing duties should be considered. Also, the validator can be unsafe.
+> Validator can set up `issueSize` so it's greater than effective balance minus possible penalties that could happen before **minimum** duration has passed. Slashing and leaking for not performing duties should be considered.
 
 > [!CAUTION]
-> **`allowExit` should be true**
+> **`exitAllowed` should be true if validator effective balance minus `issueSize` is less than 32**
+>
+> If the validator's effective balance minus `issueSize` is less than 32 ETH, partial withdrawals cannot bring enough ETH to the Coffer contract (the beacon chain limits partial withdrawals to maintain a 32 ETH minimum for compounding validators). In this scenario, the holder's only way to claim a matured bond is a full validator exit. If `exitAllowed` is `false`, the holder cannot trigger an exit and must wait for the validator to voluntarily deposit enough ETH or for validator to earn enough ETH through network issuance which can be much longer than bond duration. Therefore, any validator where `effective balance - issueSize < 32 ETH` **must** set `exitAllowed = true` to be considered safe.
 
-TODO
 
 #### **PARTIALLY SAFE Scenarios**
 
@@ -247,6 +248,11 @@ TODO
 > **`issueSize` in Coffer contract is sometimes enough**
 >
 > Validator can have `issueSize` so it's greater than effective balance minus possible penalties that could happen before **maximum** duration has passed, but is less than effective balance minus possible penalties that could happen before **minimum** duration has passed. We consider this validator partially safe. The holder can choose if they are willing to take the risk and buy a bond from the validator.
+
+> [!WARNING]
+> **`safeTotalStake` should be less than network total stake**
+>
+> If `safeTotalStake` is set higher than the actual network total stake, the penalty calculations in the `Penalty` library will **underestimate** real penalties. This happens because both `correlationPenalty` and `missingAttestations` divide by `safeTotalStake` and a larger denominator produces a smaller penalty estimate. As a result, the `issueSize` (which subtracts estimated penalties from the effective balance) will be larger than it should be, meaning the validator may not have enough balance to cover all outstanding bonds if gets high penalties. Validators should set `safeTotalStake` to a value slightly **below** the real network total stake to ensure penalties are conservatively estimated.
 
 #### **SAFE Scenarios**
 
