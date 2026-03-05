@@ -28,7 +28,7 @@
 
 ## Quick Overview
 
-Coffer is a **decentralized and trustless peer-to-pool protocol** that allows validators to issue bonds for ETH holders to earn interest on their ETH securely, backed by the validator's stake. A holder gets a fixed rate from the validator and locks their ETH in for an upfront agreed period. At the maturity of the offer, the holder can claim their amount with interest. This enables validators to unlock liquidity from a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted so the holder can effectively transfer their bond to a third party.
+Coffer is a **decentralized and trustless peer-to-pool protocol** that allows validators to issue bonds backed by their stake, enabling ETH holders to earn interest on their ETH securely. A holder receives a fixed rate from the validator and locks in their ETH for an agreed-upon period. At maturity, the holder can claim their bond trustlessly. This enables validators to unlock liquidity from a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted, allowing the holder to transfer their bond to a third party.
 
 ---
 
@@ -97,7 +97,7 @@ VALIDATOR_PUBLIC_KEY=0x<your-48-byte-bls-public-key>
 INTEREST_RATE=2000000
 MIN_DURATION=2592000
 MAX_DURATION=31536000
-MINIMUM_AMOUNT_TO_ACCEPT=100000000000000000
+MINIMUM_VALUE_TO_ACCEPT=100000000000000000
 SAFE_TOTAL_STAKE=42000000
 ALLOW_EXIT=true
 ```
@@ -185,9 +185,9 @@ These tests verify that our Solidity mocks (used in unit tests) faithfully repli
 
 ### Setup Steps
 
-> **Important:** It is crucial to make the validator signing public key `immutable` to ensure the validator cannot create it later and perform malicious activities. This is also more gas efficient (reading from an `immutable` variable rather than from `storage`).
+> **Important:** It is crucial to make the validator signing public key `immutable` to ensure the validator cannot change it later and perform malicious activities. This is also more gas efficient (reading from an `immutable` variable rather than from `storage`).
 
-The signing keys must be created before the Coffer contract itself. Yet we need to later assign the Coffer contract address to validator signing keys. The only way to achieve this procedure is through the following steps:
+The signing keys must be created before the Coffer contract itself. Yet we need to later assign the Coffer contract address to validator signing keys. The only way to achieve this is through the following steps:
 
 - [ ] **Step 1:** Create signing keys with `0x00` credentials
 - [ ] **Step 2:** Make a deposit with 32 ETH using signing keys from Step 1
@@ -203,7 +203,7 @@ The signing keys must be created before the Coffer contract itself. Yet we need 
 
 ## Safety Guidelines
 
-There are possible attempts in which a bad actor could create malicious Coffer contracts. The most obvious example is setting `issueSize` greater than the effective balance of the validator on the beacon chain. Below are various scenarios and their safety levels:
+There are scenarios in which a bad actor could create malicious Coffer contracts. The most obvious example is setting `issueSize` greater than the effective balance of the validator on the beacon chain. Below are various scenarios and their safety levels:
 
 ### Initialization
 
@@ -211,9 +211,9 @@ There are possible attempts in which a bad actor could create malicious Coffer c
 
 Since setting up a Coffer contract takes multiple steps (multiple transactions and consensus layer interactions), it's better to start with an **inactive validator**.
 
-**Why?** If a validator is active at creation and some holder buys a bond right away, the validator cannot increase its `issueSize` while there is a single unmatured bond. There is a higher chance that the validator would like to increase `issueSize` since the validator starts with 32 ETH.
+**Why?** If a validator is active at creation and some holder buys a bond right away, the validator cannot increase its `issueSize` while there is a single unmatured bond. The validator is more likely to want to increase `issueSize` since the validator starts with 32 ETH.
 
-> **Good thing is:** When a validator initiates `validatorAddFundsToConsensus(bytes32, uint128)`, it doesn't have to wait for the amount to be deposited to the validator on the beacon chain since the contract increases `issueSize` right away if the deposit is successful.
+> **Advantage:** When a validator initiates `validatorAddFundsToConsensus(bytes32, uint128)`, it doesn't have to wait for the amount to be deposited to the validator on the beacon chain since the contract increases `issueSize` right away if the deposit is successful.
 
 ### Validator Status
 
@@ -224,22 +224,22 @@ Before buying a bond, certain conditions must be thoroughly checked on both the 
 > [!CAUTION]
 > **Mismatched consensus public key and withdrawal credentials**
 >
-> A malicious actor can create a Coffer contract and assign a wrong public key (could be a key of a random honest validator). Or when a validator with `0x00` credentials is created, it can assign a wrong address. This should always be checked on execution and consensus layer before any interactions.
+> A malicious actor can create a Coffer contract and assign a wrong public key (e.g., a key of a random honest validator). Or when a validator with `0x00` credentials is created, it can assign a wrong address. This should always be checked on the execution and consensus layers before any interactions.
 
 > [!CAUTION]
 > **Unfinished setup of validator**
 >
-> Validator should set up `0x02` withdrawal credentials so that all Coffer functions are able to execute properly.
+> The validator should set up `0x02` withdrawal credentials so that all Coffer functions can execute properly.
 
 > [!CAUTION]
 > **`issueSize` in Coffer contract is too big**
 >
-> Validator can set up `issueSize` so it's greater than effective balance minus possible penalties that could happen before **minimum** duration has passed. Slashing and leaking for not performing duties should be considered.
+> A validator can set `issueSize` to be greater than effective balance minus possible penalties that could happen before **minimum** duration has passed. Slashing and inactivity leak penalties should be considered.
 
 > [!CAUTION]
 > **`exitAllowed` should be true if validator effective balance minus `issueSize` is less than 32**
 >
-> If the validator's effective balance minus `issueSize` is less than 32 ETH, partial withdrawals cannot bring enough ETH to the Coffer contract (the beacon chain limits partial withdrawals to maintain a 32 ETH minimum for compounding validators). In this scenario, the holder's only way to claim a matured bond is a full validator exit. If `exitAllowed` is `false`, the holder cannot trigger an exit and must wait for the validator to voluntarily deposit enough ETH or for validator to earn enough ETH through network issuance which can be much longer than bond duration. Therefore, any validator where `effective balance - issueSize < 32 ETH` **must** set `exitAllowed = true` to be considered safe.
+> If the validator's effective balance minus `issueSize` is less than 32 ETH, partial withdrawals cannot bring enough ETH to the Coffer contract (the beacon chain limits partial withdrawals to maintain a 32 ETH minimum for compounding validators). In this scenario, the holder's only way to claim a matured bond is a full validator exit. If `exitAllowed` is `false`, the holder cannot trigger an exit and must wait for the validator to voluntarily deposit enough ETH or for the validator to earn enough ETH through network issuance, which can take much longer than the bond duration. Therefore, any validator where `effective balance - issueSize < 32 ETH` **must** set `exitAllowed = true` to be considered safe.
 
 
 #### **PARTIALLY SAFE Scenarios**
@@ -247,26 +247,26 @@ Before buying a bond, certain conditions must be thoroughly checked on both the 
 > [!WARNING]
 > **`issueSize` in Coffer contract is sometimes enough**
 >
-> Validator can have `issueSize` so it's greater than effective balance minus possible penalties that could happen before **maximum** duration has passed, but is less than effective balance minus possible penalties that could happen before **minimum** duration has passed. We consider this validator partially safe. The holder can choose if they are willing to take the risk and buy a bond from the validator.
+> A validator can have an `issueSize` that is greater than the effective balance minus possible penalties that could happen before **maximum** duration has passed, but is less than effective balance minus possible penalties that could happen before **minimum** duration has passed. Such a validator is considered partially safe. The holder can choose if they are willing to take the risk and buy a bond from the validator.
 
 > [!WARNING]
 > **`safeTotalStake` should be less than network total stake**
 >
-> If `safeTotalStake` is set higher than the actual network total stake, the penalty calculations in the `Penalty` library will **underestimate** real penalties. This happens because both `correlationPenalty` and `missingAttestations` divide by `safeTotalStake` and a larger denominator produces a smaller penalty estimate. As a result, the `issueSize` (which subtracts estimated penalties from the effective balance) will be larger than it should be, meaning the validator may not have enough balance to cover all outstanding bonds if gets high penalties. Validators should set `safeTotalStake` to a value slightly **below** the real network total stake to ensure penalties are conservatively estimated.
+> If `safeTotalStake` is set higher than the actual network total stake, the penalty calculations in the `Penalty` library will **underestimate** real penalties. This happens because both `correlationPenalty` and `missingAttestations` divide by `safeTotalStake`, and a larger denominator produces a smaller penalty estimate. As a result, the `issueSize` (which subtracts estimated penalties from the effective balance) will be larger than it should be, meaning the validator may not have enough balance to cover all outstanding bonds if it gets high penalties. Validators should set `safeTotalStake` to a value slightly **below** the real network total stake to ensure penalties are conservatively estimated.
 
 #### **SAFE Scenarios**
 
 > [!NOTE]
 > **`issueSize` in Coffer contract covers all penalties**
 >
-> Validator should have `issueSize` less than effective balance minus possible penalties that could happen before **maximum** duration has passed. When this validator issues the first bond, `issueSize` locks up and cannot be changed until all bonds are repaid.
+> A validator should have an `issueSize` less than the effective balance minus possible penalties that could happen before **maximum** duration has passed. When this validator issues its first bond, `issueSize` becomes locked and cannot be changed until all bonds are repaid.
 
 ### Reasonable Holder Risk
 
-If the stake of all validators on the network drops below `safeTotalStake`, penalties will be calculated lower than they should be, so buying a bond from that validator will become slightly less safe. The holder is taking a minor risk, for a few reasons:
-1. When validator is penalized both holder and validator lose
-2. Because of churn limit, if the total stake of the network is dropping, it drops very slowly
-3. Even if all bad things happen, the holder loses a very small amount.
+If the stake of all validators on the network drops below `safeTotalStake`, penalties will be calculated slightly lower than they should be, so buying a bond from that validator will become slightly less safe. The holder is taking an extremely minor risk for a few reasons:
+1. When a validator is penalized, both the holder and the validator lose
+2. Because of the churn limit, if the total stake of the network is dropping, it drops very slowly
+3. Even if the worst things happen, the holder loses a very small amount of ETH.
 
 ---
 
@@ -275,10 +275,10 @@ If the stake of all validators on the network drops below `safeTotalStake`, pena
 ### Changing Offer Parameters
 
 > [!IMPORTANT]
-> Validators **CANNOT** change `exitsAllowed` in the Coffer contract and they cannot **INCREASE** `issueSize`, `interestRate` and `safeTotalStake` while some bonds are not matured. This would give the validator the ability to manipulate amounts Coffer is responsible to handle for its own benefit at the expense of a holder.
+> Validators **CANNOT** change `exitAllowed` in the Coffer contract, and they cannot **INCREASE** `issueSize`, `interestRate`, or `safeTotalStake` while there are unmatured bonds. This would give the validator the ability to manipulate the amounts the Coffer contract handles, benefiting themselves at the expense of holders.
 
 > [!NOTE]
-> Since the validator has the ability to decrease `issueSize`, `interestRate` and `safeTotalStake` whenever the Coffer contract becomes unsafe for whatever reason, the validator has the ability to adjust it so it becomes safe again while there are outstanding bonds. The only situation in which the validator cannot make the Coffer contract safe is if `exitsAllowed` isn't true and `issueSize` is too low to adjust. But if the validator has `exitsAllowed` set to true, or set to false with sufficient `issueSize`, it is extremely unlikely for the Coffer contract to drop into an unsafe status as severe as it would be otherwise.
+> Since the validator can decrease `issueSize`, `interestRate`, and `safeTotalStake` whenever the Coffer contract becomes unsafe for whatever reason, the validator can adjust these parameters to restore safety while there are outstanding bonds. The only situation in which the validator cannot make the Coffer contract safe is if `exitAllowed` isn't true and `issueSize` is too low to adjust. But if the validator has `exitAllowed` set to true, or set to false with sufficient `issueSize`, it is extremely unlikely for the Coffer contract to reach a severely unsafe state.
 
 
 ### Granting Full Exit to Holders
@@ -289,14 +289,14 @@ If the stake of all validators on the network drops below `safeTotalStake`, pena
 - Problem: Validator cannot earn 5 ETH in 1 year
 
 > [!NOTE]
-> A holder must have the ability to fully exit the validator to repay the bond and receive the principal with earned interest as expected. Therefore, it's expected for that validator to allow full exits; otherwise, the holder wouldn't be able to repay a bond until the validator stakes enough ETH on the consensus layer, which could be a much longer period than the holder accepted.
+> A holder must have the ability to fully exit the validator to repay the bond and receive the principal with earned interest as expected. Therefore, the validator is expected to allow full exits; otherwise, the bond wouldn't be repayable until the validator stakes enough ETH on the consensus layer, which could be a much longer period than the holder accepted.
 
 **Key Points:**
-- Validator with allowed full exit can prevent holder from initiating exit by depositing the required amount
-- When full exits are allowed, every holder with a matured bond can initiate a full exit when there's insufficient ETH on the Coffer contract
-- Allowing full exit is an option that can be changed (only when validator has no unmatured bonds)
-- Validators with larger stakes (issue size exceeds validator's effective balance by at least 32 ETH) can make full exits forbidden
-- In restricted scenarios, holders can only initiate partial withdrawals with the amount needed to fulfill bond conditions at maturity
+- A validator that allows full exits can prevent a holder from initiating exit by depositing the required ETH amount
+- When full exits are allowed, every holder with a matured bond can initiate a full exit when there's insufficient ETH in the Coffer contract
+- Allowing full exits is an option that can be changed (only when the validator has no unmatured bonds)
+- Validators with larger stakes (effective balance exceeds the issue size by at least 32 ETH) can make full exits forbidden
+- In restricted scenarios, holders can only initiate partial withdrawals with the amount of ETH needed to fulfill bond conditions at maturity
 
 > [!NOTE]
 > A simple solution for the validator is to initiate a partial withdrawal so that the Coffer contract balance increases up to the holder's bond value. Or, if the validator has enough ETH outside the validator, they can send it to the Coffer contract to top up the balance for the holder. That will prevent the holder from initiating a full exit.
