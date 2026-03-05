@@ -64,7 +64,7 @@ contract CofferFactoryTest is BaseTest {
             uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
-            uint128 minimumAmountToAccept,
+            uint128 minimumValueToAccept,
             uint32 version,
             uint32 outstandingBonds,
             uint32 safeTotalStake,
@@ -75,7 +75,7 @@ contract CofferFactoryTest is BaseTest {
         vc.interestRate = interestRate;
         vc.minimumDuration = minimumDuration;
         vc.maximumDuration = maximumDuration;
-        vc.minimumAmountToAccept = minimumAmountToAccept;
+        vc.minimumValueToAccept = minimumValueToAccept;
         vc.version = version;
         vc.outstandingBonds = outstandingBonds;
         vc.safeTotalStake = safeTotalStake;
@@ -103,7 +103,7 @@ contract CofferFactoryTest is BaseTest {
         assertEq(vc.interestRate, expectedRate, "interestRate mismatch");
         assertEq(vc.minimumDuration, expectedMinDuration, "minimumDuration mismatch");
         assertEq(vc.maximumDuration, expectedMaxDuration, "maximumDuration mismatch");
-        assertEq(vc.minimumAmountToAccept, expectedMinAmount, "minimumAmountToAccept mismatch");
+        assertEq(vc.minimumValueToAccept, expectedMinAmount, "minimumValueToAccept mismatch");
         assertEq(vc.version, expectedVersion, "version mismatch");
         assertEq(vc.outstandingBonds, expectedOutstandingBonds, "outstandingBonds mismatch");
         assertEq(vc.safeTotalStake, expectedSafeTotalStake, "safeTotalStake mismatch");
@@ -378,7 +378,7 @@ contract CofferFactoryTest is BaseTest {
 
     function test_CreateCoffer_Revert_MinAmountZero() public {
         vm.prank(validator);
-        vm.expectRevert(CofferFactory.InvalidMinimumAmountToAccept.selector);
+        vm.expectRevert(CofferFactory.InvalidMinimumValueToAccept.selector);
         factory.createCoffer(
             validPublicKeyPart1,
             validPublicKeyPart2,
@@ -427,7 +427,7 @@ contract CofferFactoryTest is BaseTest {
         assertTrue(maxAllowed > 0, "maxAllowed should be positive for default params");
 
         vm.prank(validator);
-        vm.expectRevert(CofferFactory.InvalidMinimumAmountToAccept.selector);
+        vm.expectRevert(CofferFactory.InvalidMinimumValueToAccept.selector);
         factory.createCoffer(
             validPublicKeyPart1,
             validPublicKeyPart2,

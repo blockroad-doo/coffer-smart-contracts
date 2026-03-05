@@ -17,12 +17,12 @@ contract CofferFactory {
     error InvalidDuration();
     error InvalidInterestRate();
     error InvalidSafeTotalStake();
-    error InvalidMinimumAmountToAccept();
+    error InvalidMinimumValueToAccept();
 
     uint256 private constant MAX_RATE = 1e8; // Represents 100% interest rate, so 1e6 is 1%
     uint256 private constant VALIDATOR_STARTING_ETH = 32 ether;
     uint256 private constant MAX_DURATION = 1_576_800_000; // 50 years
-    // total ETH amount that size shouldn't be reached in 100 years
+    // Total ETH staked amount that shouldn't be reached in 100 years
     uint256 private constant MAX_SAFE_TOTAL_STAKE = 300_000_000;
     uint256 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
 
@@ -46,7 +46,7 @@ contract CofferFactory {
     /// @param _interestRate Yearly interest rate offered to bond holders
     /// @param _minimumDuration Minimum bond duration in seconds
     /// @param _maximumDuration Maximum bond duration in seconds
-    /// @param _minimumAmountToAccept Minimum amount a holder must deposit
+    /// @param _minimumValueToAccept Minimum value a holder must deposit
     /// @param _safeTotalStake Safe total network stake for penalty calculation
     /// @param _exitAllowed Whether holders can initiate validator exits
     function createCoffer(
@@ -55,7 +55,7 @@ contract CofferFactory {
         uint32 _interestRate,
         uint32 _minimumDuration,
         uint32 _maximumDuration,
-        uint128 _minimumAmountToAccept,
+        uint128 _minimumValueToAccept,
         uint32 _safeTotalStake,
         bool _exitAllowed
     ) external {
@@ -71,14 +71,14 @@ contract CofferFactory {
         // solhint-disable-next-line gas-strict-inequalities
         require(_safeTotalStake <= MAX_SAFE_TOTAL_STAKE, InvalidSafeTotalStake());
 
-        // validator cannot set minimum amount to accept more that maximum it could accept
-        uint256 maxMinimumAmountToAccept = Penalty.addMaximumPenalty(
+        // Validator cannot set the minimum value to accept to more than the maximum it could accept
+        uint256 maxMinimumValueToAccept = Penalty.addMaximumPenalty(
             VALIDATOR_STARTING_ETH, _safeTotalStake, _maximumDuration / NUMBER_OF_SECONDS_IN_EPOCH
         );
 
-        require(_minimumAmountToAccept != 0, InvalidMinimumAmountToAccept());
+        require(_minimumValueToAccept != 0, InvalidMinimumValueToAccept());
         // solhint-disable-next-line gas-strict-inequalities
-        require(_minimumAmountToAccept <= maxMinimumAmountToAccept, InvalidMinimumAmountToAccept());
+        require(_minimumValueToAccept <= maxMinimumValueToAccept, InvalidMinimumValueToAccept());
 
         Coffer newCoffer = new Coffer(
             msg.sender,
@@ -88,7 +88,7 @@ contract CofferFactory {
             _interestRate,
             _minimumDuration,
             _maximumDuration,
-            _minimumAmountToAccept,
+            _minimumValueToAccept,
             _safeTotalStake,
             _exitAllowed
         );

@@ -29,9 +29,9 @@ contract CofferBondNft is ERC721, ICofferBondNft {
     constructor() ERC721("Coffer Bond", "CB") {}
 
     /// @notice Mints a bond NFT and sets msg.sender as burn delegate
-    /// @notice We set msg.sender for delegate to burn tokens so all calls
-    /// coming from Coffer contract will set that exact Coffer contract
-    /// as the only delegator which would be allowed to burn
+    /// @notice We set msg.sender as the delegate to burn tokens, so all calls
+    /// coming from a Coffer contract will set that exact Coffer contract
+    /// as the only delegate allowed to burn
     /// @param _holderAddress The address to receive the bond NFT
     /// @return bondId The ID of the newly minted bond
     function mintCofferBond(address _holderAddress) external returns (uint256) {
@@ -50,10 +50,10 @@ contract CofferBondNft is ERC721, ICofferBondNft {
         emit CofferBondTokenBurned(_bondId);
     }
 
-    /// @notice this is override must be implemented because CofferBondNft
+    /// @notice This override must be implemented because CofferBondNft
     /// now inherits both ICofferBondNft and ERC721, and both define ownerOf
-    /// @param _bondId The ID of bond we're overriding ownerOf function
-    /// @return address of NFT with _bondId
+    /// @param _bondId The ID of the bond for which the ownerOf function is overridden
+    /// @return The address of the NFT owner with _bondId
     function ownerOf(uint256 _bondId) public view override(ERC721, ICofferBondNft) returns (address) {
         return super.ownerOf(_bondId);
     }

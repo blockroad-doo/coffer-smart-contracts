@@ -152,7 +152,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         uint256[] memory ids = new uint256[](1);
         ids[0] = 999;
-        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnAmount.selector);
+        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
         coffer.redeemBondsEarly(ids);
     }
 
@@ -166,7 +166,7 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.redeemBondsEarly(ids);
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnAmount.selector);
+        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
         coffer.redeemBondsEarly(ids);
     }
 
@@ -177,7 +177,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         uint256[] memory ids = new uint256[](1);
         ids[0] = bondId;
-        vm.expectRevert(Coffer.ContractBalanceLessThanAmount.selector);
+        vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
         coffer.redeemBondsEarly(ids);
     }
 
@@ -402,6 +402,13 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.changeMinimumAndMaximumDuration(0, ONE_YEAR);
     }
 
+    function test_ChangeMinimumAndMaximumDuration_RevertsIfMaxExceedsLimit() public {
+        uint32 overLimit = uint32(1_576_800_000) + 1; // MAX_DURATION + 1
+        vm.prank(validator);
+        vm.expectRevert(Coffer.InvalidDuration.selector);
+        coffer.changeMinimumAndMaximumDuration(ONE_WEEK, overLimit);
+    }
+
     function test_ChangeMinimumAndMaximumDuration_RevertsIfNotOwner() public {
         vm.prank(holder1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, holder1));
@@ -409,17 +416,17 @@ contract CofferValidatorOpsTest is BaseTest {
     }
 
     // ========================================
-    // changeMinimumAmountToAccept
+    // changeMinimumValueToAccept
     // ========================================
 
     function test_ChangeMinimumAmountToAccept_UpdatesValue() public {
         uint128 newMin = 0.5 ether;
 
         vm.expectEmit(false, false, false, true);
-        emit CofferEvents.MinimumAmountChanged(newMin);
+        emit CofferEvents.MinimumValueChanged(newMin);
 
         vm.prank(validator);
-        coffer.changeMinimumAmountToAccept(newMin);
+        coffer.changeMinimumValueToAccept(newMin);
 
         (,,,, uint128 minAmt,,,,,) = coffer.sValidatorConditions();
         assertEq(minAmt, newMin);
@@ -429,7 +436,7 @@ contract CofferValidatorOpsTest is BaseTest {
         (,,,,, uint32 vBefore,,,,) = coffer.sValidatorConditions();
 
         vm.prank(validator);
-        coffer.changeMinimumAmountToAccept(0.5 ether);
+        coffer.changeMinimumValueToAccept(0.5 ether);
 
         (,,,,, uint32 vAfter,,,,) = coffer.sValidatorConditions();
         assertEq(vAfter, vBefore);
@@ -437,14 +444,14 @@ contract CofferValidatorOpsTest is BaseTest {
 
     function test_ChangeMinimumAmountToAccept_RevertsIfZero() public {
         vm.prank(validator);
-        vm.expectRevert(Coffer.ZeroAmount.selector);
-        coffer.changeMinimumAmountToAccept(0);
+        vm.expectRevert(Coffer.ZeroValue.selector);
+        coffer.changeMinimumValueToAccept(0);
     }
 
     function test_ChangeMinimumAmountToAccept_RevertsIfNotOwner() public {
         vm.prank(holder1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, holder1));
-        coffer.changeMinimumAmountToAccept(0.5 ether);
+        coffer.changeMinimumValueToAccept(0.5 ether);
     }
 
     // ========================================
@@ -483,7 +490,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
     function test_ChangeIssueSize_RevertsIfBelowMinimum() public {
         vm.prank(validator);
-        vm.expectRevert(Coffer.AmountTooSmallToAccept.selector);
+        vm.expectRevert(Coffer.ValueTooSmallToAccept.selector);
         coffer.changeIssueSize(defaultMinimumAmount - 1);
     }
 
@@ -695,7 +702,7 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.deal(cofferAddr, 1 ether);
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ContractBalanceLessThanAmount.selector);
+        vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
         coffer.validatorWithdrawFromExecution(2 ether);
     }
 

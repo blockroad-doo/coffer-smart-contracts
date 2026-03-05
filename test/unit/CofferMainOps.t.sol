@@ -50,7 +50,7 @@ contract CofferMainOpsTest is BaseTest {
             uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
-            uint128 minimumAmountToAccept,
+            uint128 minimumValueToAccept,
             uint32 version,
             uint32 outstandingBonds,
             uint32 safeTotalStake,
@@ -62,7 +62,7 @@ contract CofferMainOpsTest is BaseTest {
         assertEq(interestRate, defaultInterestRate);
         assertEq(minimumDuration, defaultMinDuration);
         assertEq(maximumDuration, defaultMaxDuration);
-        assertEq(minimumAmountToAccept, defaultMinimumAmount);
+        assertEq(minimumValueToAccept, defaultMinimumAmount);
         assertEq(version, 1);
         assertEq(outstandingBonds, 0);
         assertEq(safeTotalStake, defaultSafeTotalStake);
@@ -131,7 +131,7 @@ contract CofferMainOpsTest is BaseTest {
             uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
-            uint128 minimumAmountToAccept,
+            uint128 minimumValueToAccept,
             uint32 version,
             uint32 outstandingBonds,
             uint32 safeTotalStake,
@@ -145,7 +145,7 @@ contract CofferMainOpsTest is BaseTest {
         assertEq(interestRate, defaultInterestRate);
         assertEq(minimumDuration, defaultMinDuration);
         assertEq(maximumDuration, defaultMaxDuration);
-        assertEq(minimumAmountToAccept, defaultMinimumAmount);
+        assertEq(minimumValueToAccept, defaultMinimumAmount);
         assertEq(version, 1);
         assertEq(outstandingBonds, 0);
         assertEq(safeTotalStake, defaultSafeTotalStake);

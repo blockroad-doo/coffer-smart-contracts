@@ -48,24 +48,24 @@ abstract contract BaseTest is Test {
     // ========================================
 
     // Coffer errors
-    string constant ERROR_ZERO_AMOUNT = "ZeroAmount()";
-    string constant ERROR_AMOUNT_TOO_SMALL = "AmountTooSmallToAccept()";
+    string constant ERROR_ZERO_VALUE = "ZeroValue()";
+    string constant ERROR_VALUE_TOO_SMALL = "ValueTooSmallToAccept()";
     string constant ERROR_INVALID_DURATION = "InvalidDuration()";
     string constant ERROR_INVALID_RATE = "InvalidRate()";
     string constant ERROR_VALIDATOR_NOT_ACTIVE = "ValidatorIsNotActive()";
     string constant ERROR_VERSION_MISMATCH = "ValidatorConditionsVersionMismatch()";
     string constant ERROR_CONSENSUS_WITHDRAW_NOT_POSSIBLE =
         "HolderConsensusWithdrawNotPossibleContractHasEnoughBalance()";
-    string constant ERROR_HOLDER_DOES_NOT_EXIST = "HolderDoesNotExistOrAlreadyWithdrawnAmount()";
+    string constant ERROR_HOLDER_DOES_NOT_EXIST = "HolderDoesNotExistOrAlreadyWithdrawnValue()";
     string constant ERROR_TIME_NOT_EXPIRED = "HoldersTimeHasNotExpiredYet()";
     string constant ERROR_HOLDER_CANNOT_BE_VALIDATOR = "HolderCannotBeValidator()";
     string constant ERROR_NOT_HOLDER = "CallerIsNotHolder()";
-    string constant ERROR_INSUFFICIENT_BALANCE = "ContractBalanceLessThanAmount()";
+    string constant ERROR_INSUFFICIENT_BALANCE = "ContractBalanceLessThanValue()";
 
     // CofferFactory errors
     string constant ERROR_FACTORY_INVALID_DURATION = "InvalidDuration()";
     string constant ERROR_FACTORY_INVALID_RATE = "InvalidInterestRate()";
-    string constant ERROR_FACTORY_INVALID_MIN_AMOUNT = "InvalidMinimumAmountToAccept()";
+    string constant ERROR_FACTORY_INVALID_MIN_AMOUNT = "InvalidMinimumValueToAccept()";
 
     // CofferBondNft errors
     string constant ERROR_TOKEN_DOES_NOT_EXIST = "TokenDoesNotExist()";
@@ -258,7 +258,7 @@ abstract contract BaseTest is Test {
             uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
-            uint128 minimumAmountToAccept,
+            uint128 minimumValueToAccept,
             uint32 version,
             uint32 outstandingBonds,
             uint32 safeTotalStake,
@@ -471,9 +471,9 @@ interface CofferEvents {
     );
     event HolderWithdrawFromExecutionSuccess(address indexed holderAddress, uint256 indexed bondId);
     event HolderWithdrawFromConsensusSuccess(
-        address indexed holderAddress, uint256 indexed bondId, uint128 amount, bool indexed isFullExit
+        address indexed holderAddress, uint256 indexed bondId, uint128 value, bool indexed isFullExit
     );
-    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId, uint128 indexed amountOwed);
+    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId, uint128 indexed valueOwed);
     event ValidatorWithdrawFromExecution(uint128 indexed amount);
     event ValidatorWithdrawFromConsensus(uint128 indexed amount);
     event ValidatorFundsAdded(uint128 indexed amount);
@@ -483,8 +483,8 @@ interface CofferEvents {
     event CofferForbidsHolderToExit();
     event InterestRateChanged(uint32 indexed oldRate, uint32 indexed newRate);
     event DurationRangeChanged(uint32 indexed minimumDuration, uint32 indexed maximumDuration);
-    event IssueSizeChanged(uint128 indexed oldAmount, uint128 indexed newAmount);
-    event MinimumAmountChanged(uint128 indexed newMinimum);
+    event IssueSizeChanged(uint128 indexed oldIssueSize, uint128 indexed newIssueSize);
+    event MinimumValueChanged(uint128 indexed newMinimum);
     event SafeTotalStakeChanged(uint32 indexed oldSafeTotalStake, uint32 indexed newSafeTotalStake);
     event ValidatorConvertedToCompounding();
 }

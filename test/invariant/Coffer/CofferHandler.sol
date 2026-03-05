@@ -88,7 +88,7 @@ contract CofferHandler is Test {
         uint32 interestRate;
         uint32 minimumDuration;
         uint32 maximumDuration;
-        uint128 minimumAmountToAccept;
+        uint128 minimumValueToAccept;
         uint32 version;
         bool isActive;
     }
@@ -99,7 +99,7 @@ contract CofferHandler is Test {
             uint32 interestRate,
             uint32 minimumDuration,
             uint32 maximumDuration,
-            uint128 minimumAmountToAccept,
+            uint128 minimumValueToAccept,
             uint32 version,,,
             bool isActive,
         ) = coffer.sValidatorConditions();
@@ -107,7 +107,7 @@ contract CofferHandler is Test {
         p.interestRate = interestRate;
         p.minimumDuration = minimumDuration;
         p.maximumDuration = maximumDuration;
-        p.minimumAmountToAccept = minimumAmountToAccept;
+        p.minimumValueToAccept = minimumValueToAccept;
         p.version = version;
         p.isActive = isActive;
     }
@@ -146,7 +146,7 @@ contract CofferHandler is Test {
 
         // Early returns for invalid states
         if (!p.isActive) return;
-        if (p.issueSize < p.minimumAmountToAccept) return;
+        if (p.issueSize < p.minimumValueToAccept) return;
         if (holder.balance == 0) return;
 
         // Clamp duration
@@ -160,8 +160,8 @@ contract CofferHandler is Test {
 
         // Clamp amount
         uint128 upperBound = maxAmt < uint128(holder.balance) ? maxAmt : uint128(holder.balance);
-        if (upperBound < p.minimumAmountToAccept) return;
-        uint128 amt = uint128(bound(amount, p.minimumAmountToAccept, upperBound));
+        if (upperBound < p.minimumValueToAccept) return;
+        uint128 amt = uint128(bound(amount, p.minimumValueToAccept, upperBound));
 
         // Verify amountWithInterest fits
         uint128 amountWithInterest = uint128(amt + Interest.calculateInterest(amt, dur, p.interestRate));
@@ -407,12 +407,12 @@ contract CofferHandler is Test {
         ++callsChangeIssueSize;
 
         // Read conditions
-        (,,,, uint128 minimumAmountToAccept,, uint32 outstandingBonds,,,) = coffer.sValidatorConditions();
+        (,,,, uint128 minimumValueToAccept,, uint32 outstandingBonds,,,) = coffer.sValidatorConditions();
 
         if (outstandingBonds != 0) return;
-        if (minimumAmountToAccept == 0) return;
+        if (minimumValueToAccept == 0) return;
 
-        uint128 amt = uint128(bound(amount, minimumAmountToAccept, 1000 ether));
+        uint128 amt = uint128(bound(amount, minimumValueToAccept, 1000 ether));
 
         vm.prank(validator);
         coffer.changeIssueSize(amt);

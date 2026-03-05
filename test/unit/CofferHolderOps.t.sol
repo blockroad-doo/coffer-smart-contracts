@@ -205,7 +205,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint32 version = _enableBonding(10 ether);
 
         vm.prank(holder1);
-        vm.expectRevert(Coffer.AmountTooSmallToAccept.selector);
+        vm.expectRevert(Coffer.ValueTooSmallToAccept.selector);
         coffer.buyBond{value: defaultMinimumAmount - 1}(ONE_MONTH, version);
     }
 
@@ -256,7 +256,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint32 version = _enableBonding(2 ether);
 
         vm.prank(holder1);
-        vm.expectRevert(Coffer.ValidatorDoesntCoverTheAmount.selector);
+        vm.expectRevert(Coffer.ValidatorDoesntCoverTheValue.selector);
         coffer.buyBond{value: 2 ether}(ONE_MONTH, version); // 2 ETH + interest > 2 ETH available
     }
 
@@ -425,7 +425,7 @@ contract CofferHolderOpsTest is BaseTest {
 
     function test_HolderWithdrawFromExecution_RevertsIfHolderDoesNotExist() public {
         vm.prank(holder1);
-        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnAmount.selector);
+        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
         coffer.holderWithdrawFromExecution(999);
     }
 
@@ -440,7 +440,7 @@ contract CofferHolderOpsTest is BaseTest {
         coffer.holderWithdrawFromExecution(bondId);
 
         vm.prank(holder1);
-        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnAmount.selector);
+        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
         coffer.holderWithdrawFromExecution(bondId);
     }
 
@@ -476,7 +476,7 @@ contract CofferHolderOpsTest is BaseTest {
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);
-        vm.expectRevert(Coffer.ContractBalanceLessThanAmount.selector);
+        vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
         coffer.holderWithdrawFromExecution(bondId);
     }
 
@@ -606,7 +606,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 fee = getWithdrawalFee();
 
         vm.prank(holder1);
-        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnAmount.selector);
+        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
         coffer.holderWithdrawFromConsensus{value: fee}(999);
     }
 
@@ -711,7 +711,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 fee = getWithdrawalFee();
 
         vm.prank(holder1);
-        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnAmount.selector);
+        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
         coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
@@ -761,7 +761,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         // Holder tries to withdraw — should fail because bond was already redeemed
         vm.prank(holder1);
-        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnAmount.selector);
+        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
         coffer.holderWithdrawFromExecution(bondId);
     }
 

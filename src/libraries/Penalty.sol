@@ -15,12 +15,12 @@ library Penalty {
     uint256 internal constant GWEI_DECIMALS = 1e9;
 
     /// @notice Calculates total slashing penalty for a validator
-    /// @param effectiveBalance is represented in wei -> maximum is 340.282.366.920.938.463.463,374607431768211456 ETH
-    /// @param safeTotalStake is represented in ETH -> maximum is 4.294.967.296 ETH
+    /// @param effectiveBalance Represented in wei.
+    /// @param safeTotalStake Represented in ETH.
     /// @return Total slashing penalty amount
-    /// @dev this could theoretically overflow, but it won't since balance is manipulated with eth, e.g. msg.value only
+    /// @dev This could theoretically overflow, but it won't since the balance is set via msg.value only
     function slashing(uint256 effectiveBalance, uint256 safeTotalStake) internal pure returns (uint256) {
-        ///penalty which validator receives when slashing occurs
+        /// Penalty which the validator receives when slashing occurs
         uint256 initialPenalty = effectiveBalance / INITIAL_SLASHING_PENALTY_QUOTIENT;
 
         uint256 correlationPenalty =
@@ -32,10 +32,10 @@ library Penalty {
         return initialPenalty + correlationPenalty + leakingPenalty;
     }
 
-    /// @notice this function calculates penalties for missing attestations
-    /// @param effectiveBalance validators balance which is penalized
-    /// @param safeTotalStake total network stake we take in order to be able to calculate penalties
-    /// @param numberOfEpochs total period of validator not performing attestations
+    /// @notice This function calculates penalties for missing attestations
+    /// @param effectiveBalance The validator's balance which is penalized
+    /// @param safeTotalStake The total network stake used to calculate penalties
+    /// @param numberOfEpochs The total period during which the validator is not performing attestations
     /// @return Penalty amount for missing attestations
     function missingAttestations(uint256 effectiveBalance, uint256 safeTotalStake, uint256 numberOfEpochs)
         internal
@@ -45,10 +45,10 @@ library Penalty {
         return effectiveBalance * BASE_REWARD * numberOfEpochs / Math.sqrt(safeTotalStake * GWEI_DECIMALS);
     }
 
-    /// @notice This is the function which calculates maximal possible penalty
+    /// @notice This function calculates the maximum possible penalty
     /// that validator can get in certain period.
-    /// @notice Calculates very extreme situation for holder safety.
-    /// Adds up penalties in numberOfEpochs plus maximal slashing penalty.
+    /// @notice Calculates for an extreme situation for holder safety.
+    /// Adds up penalties over numberOfEpochs plus the maximum slashing penalty.
     /// @param effectiveBalance The effective balance of the validator
     /// @param safeTotalStake The safe total stake used for penalty calculation
     /// @param numberOfEpochs The number of epochs for penalty calculation
