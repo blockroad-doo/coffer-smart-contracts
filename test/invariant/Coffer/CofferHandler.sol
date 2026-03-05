@@ -115,7 +115,7 @@ contract CofferHandler is Test {
     function _extractBondIdFromLogs() private returns (uint256 bondId) {
         Vm.Log[] memory entries = vm.getRecordedLogs();
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("HolderAcceptedOffer(address,uint256,uint128,uint32,uint128)")) {
+            if (entries[i].topics[0] == keccak256("BondBought(address,uint256,uint128,uint32)")) {
                 return uint256(entries[i].topics[2]);
             }
         }

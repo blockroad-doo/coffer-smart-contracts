@@ -59,25 +59,26 @@ contract CofferFactory {
         uint32 _safeTotalStake,
         bool _exitAllowed
     ) external {
-        if (_maximumDuration < _minimumDuration || _maximumDuration > MAX_DURATION || _minimumDuration == 0) {
-            revert InvalidDuration();
-        }
-        if (_interestRate == 0 || _interestRate > MAX_RATE) {
-            revert InvalidInterestRate();
-        }
-
-        if (_safeTotalStake == 0 || _safeTotalStake > MAX_SAFE_TOTAL_STAKE) {
-            revert InvalidSafeTotalStake();
-        }
+        require(_minimumDuration != 0, InvalidDuration());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_maximumDuration >= _minimumDuration, InvalidDuration());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_maximumDuration <= MAX_DURATION, InvalidDuration());
+        require(_interestRate != 0, InvalidInterestRate());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_interestRate <= MAX_RATE, InvalidInterestRate());
+        require(_safeTotalStake != 0, InvalidSafeTotalStake());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_safeTotalStake <= MAX_SAFE_TOTAL_STAKE, InvalidSafeTotalStake());
 
         // validator cannot set minimum amount to accept more that maximum it could accept
         uint256 maxMinimumAmountToAccept = Penalty.addMaximumPenalty(
             VALIDATOR_STARTING_ETH, _safeTotalStake, _maximumDuration / NUMBER_OF_SECONDS_IN_EPOCH
         );
 
-        if (_minimumAmountToAccept == 0 || _minimumAmountToAccept > maxMinimumAmountToAccept) {
-            revert InvalidMinimumAmountToAccept();
-        }
+        require(_minimumAmountToAccept != 0, InvalidMinimumAmountToAccept());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_minimumAmountToAccept <= maxMinimumAmountToAccept, InvalidMinimumAmountToAccept());
 
         Coffer newCoffer = new Coffer(
             msg.sender,

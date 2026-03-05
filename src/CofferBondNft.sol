@@ -45,7 +45,7 @@ contract CofferBondNft is ERC721, ICofferBondNft {
     /// @notice Burns a bond NFT, only callable by the original minter
     /// @param _bondId The ID of the bond NFT to burn
     function burnCofferBond(uint256 _bondId) external {
-        if (msg.sender != burnDelegates[_bondId]) revert OnlyDelegateCanBurn();
+        require(msg.sender == burnDelegates[_bondId], OnlyDelegateCanBurn());
         _burn(_bondId);
         emit CofferBondTokenBurned(_bondId);
     }

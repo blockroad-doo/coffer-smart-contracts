@@ -306,15 +306,9 @@ abstract contract BaseTest is Test {
     // HELPER FUNCTIONS - EVENT ASSERTIONS
     // ========================================
 
-    function expectHolderAcceptedOfferEvent(
-        address holder,
-        uint256 bondId,
-        uint128 amount,
-        uint32 duration,
-        uint128 amountWithInterest
-    ) public {
-        vm.expectEmit(true, true, false, true);
-        emit CofferEvents.HolderAcceptedOffer(holder, bondId, amount, duration, amountWithInterest);
+    function expectBondBoughtEvent(address holder, uint256 bondId, uint128 bondMaturityValue, uint32 duration) public {
+        vm.expectEmit(true, true, true, true);
+        emit CofferEvents.BondBought(holder, bondId, bondMaturityValue, duration);
     }
 
     // ========================================
@@ -472,12 +466,8 @@ interface CofferFactoryEvents {
 }
 
 interface CofferEvents {
-    event HolderAcceptedOffer(
-        address indexed holderAddress,
-        uint256 indexed bondId,
-        uint128 indexed amount,
-        uint32 duration,
-        uint128 amountWithInterest
+    event BondBought(
+        address indexed holderAddress, uint256 indexed bondId, uint128 indexed bondMaturityValue, uint32 duration
     );
     event HolderWithdrawFromExecutionSuccess(address indexed holderAddress, uint256 indexed bondId);
     event HolderWithdrawFromConsensusSuccess(

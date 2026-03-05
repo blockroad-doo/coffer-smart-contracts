@@ -55,7 +55,7 @@ contract Coffer is Ownable, Multicall {
 
     /// @notice after startTimestamp + duration >= block.timestamp, bond reaches maturity
     struct HolderConditions {
-        uint128 amount;
+        uint128 bondMaturityValue;
         uint32 duration;
         uint32 startTimestamp;
     }
@@ -136,15 +136,10 @@ contract Coffer is Ownable, Multicall {
     /// @notice Emitted when a holder buys a bond
     /// @param holderAddress The address of the bond holder
     /// @param bondId The ID of the bond NFT
-    /// @param amount The amount deposited by the holder
+    /// @param bondMaturityValue the value of bond at maturity
     /// @param duration The bond duration in seconds
-    /// @param amountWithInterest The total amount owed at maturity
-    event HolderAcceptedOffer(
-        address indexed holderAddress,
-        uint256 indexed bondId,
-        uint128 indexed amount,
-        uint32 duration,
-        uint128 amountWithInterest
+    event BondBought(
+        address indexed holderAddress, uint256 indexed bondId, uint128 indexed bondMaturityValue, uint32 duration
     );
     /// @notice Emitted when a holder withdraws from execution layer
     /// @param holderAddress The address of the bond holder
@@ -269,24 +264,24 @@ contract Coffer is Ownable, Multicall {
     function buyBond(uint32 _duration, uint32 _version) external payable {
         ValidatorConditions storage vs = sValidatorConditions;
 
-        if (vs.version != _version) revert ValidatorConditionsVersionMismatch();
-        if (msg.value < vs.minimumAmountToAccept) {
-            revert AmountTooSmallToAccept();
-        }
-        if (vs.isActive == false) revert ValidatorIsNotActive();
-        if (msg.sender == owner()) revert HolderCannotBeValidator();
-        if (_duration == 0) revert InvalidDuration();
-        if (_duration < vs.minimumDuration) revert InvalidDuration();
-        if (_duration > vs.maximumDuration) revert InvalidDuration();
+        require(vs.version == _version, ValidatorConditionsVersionMismatch());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(msg.value >= vs.minimumAmountToAccept, AmountTooSmallToAccept());
+        require(vs.isActive, ValidatorIsNotActive());
+        require(msg.sender != owner(), HolderCannotBeValidator());
+        require(_duration != 0, InvalidDuration());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_duration >= vs.minimumDuration, InvalidDuration());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_duration <= vs.maximumDuration, InvalidDuration());
 
-        uint256 amountWithInterest = msg.value + Interest.calculateInterest(msg.value, _duration, vs.interestRate);
+        uint256 bondMaturityValue = msg.value + Interest.calculateInterest(msg.value, _duration, vs.interestRate);
 
-        if (amountWithInterest > vs.issueSize) {
-            revert ValidatorDoesntCoverTheAmount();
-        }
+        // solhint-disable-next-line gas-strict-inequalities
+        require(bondMaturityValue <= vs.issueSize, ValidatorDoesntCoverTheAmount());
 
-        // forge-lint: disable-next-line(unsafe-typecast) amountWithInterest ≤ issueSize which is uint128
-        vs.issueSize -= uint128(amountWithInterest);
+        // forge-lint: disable-next-line(unsafe-typecast) bondMaturityValue ≤ issueSize which is uint128
+        vs.issueSize -= uint128(bondMaturityValue);
         ++vs.outstandingBonds;
 
         // Mint NFT representing the bond
@@ -296,18 +291,16 @@ contract Coffer is Ownable, Multicall {
         sHolderConditions[bondId] = HolderConditions({
             duration: _duration,
             startTimestamp: uint32(block.timestamp),
-            // forge-lint: disable-next-line(unsafe-typecast) amountWithInterest ≤ issueSize which is uint128
-            amount: uint128(amountWithInterest)
+            // forge-lint: disable-next-line(unsafe-typecast) bondMaturityValue ≤ issueSize which is uint128
+            bondMaturityValue: uint128(bondMaturityValue)
         });
 
-        emit HolderAcceptedOffer(
+        emit BondBought(
             msg.sender,
             bondId,
-            // forge-lint: disable-next-line(unsafe-typecast) msg.value bounded by uint128 issueSize check
-            uint128(msg.value),
-            _duration,
-            // forge-lint: disable-next-line(unsafe-typecast) amountWithInterest ≤ issueSize which is uint128
-            uint128(amountWithInterest)
+            // forge-lint: disable-next-line(unsafe-typecast) bondMaturityValue ≤ issueSize which is uint128
+            uint128(bondMaturityValue),
+            _duration
         );
 
         Address.sendValue(payable(owner()), msg.value);
@@ -323,22 +316,19 @@ contract Coffer is Ownable, Multicall {
         for (uint256 i = 0; i < _bondIds.length; ++i) {
             uint256 bondId = _bondIds[i];
             HolderConditions storage holder = sHolderConditions[bondId];
-            uint128 amount = holder.amount;
+            uint128 value = holder.bondMaturityValue;
 
-            if (amount == 0) {
-                revert HolderDoesNotExistOrAlreadyWithdrawnAmount();
-            }
+            require(value != 0, HolderDoesNotExistOrAlreadyWithdrawnAmount());
 
-            if (address(this).balance < amount) {
-                revert ContractBalanceLessThanAmount();
-            }
+            // solhint-disable-next-line gas-strict-inequalities
+            require(address(this).balance >= value, ContractBalanceLessThanAmount());
 
             address holderAddress = ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).ownerOf(bondId);
-            removeHolder(bondId, amount);
+            removeHolder(bondId, value);
 
-            emit ValidatorsBondRedeem(holderAddress, bondId, amount);
+            emit ValidatorsBondRedeem(holderAddress, bondId, value);
 
-            Address.sendValue(payable(holderAddress), amount);
+            Address.sendValue(payable(holderAddress), value);
         }
     }
 
@@ -360,12 +350,16 @@ contract Coffer is Ownable, Multicall {
     /// increase interestRate
     /// @param _rate The new interest rate to set
     function changeInterestRate(uint32 _rate) external onlyOwner {
-        if (_rate == 0 || _rate > MAX_RATE) revert InvalidRate();
+        require(_rate != 0, InvalidRate());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_rate <= MAX_RATE, InvalidRate());
         ValidatorConditions storage vc = sValidatorConditions;
 
-        if (_rate > vc.interestRate - 1 && vc.outstandingBonds != 0) {
-            revert ValidatorCannotIncreaseInterestRateWhileOutstandingBondExist();
-        }
+        require(
+            // solhint-disable-next-line gas-strict-inequalities
+            _rate <= vc.interestRate - 1 || vc.outstandingBonds == 0,
+            ValidatorCannotIncreaseInterestRateWhileOutstandingBondExist()
+        );
 
         uint32 oldRate = vc.interestRate;
         vc.interestRate = _rate;
@@ -380,9 +374,11 @@ contract Coffer is Ownable, Multicall {
     /// @param _minimumDuration The new minimum duration in seconds
     /// @param _maximumDuration The new maximum duration in seconds
     function changeMinimumAndMaximumDuration(uint32 _minimumDuration, uint32 _maximumDuration) external onlyOwner {
-        if (_maximumDuration > MAX_DURATION || _maximumDuration < _minimumDuration || _minimumDuration == 0) {
-            revert InvalidDuration();
-        }
+        require(_minimumDuration != 0, InvalidDuration());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_maximumDuration >= _minimumDuration, InvalidDuration());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_maximumDuration <= MAX_DURATION, InvalidDuration());
         ValidatorConditions storage vc = sValidatorConditions;
         vc.minimumDuration = _minimumDuration;
         vc.maximumDuration = _maximumDuration;
@@ -395,7 +391,7 @@ contract Coffer is Ownable, Multicall {
     /// affect holder while buying so version doesn't have to be updated
     /// @param _amount The new minimum amount to accept
     function changeMinimumAmountToAccept(uint128 _amount) external onlyOwner {
-        if (_amount == 0) revert ZeroAmount();
+        require(_amount != 0, ZeroAmount());
         sValidatorConditions.minimumAmountToAccept = _amount;
         emit MinimumAmountChanged(_amount);
     }
@@ -413,11 +409,13 @@ contract Coffer is Ownable, Multicall {
         ValidatorConditions storage vc = sValidatorConditions;
 
         // solhint-disable-next-line gas-strict-inequalities
-        if (_amount >= vc.issueSize && vc.outstandingBonds != 0) {
-            revert ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist();
-        }
+        require(
+            _amount < vc.issueSize || vc.outstandingBonds == 0,
+            ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist()
+        );
 
-        if (_amount < vc.minimumAmountToAccept) revert AmountTooSmallToAccept();
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_amount >= vc.minimumAmountToAccept, AmountTooSmallToAccept());
 
         uint128 oldAmount = vc.issueSize;
         vc.issueSize = _amount;
@@ -433,9 +431,7 @@ contract Coffer is Ownable, Multicall {
     function changeExitAllowed() external onlyOwner {
         ValidatorConditions storage vc = sValidatorConditions;
 
-        if (vc.exitAllowed == true && vc.outstandingBonds != 0) {
-            revert ValidatorCannotForbidExitsWhileOutstandingBondExists();
-        }
+        require(!vc.exitAllowed || vc.outstandingBonds == 0, ValidatorCannotForbidExitsWhileOutstandingBondExists());
 
         vc.exitAllowed = !vc.exitAllowed;
 
@@ -457,13 +453,14 @@ contract Coffer is Ownable, Multicall {
         ValidatorConditions storage vc = sValidatorConditions;
 
         // solhint-disable-next-line gas-strict-inequalities
-        if (_safeTotalStake >= vc.safeTotalStake && vc.outstandingBonds != 0) {
-            revert ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist();
-        }
+        require(
+            _safeTotalStake < vc.safeTotalStake || vc.outstandingBonds == 0,
+            ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist()
+        );
 
-        if (_safeTotalStake == 0 || _safeTotalStake > MAX_SAFE_TOTAL_STAKE) {
-            revert InvalidSafeTotalStake();
-        }
+        require(_safeTotalStake != 0, InvalidSafeTotalStake());
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_safeTotalStake <= MAX_SAFE_TOTAL_STAKE, InvalidSafeTotalStake());
 
         uint32 oldSafeTotalStake = vc.safeTotalStake;
         vc.safeTotalStake = _safeTotalStake;
@@ -488,23 +485,19 @@ contract Coffer is Ownable, Multicall {
     function holderWithdrawFromExecution(uint256 _bondId) external {
         HolderConditions storage holder = sHolderConditions[_bondId];
 
-        if (holder.amount == 0) {
-            revert HolderDoesNotExistOrAlreadyWithdrawnAmount();
-        }
+        require(holder.bondMaturityValue != 0, HolderDoesNotExistOrAlreadyWithdrawnAmount());
 
         holderIsCaller(_bondId);
 
         // Has time passed so holder can withdraw
-        if (holder.duration + holder.startTimestamp > block.timestamp) {
-            revert HoldersTimeHasNotExpiredYet();
-        }
+        // solhint-disable-next-line gas-strict-inequalities
+        require(holder.duration + holder.startTimestamp <= block.timestamp, HoldersTimeHasNotExpiredYet());
 
         // Verify contract has enough balance to cover the amount creditor wants to withdraw
-        if (address(this).balance < holder.amount) {
-            revert ContractBalanceLessThanAmount();
-        }
+        // solhint-disable-next-line gas-strict-inequalities
+        require(address(this).balance >= holder.bondMaturityValue, ContractBalanceLessThanAmount());
 
-        uint128 amountToWithdraw = holder.amount;
+        uint128 amountToWithdraw = holder.bondMaturityValue;
 
         removeHolder(_bondId, amountToWithdraw);
 
@@ -525,50 +518,44 @@ contract Coffer is Ownable, Multicall {
     function holderWithdrawFromConsensus(uint256 _bondId) external payable {
         HolderConditions storage holder = sHolderConditions[_bondId];
 
-        if (holder.amount == 0) {
-            revert HolderDoesNotExistOrAlreadyWithdrawnAmount();
-        }
+        require(holder.bondMaturityValue != 0, HolderDoesNotExistOrAlreadyWithdrawnAmount());
 
         holderIsCaller(_bondId);
 
-        if (address(this).balance > holder.amount - 1) {
-            revert HolderConsensusWithdrawNotPossibleContractHasEnoughBalance();
-        }
+        require(
+            // solhint-disable-next-line gas-strict-inequalities
+            address(this).balance <= holder.bondMaturityValue - 1,
+            HolderConsensusWithdrawNotPossibleContractHasEnoughBalance()
+        );
 
         // Has time passed so holder can withdraw
-        if (holder.duration + holder.startTimestamp > block.timestamp) {
-            revert HoldersTimeHasNotExpiredYet();
-        }
+        // solhint-disable-next-line gas-strict-inequalities
+        require(holder.duration + holder.startTimestamp <= block.timestamp, HoldersTimeHasNotExpiredYet());
 
         uint64 amountToWithdrawInGwei = 0;
         // if contract allows exits 0 should be sent in data, if not amount should be converted to gwei
         if (!sValidatorConditions.exitAllowed) {
-            // forge-lint: disable-next-line(unsafe-typecast) holder.amount < 2048 ETH, fits uint64
-            amountToWithdrawInGwei = uint64(holder.amount / GWEI_RATE);
+            // forge-lint: disable-next-line(unsafe-typecast) holder.bondMaturityValue < 2048 ETH, fits uint64
+            amountToWithdrawInGwei = uint64(holder.bondMaturityValue / GWEI_RATE);
         }
 
         (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
-        if (!readOk) {
-            revert WithdrawlContractCallFailed();
-        }
+        require(readOk, WithdrawlContractCallFailed());
         // forge-lint: disable-next-line(unsafe-typecast) fee data is always 32 bytes
         uint256 fee = uint256(bytes32(feeData));
 
         // Check the fee is not too high.
-        if (fee > msg.value) {
-            revert InsufficientFee();
-        }
+        // solhint-disable-next-line gas-strict-inequalities
+        require(fee <= msg.value, InsufficientFee());
 
         // EIP-7002: 48-byte BLS public key + 8-byte withdrawal amount = 56 bytes
         bytes memory data = abi.encodePacked(I_PUBLIC_KEY_PART1, I_PUBLIC_KEY_PART2, amountToWithdrawInGwei);
 
         bool isFullExit = (amountToWithdrawInGwei == 0);
-        emit HolderWithdrawFromConsensusSuccess(msg.sender, _bondId, holder.amount, isFullExit);
+        emit HolderWithdrawFromConsensusSuccess(msg.sender, _bondId, holder.bondMaturityValue, isFullExit);
 
         (bool writeOk,) = WITHDRAWAL_CONTRACT.call{value: fee}(data);
-        if (!writeOk) {
-            revert WithdrawlContractCallFailed();
-        }
+        require(writeOk, WithdrawlContractCallFailed());
     }
 
     /// @notice Validator withdraws from execution layer when no
@@ -579,13 +566,10 @@ contract Coffer is Ownable, Multicall {
     function validatorWithdrawFromExecution(uint128 _amount) external onlyOwner {
         ValidatorConditions storage vc = sValidatorConditions;
 
-        if (vc.outstandingBonds != 0) {
-            revert ValidatorCannotWithdrawFromExecutionWhileOutstandingBondExists();
-        }
+        require(vc.outstandingBonds == 0, ValidatorCannotWithdrawFromExecutionWhileOutstandingBondExists());
 
-        if (_amount > address(this).balance) {
-            revert ContractBalanceLessThanAmount();
-        }
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_amount <= address(this).balance, ContractBalanceLessThanAmount());
 
         ++vc.version;
 
@@ -612,16 +596,13 @@ contract Coffer is Ownable, Multicall {
     /// @param _amount The amount to withdraw in gwei
     function validatorWithdrawFromConsensus(uint64 _amount) external payable onlyOwner {
         (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
-        if (!readOk) {
-            revert WithdrawlContractCallFailed();
-        }
+        require(readOk, WithdrawlContractCallFailed());
         // forge-lint: disable-next-line(unsafe-typecast) fee data is always 32 bytes
         uint256 fee = uint256(bytes32(feeData));
 
         // Check the fee is not too high.
-        if (fee > msg.value) {
-            revert InsufficientFee();
-        }
+        // solhint-disable-next-line gas-strict-inequalities
+        require(fee <= msg.value, InsufficientFee());
 
         // Construct the 56-byte payload:
         // [public_key (48 bytes), amountToWithdraw (8 bytes)]
@@ -632,9 +613,7 @@ contract Coffer is Ownable, Multicall {
         emit ValidatorWithdrawFromConsensus(_amount);
 
         (bool writeOk,) = WITHDRAWAL_CONTRACT.call{value: fee}(data);
-        if (!writeOk) {
-            revert WithdrawlContractCallFailed();
-        }
+        require(writeOk, WithdrawlContractCallFailed());
     }
 
     /// @notice Validator can add funds at their own will
@@ -642,10 +621,9 @@ contract Coffer is Ownable, Multicall {
     /// off chain using JavaScript with chainsafe/ssz library,
     /// validator public signing key, and the intended amount.
     function validatorAddFundsToConsensus(bytes32 _depositDataRoot) external payable onlyOwner {
-        if (msg.value < 1 ether) revert ValidatorDepositValueTooLow();
-        if (msg.value % GWEI_RATE != 0) {
-            revert ValidatorDepositValueNotMultipleOfGwei();
-        }
+        // solhint-disable-next-line gas-strict-inequalities
+        require(msg.value >= 1 ether, ValidatorDepositValueTooLow());
+        require(msg.value % GWEI_RATE == 0, ValidatorDepositValueNotMultipleOfGwei());
 
         IDepositContract(DEPOSIT_CONTRACT).deposit{value: msg.value}(
             abi.encodePacked(I_PUBLIC_KEY_PART1, I_PUBLIC_KEY_PART2),
@@ -669,15 +647,12 @@ contract Coffer is Ownable, Multicall {
     /// assigned to validator's BLS public key
     function convertToCompounding() external payable onlyOwner {
         (bool readOk, bytes memory feeData) = CONSOLIDATION_CONTRACT.staticcall("");
-        if (!readOk) {
-            revert ConsolidationContractCallFailed();
-        }
+        require(readOk, ConsolidationContractCallFailed());
         // forge-lint: disable-next-line(unsafe-typecast) fee data is always 32 bytes
         uint256 fee = uint256(bytes32(feeData));
 
-        if (fee > msg.value) {
-            revert InsufficientFee();
-        }
+        // solhint-disable-next-line gas-strict-inequalities
+        require(fee <= msg.value, InsufficientFee());
 
         // Source and target are the same for self-consolidation
         bytes memory data = abi.encodePacked(
@@ -690,9 +665,7 @@ contract Coffer is Ownable, Multicall {
         );
 
         (bool success,) = CONSOLIDATION_CONTRACT.call{value: fee}(data);
-        if (!success) {
-            revert ConsolidationContractCallFailed();
-        }
+        require(success, ConsolidationContractCallFailed());
 
         emit ValidatorConvertedToCompounding();
     }
@@ -723,8 +696,6 @@ contract Coffer is Ownable, Multicall {
     /// @dev _bondId is verified in callers so no check here
     /// @param _bondId The ID of the bond NFT to check ownership
     function holderIsCaller(uint256 _bondId) private view {
-        if (msg.sender != ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).ownerOf(_bondId)) {
-            revert CallerIsNotHolder();
-        }
+        require(msg.sender == ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).ownerOf(_bondId), CallerIsNotHolder());
     }
 }

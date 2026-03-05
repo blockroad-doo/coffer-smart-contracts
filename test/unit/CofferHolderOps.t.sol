@@ -59,14 +59,14 @@ contract CofferHolderOpsTest is BaseTest {
         assertGt(startTs, 0);
     }
 
-    function test_BuyBond_EmitsHolderAcceptedOffer() public {
+    function test_BuyBond_EmitsBondBought() public {
         uint32 version = _enableBonding(10 ether);
 
         uint256 amtWithInterest = _expectedAmountWithInterest(1 ether, ONE_MONTH);
 
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         // forge-lint: disable-next-line(unsafe-typecast) test value from _expectedAmountWithInterest fits uint128
-        emit CofferEvents.HolderAcceptedOffer(holder1, 1, 1 ether, ONE_MONTH, uint128(amtWithInterest));
+        emit CofferEvents.BondBought(holder1, 1, uint128(amtWithInterest), ONE_MONTH);
 
         vm.prank(holder1);
         coffer.buyBond{value: 1 ether}(ONE_MONTH, version);
