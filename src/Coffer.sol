@@ -146,6 +146,19 @@ contract Coffer is Ownable, Multicall {
     /// @param holderAddress The address of the bond holder
     /// @param bondId The ID of the bond NFT
     event HolderWithdrawFromExecutionSuccess(address indexed holderAddress, uint256 indexed bondId);
+    /* solhint-disable gas-indexed-events */
+    /// @notice Emitted when a holder does a partial withdrawal from execution layer
+    /// @param holderAddress The address of the bond holder
+    /// @param bondId The ID of the bond NFT
+    /// @param valueWithdrawn The amount withdrawn
+    /// @param remainingBondMaturityValue The remaining bond maturity value
+    event HolderPartialWithdrawFromExecutionSuccess(
+        address indexed holderAddress,
+        uint256 indexed bondId,
+        uint128 valueWithdrawn,
+        uint128 remainingBondMaturityValue
+    );
+    /* solhint-enable gas-indexed-events */
     /// @notice Emitted when holder initiates consensus layer withdrawal
     /// @param holderAddress The address of the bond holder
     /// @param bondId The ID of the bond NFT
@@ -157,8 +170,7 @@ contract Coffer is Ownable, Multicall {
     /// @notice Emitted when validator redeems a bond early
     /// @param holderAddress The address of the bond holder
     /// @param bondId The ID of the bond NFT
-    /// @param valueOwed The value owed to the holder
-    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId, uint128 indexed valueOwed);
+    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId);
     /// @notice Emitted when validator withdraws from execution layer
     /// @param amount The amount withdrawn
     event ValidatorWithdrawFromExecution(uint128 indexed amount);
@@ -327,7 +339,7 @@ contract Coffer is Ownable, Multicall {
             address holderAddress = ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).ownerOf(bondId);
             removeHolder(bondId, value);
 
-            emit ValidatorsBondRedeem(holderAddress, bondId, value);
+            emit ValidatorsBondRedeem(holderAddress, bondId);
 
             Address.sendValue(payable(holderAddress), value);
         }
@@ -483,6 +495,9 @@ contract Coffer is Ownable, Multicall {
     /// withdraw from consensus only the owed value after maturity
     /// @notice The BondNft owner can withdraw using their bondId
     /// @param _bondId The ID of the bond NFT to withdraw
+    /// @dev every marketplace should check value of
+    /// sHolderConditions(bondId).bondMaturityValue before executing tx
+    /// to avoid frontrun
     function holderWithdrawFromExecution(uint256 _bondId) external {
         HolderConditions storage holder = sHolderConditions[_bondId];
 
@@ -494,15 +509,28 @@ contract Coffer is Ownable, Multicall {
         // solhint-disable-next-line gas-strict-inequalities
         require(holder.duration + holder.startTimestamp <= block.timestamp, HoldersTimeHasNotExpiredYet());
 
-        // Verify contract has enough balance to cover the value the creditor wants to withdraw
+        uint128 valueToWithdraw;
+
         // solhint-disable-next-line gas-strict-inequalities
-        require(address(this).balance >= holder.bondMaturityValue, ContractBalanceLessThanValue());
+        if (address(this).balance >= holder.bondMaturityValue) {
+            // Full withdrawal — existing behavior
+            valueToWithdraw = holder.bondMaturityValue;
+            removeHolder(_bondId, valueToWithdraw);
+            emit HolderWithdrawFromExecutionSuccess(msg.sender, _bondId);
+        } else {
+            // Partial withdrawal — withdraw whatever is available
+            // forge-lint: disable-next-line(unsafe-typecast)
+            // balance < holder.bondMaturityValue (uint128), so fits uint128
+            valueToWithdraw = uint128(address(this).balance);
+            require(valueToWithdraw != 0, ContractBalanceLessThanValue());
 
-        uint128 valueToWithdraw = holder.bondMaturityValue;
+            holder.bondMaturityValue -= valueToWithdraw;
+            sValidatorConditions.issueSize += valueToWithdraw;
 
-        removeHolder(_bondId, valueToWithdraw);
-
-        emit HolderWithdrawFromExecutionSuccess(msg.sender, _bondId);
+            emit HolderPartialWithdrawFromExecutionSuccess(
+                msg.sender, _bondId, valueToWithdraw, holder.bondMaturityValue
+            );
+        }
 
         Address.sendValue(payable(msg.sender), valueToWithdraw);
     }

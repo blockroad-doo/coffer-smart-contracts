@@ -139,8 +139,8 @@ contract CofferValidatorOpsTest is BaseTest {
         (uint256 bondId, uint128 amtOwed) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
         vm.deal(cofferAddr, amtOwed);
 
-        vm.expectEmit(true, true, false, true);
-        emit CofferEvents.ValidatorsBondRedeem(holder1, bondId, amtOwed);
+        vm.expectEmit(true, true, false, false);
+        emit CofferEvents.ValidatorsBondRedeem(holder1, bondId);
 
         vm.prank(validator);
         uint256[] memory ids = new uint256[](1);

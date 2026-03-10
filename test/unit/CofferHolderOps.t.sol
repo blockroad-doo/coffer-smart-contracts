@@ -420,6 +420,278 @@ contract CofferHolderOpsTest is BaseTest {
     }
 
     // ========================================
+    // holderWithdrawFromExecution — Partial Withdrawal Happy
+    // ========================================
+
+    function test_HolderWithdrawFromExecution_PartialWithdraw_WithdrawsAvailableBalance() public {
+        uint32 version = _enableBonding(10 ether);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
+
+        // Fund contract with less than bondMaturityValue
+        uint128 partialAmount = amtOwed / 2;
+        vm.deal(cofferAddr, partialAmount);
+        advanceTime(ONE_MONTH + 1);
+
+        uint256 balBefore = holder1.balance;
+
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
+
+        assertEq(holder1.balance, balBefore + partialAmount);
+    }
+
+    function test_HolderWithdrawFromExecution_PartialWithdraw_ReducesBondMaturityValue() public {
+        uint32 version = _enableBonding(10 ether);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
+
+        uint128 partialAmount = amtOwed / 2;
+        vm.deal(cofferAddr, partialAmount);
+        advanceTime(ONE_MONTH + 1);
+
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
+
+        (uint128 remaining,,) = coffer.sHolderConditions(bondId);
+        assertEq(remaining, amtOwed - partialAmount);
+    }
+
+    function test_HolderWithdrawFromExecution_PartialWithdraw_IncreasesIssueSize() public {
+        uint32 version = _enableBonding(10 ether);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
+        (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
+
+        uint128 partialAmount = amtOwed / 2;
+        vm.deal(cofferAddr, partialAmount);
+        advanceTime(ONE_MONTH + 1);
+
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
+
+        (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeAfter, issueSizeBefore + partialAmount);
+    }
+
+    function test_HolderWithdrawFromExecution_PartialWithdraw_BondRemainsActive() public {
+        uint32 version = _enableBonding(10 ether);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
+
+        uint128 partialAmount = amtOwed / 2;
+        vm.deal(cofferAddr, partialAmount);
+        advanceTime(ONE_MONTH + 1);
+
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
+
+        // outstandingBonds unchanged
+        (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
+        assertEq(bonds, 1);
+
+        // NFT still exists and owned by holder1
+        assertEq(bondNft.ownerOf(bondId), holder1);
+
+        // bondMaturityValue > 0
+        (uint128 remaining,,) = coffer.sHolderConditions(bondId);
+        assertGt(remaining, 0);
+    }
+
+    function test_HolderWithdrawFromExecution_PartialWithdraw_EmitsPartialEvent() public {
+        uint32 version = _enableBonding(10 ether);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
+
+        uint128 partialAmount = amtOwed / 2;
+        vm.deal(cofferAddr, partialAmount);
+        advanceTime(ONE_MONTH + 1);
+
+        vm.expectEmit(true, true, false, true);
+        emit CofferEvents.HolderPartialWithdrawFromExecutionSuccess(
+            holder1, bondId, partialAmount, amtOwed - partialAmount
+        );
+
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
+    }
+
+    function test_HolderWithdrawFromExecution_PartialThenFullWithdraw() public {
+        uint32 version = _enableBonding(10 ether);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
+
+        uint128 partialAmount = amtOwed / 2;
+        vm.deal(cofferAddr, partialAmount);
+        advanceTime(ONE_MONTH + 1);
+
+        // Partial withdrawal
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
+
+        uint128 remaining = amtOwed - partialAmount;
+
+        // Deal more ETH so full withdrawal succeeds
+        vm.deal(cofferAddr, remaining);
+
+        uint256 balBefore = holder1.balance;
+
+        // Full withdrawal on reduced bondMaturityValue
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
+
+        assertEq(holder1.balance, balBefore + remaining);
+
+        // Bond is now fully removed
+        (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
+        assertEq(bonds, 0);
+
+        (uint128 finalAmount,,) = coffer.sHolderConditions(bondId);
+        assertEq(finalAmount, 0);
+    }
+
+    function test_HolderWithdrawFromExecution_MultiplePartialWithdrawals() public {
+        uint32 version = _enableBonding(10 ether);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
+        advanceTime(ONE_MONTH + 1);
+
+        // First partial withdrawal: 1/3
+        uint128 first = amtOwed / 3;
+        vm.deal(cofferAddr, first);
+
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
+
+        (uint128 remainingAfter1,,) = coffer.sHolderConditions(bondId);
+        assertEq(remainingAfter1, amtOwed - first);
+
+        // Second partial withdrawal: another 1/3
+        uint128 second = amtOwed / 3;
+        vm.deal(cofferAddr, second);
+
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
+
+        (uint128 remainingAfter2,,) = coffer.sHolderConditions(bondId);
+        assertEq(remainingAfter2, amtOwed - first - second);
+
+        // Cumulative issueSize increase
+        (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
+        uint128 issueSizeBase = 10 ether - amtOwed; // after bond purchase
+        assertEq(issueSizeAfter, issueSizeBase + first + second);
+    }
+
+    function test_HolderWithdrawFromExecution_PartialThenConsensusWithdraw() public {
+        // Use exitAllowed coffer so consensus withdrawal triggers full exit
+        address exitCofferAddr = createCoffer(
+            validator,
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            true
+        );
+        Coffer exitCoffer = Coffer(payable(exitCofferAddr));
+
+        uint256 bondId = buyBond(exitCofferAddr, holder1, 1 ether, ONE_MONTH, 1);
+
+        (uint128 amtOwed,,) = exitCoffer.sHolderConditions(bondId);
+
+        // Partial execution withdrawal
+        uint128 partialAmount = amtOwed / 2;
+        vm.deal(exitCofferAddr, partialAmount);
+        advanceTime(ONE_MONTH + 1);
+
+        vm.prank(holder1);
+        exitCoffer.holderWithdrawFromExecution(bondId);
+
+        uint128 remaining = amtOwed - partialAmount;
+        (uint128 storedRemaining,,) = exitCoffer.sHolderConditions(bondId);
+        assertEq(storedRemaining, remaining);
+
+        // Now consensus withdrawal uses reduced bondMaturityValue
+        uint256 fee = getWithdrawalFee();
+
+        vm.expectEmit(true, true, false, true);
+        emit CofferEvents.HolderWithdrawFromConsensusSuccess(holder1, bondId, remaining, true);
+
+        vm.prank(holder1);
+        exitCoffer.holderWithdrawFromConsensus{value: fee}(bondId);
+    }
+
+    function test_HolderWithdrawFromExecution_PartialThenRedeemBondsEarly() public {
+        uint32 version = _enableBonding(10 ether);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
+
+        // Partial execution withdrawal
+        uint128 partialAmount = amtOwed / 2;
+        vm.deal(cofferAddr, partialAmount);
+        advanceTime(ONE_MONTH + 1);
+
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
+
+        uint128 remaining = amtOwed - partialAmount;
+
+        // Validator redeems with reduced value
+        vm.deal(cofferAddr, remaining);
+
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = bondId;
+
+        vm.prank(validator);
+        coffer.redeemBondsEarly(ids);
+
+        // Bond fully removed
+        (uint128 finalAmount,,) = coffer.sHolderConditions(bondId);
+        assertEq(finalAmount, 0);
+
+        (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
+        assertEq(bonds, 0);
+    }
+
+    function test_HolderWithdrawFromExecution_PartialWithdraw_AfterNftTransfer() public {
+        uint32 version = _enableBonding(10 ether);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
+
+        // Transfer NFT to holder2
+        vm.prank(holder1);
+        bondNft.transferFrom(holder1, holder2, bondId);
+
+        uint128 partialAmount = amtOwed / 2;
+        vm.deal(cofferAddr, partialAmount);
+        advanceTime(ONE_MONTH + 1);
+
+        uint256 balBefore = holder2.balance;
+
+        // New owner does partial withdrawal
+        vm.prank(holder2);
+        coffer.holderWithdrawFromExecution(bondId);
+
+        assertEq(holder2.balance, balBefore + partialAmount);
+
+        // Bond still active with reduced value
+        (uint128 remaining,,) = coffer.sHolderConditions(bondId);
+        assertEq(remaining, amtOwed - partialAmount);
+        assertEq(bondNft.ownerOf(bondId), holder2);
+    }
+
+    // ========================================
     // holderWithdrawFromExecution — Reverts
     // ========================================
 
@@ -468,11 +740,11 @@ contract CofferHolderOpsTest is BaseTest {
         coffer.holderWithdrawFromExecution(bondId);
     }
 
-    function test_HolderWithdrawFromExecution_RevertsIfInsufficientBalance() public {
+    function test_HolderWithdrawFromExecution_RevertsIfZeroBalance() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        // Do NOT fund contract
+        // Do NOT fund contract — balance is 0
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);

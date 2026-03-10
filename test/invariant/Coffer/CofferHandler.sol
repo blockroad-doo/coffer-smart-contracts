@@ -199,21 +199,28 @@ contract CofferHandler is Test {
         // Check maturity
         if (uint256(duration) + uint256(startTimestamp) > block.timestamp) return;
 
-        // Check contract has enough balance
-        if (address(coffer).balance < amount) return;
+        // Allow both full and partial paths
+        uint256 balance = address(coffer).balance;
+        if (balance == 0) return;
 
         vm.prank(holder);
         coffer.holderWithdrawFromExecution(bondId);
 
-        // Swap-and-pop from ghostActiveBondIds
-        ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
-        ghostActiveBondIds.pop();
-
-        ghostIsBondActive[bondId] = false;
-        delete ghostBondHolder[bondId];
-        delete ghostBondAmount[bondId];
-        ghostHasPendingConsensusWithdrawal[bondId] = false;
-        ++ghostTotalBondsWithdrawnExecution;
+        if (balance >= amount) {
+            // Full withdrawal — remove from active
+            ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
+            ghostActiveBondIds.pop();
+            ghostIsBondActive[bondId] = false;
+            delete ghostBondHolder[bondId];
+            delete ghostBondAmount[bondId];
+            ghostHasPendingConsensusWithdrawal[bondId] = false;
+            ++ghostTotalBondsWithdrawnExecution;
+        } else {
+            // Partial withdrawal — update ghost amount, keep active
+            // casting to 'uint128' is safe because balance < amount and amount is uint128
+            // forge-lint: disable-next-line(unsafe-typecast)
+            ghostBondAmount[bondId] -= uint128(balance);
+        }
     }
 
     function handlerHolderWithdrawFromConsensus(uint256 idSeed) external {

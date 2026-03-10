@@ -132,7 +132,7 @@ contract CofferBondNftTest is BaseTest {
     }
 
     function test_Burn_Revert_NonDelegateCallBurn() public {
-        vm.expectRevert(CofferBondNft.OnlyDelegateCanBurn.selector);
+        vm.expectRevert(CofferBondNft.OnlyCofferCanBurn.selector);
         bondNft.burnCofferBond(999);
     }
 

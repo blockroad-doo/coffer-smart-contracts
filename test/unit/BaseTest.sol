@@ -470,10 +470,16 @@ interface CofferEvents {
         address indexed holderAddress, uint256 indexed bondId, uint128 indexed bondMaturityValue, uint32 duration
     );
     event HolderWithdrawFromExecutionSuccess(address indexed holderAddress, uint256 indexed bondId);
+    event HolderPartialWithdrawFromExecutionSuccess(
+        address indexed holderAddress,
+        uint256 indexed bondId,
+        uint128 valueWithdrawn,
+        uint128 remainingBondMaturityValue
+    );
     event HolderWithdrawFromConsensusSuccess(
         address indexed holderAddress, uint256 indexed bondId, uint128 value, bool indexed isFullExit
     );
-    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId, uint128 indexed valueOwed);
+    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId);
     event ValidatorWithdrawFromExecution(uint128 indexed amount);
     event ValidatorWithdrawFromConsensus(uint128 indexed amount);
     event ValidatorFundsAdded(uint128 indexed amount);
