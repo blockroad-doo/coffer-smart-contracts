@@ -203,21 +203,7 @@ The signing keys must be created before the Coffer contract itself. Yet we need 
 
 ## Safety Guidelines
 
-There are scenarios in which a bad actor could create malicious Coffer contracts. The most obvious example is setting `issueSize` greater than the effective balance of the validator on the beacon chain. Below are various scenarios and their safety levels:
-
-### Initialization
-
-#### Starting with Inactive Validator
-
-Since setting up a Coffer contract takes multiple steps (multiple transactions and consensus layer interactions), it's better to start with an **inactive validator**.
-
-**Why?** If a validator is active at creation and some holder buys a bond right away, the validator cannot increase its `issueSize` while there is a single unmatured bond. The validator is more likely to want to increase `issueSize` since the validator starts with 32 ETH.
-
-> **Advantage:** When a validator initiates `validatorAddFundsToConsensus(bytes32, uint128)`, it doesn't have to wait for the amount to be deposited to the validator on the beacon chain since the contract increases `issueSize` right away if the deposit is successful.
-
-### Validator Status
-
-Before buying a bond, certain conditions must be thoroughly checked on both the execution and consensus layers for that bond to be safe and repayable at maturity.
+There are scenarios in which a bad actor could create malicious Coffer contracts. The most obvious example is setting `issueSize` greater than the effective balance of the validator on the beacon chain. Before buying a bond, certain conditions must be thoroughly checked on both the execution and consensus layers for that bond to be safe and repayable at maturity. Below are various scenarios and their safety levels:
 
 #### **UNSAFE Scenarios**
 
@@ -256,10 +242,20 @@ Before buying a bond, certain conditions must be thoroughly checked on both the 
 
 #### **SAFE Scenarios**
 
-> [!NOTE]
+> [!TIP]
 > **`issueSize` in Coffer contract covers all penalties**
 >
 > A validator should have an `issueSize` less than the effective balance minus possible penalties that could happen before **maximum** duration has passed. When this validator issues its first bond, `issueSize` becomes locked and cannot be changed until all bonds are repaid.
+
+> [!TIP]
+> **`exitAllowed` is properly configured**
+>
+> If the validator's `effective balance - issueSize < 32 ETH`, `exitAllowed` must be set to `true`. Partial withdrawals cannot bring enough ETH to the Coffer contract because the beacon chain enforces a 32 ETH minimum for compounding validators. Without exit capability, the holder cannot trigger a full validator exit and must depend on the validator voluntarily depositing ETH or earning enough through network issuance, which can take much longer than the bond duration.
+
+> [!TIP]
+> **`safeTotalStake` is conservatively set**
+>
+> `safeTotalStake` must be set at or below the actual network total stake. Since both `correlationPenalty` and `missingAttestations` in the `Penalty` library divide by `safeTotalStake`, a value that is too high will underestimate penalties, making the `issueSize` appear safer than it actually is. A conservative (slightly below actual) value ensures penalty estimates are accurate or slightly overestimated, protecting bond holders.
 
 ### Reasonable Holder Risk
 
