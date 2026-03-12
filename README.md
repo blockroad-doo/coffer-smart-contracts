@@ -301,7 +301,35 @@ If the stake of all validators on the network drops below `safeTotalStake`, pena
 
 ## Invariants
 
-TODO
+### Contract Invariants (enforced by code)
+
+- **issueSize conservation**: `issueSize + sum(active bondMaturityValues) = totalIssuableCapacity` (capacity = cumulative penalty-adjusted deposits minus explicit issueSize decreases)
+- **Parameter monotonicity**: While `outstandingBonds > 0`: issueSize, interestRate, safeTotalStake can only decrease; exitAllowed can only go false→true
+- **Validator execution withdrawal lock**: Validator cannot withdraw from execution while `outstandingBonds > 0`
+- **outstandingBonds accuracy**: Equals the number of bonds with `bondMaturityValue > 0`
+- **Bond-NFT bijection**: Each active bond maps 1:1 to a live NFT (mint on buy, burn on full withdrawal/redeem)
+- **Version monotonicity**: `version` strictly increases on any parameter change that affects holder safety
+- **bondMaturityValue >= principal**: Interest is always non-negative
+
+### Cross-Layer Safety Invariant (not enforceable on-chain)
+
+The solvency property:
+
+```
+issueSize + sum(active bondMaturityValues) <= (effectiveBalance_consensus + cofferBalance) - maxPenalties
+```
+
+Justified by:
+
+- Validator sets issueSize ≤ effectiveBalance - maxPenalties at creation
+- issueSize can only decrease while bonds outstanding (except validatorAddFundsToConsensus which adds penalty-adjusted deposit amount)
+- cofferBalance is locked — validator cannot withdraw from execution while outstandingBonds > 0
+- Consensus withdrawals go to coffer contract (total consensus + coffer stays constant minus penalties)
+- For the nth bond with (n-1) bonds outstanding: remaining issueSize is already reduced by bonds 1..(n-1), and since issueSize cannot be increased, bond n is safe if the initial configuration was correct
+
+### Known Approximation
+
+`validatorAddFundsToConsensus` computes issueSize additively per deposit: `issueSize += addMaximumPenalty(deposit)`. Due to the quadratic correlation penalty (`balance² * 3 / (safeTotalStake * 1e18)`), the sum of individual penalty-adjusted amounts is slightly larger than the true combined penalty-adjusted amount. This means issueSize may be marginally overestimated. The overestimate is negligible for typical validator sizes.
 
 ---
 

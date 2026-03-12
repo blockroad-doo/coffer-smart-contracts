@@ -11,7 +11,7 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 /**
  * @title Coffer
- * @author Coffer Team
+ * @author Coffer Team (tomoglava, ivglavas)
  * @notice Created by a validator, using CofferFactory smart contract
  * @notice Supports multiple holders per validator with transferable
  * receivable NFT instruments representing ownership of an offer
