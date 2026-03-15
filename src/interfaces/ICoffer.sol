@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 /**
  * @title ICoffer
- * @author Coffer Team
+ * @author Blockroad Ltd
  * @notice Minimal interface for reading bond data from a Coffer contract
  */
 interface ICoffer {

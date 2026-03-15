@@ -9,7 +9,7 @@ import {Penalty} from "./libraries/Penalty.sol";
  * @title CofferFactory
  * @notice Factory contract for creating validator offers aka Coffers
  * @notice Deploys shared NFT contract CofferBondNft
- * @author Coffer Team
+ * @author Blockroad Ltd
  * @dev This contract manages the deployment of individual Coffer
  * contracts and shared NFT management
  */

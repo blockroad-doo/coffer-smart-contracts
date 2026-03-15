@@ -4,7 +4,7 @@ pragma solidity ^0.8.33;
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title Penalty
-/// @author Coffer Team
+/// @author Blockroad Ltd
 /// @notice Library for calculating validator penalties (slashing and missing attestations)
 library Penalty {
     uint256 internal constant INITIAL_SLASHING_PENALTY_QUOTIENT = 4096;

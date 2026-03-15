@@ -303,7 +303,7 @@ If the stake of all validators on the network drops below `safeTotalStake`, pena
 
 ### Contract Invariants (enforced by code)
 
-- **issueSize conservation**: `issueSize + sum(active bondMaturityValues) = totalIssuableCapacity` (capacity = cumulative penalty-adjusted deposits minus explicit issueSize decreases)
+- **issueSize conservation**: `issueSize + sum(bondMaturityValues) = totalIssuableCapacity` (capacity = cumulative penalty-adjusted deposits minus explicit issueSize decreases)
 - **Parameter monotonicity**: While `outstandingBonds > 0`: issueSize, interestRate, safeTotalStake can only decrease; exitAllowed can only go false→true
 - **Validator execution withdrawal lock**: Validator cannot withdraw from execution while `outstandingBonds > 0`
 - **outstandingBonds accuracy**: Equals the number of bonds with `bondMaturityValue > 0`
@@ -316,7 +316,7 @@ If the stake of all validators on the network drops below `safeTotalStake`, pena
 The solvency property:
 
 ```
-issueSize + sum(active bondMaturityValues) <= (effectiveBalance_consensus + cofferBalance) - maxPenalties
+issueSize + sum(bondMaturityValues) <= (effectiveBalance_consensus + cofferBalance) - maxPenalties
 ```
 
 Justified by:
