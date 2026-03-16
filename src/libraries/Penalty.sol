@@ -46,7 +46,7 @@ library Penalty {
     }
 
     /// @notice This function calculates the maximum possible penalty
-    /// that validator can get in certain period.
+    /// that a validator can get in a certain period.
     /// @notice Calculates for an extreme situation for holder safety.
     /// Adds up penalties over numberOfEpochs plus the maximum slashing penalty.
     /// @param effectiveBalance The effective balance of the validator

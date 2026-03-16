@@ -18,11 +18,14 @@
   - [Integration Tests (Mock Validation)](#integration-tests-mock-validation)
 - [Validator Considerations](#validator-considerations)
   - [Setup Steps](#setup-steps)
-  - [Initialization](#initialization)
   - [Safety Guidelines](#safety-guidelines)
 - [Restrictions](#restrictions)
   - [Changing Offer Parameters](#changing-offer-parameters)
   - [Granting Full Exit to Holders](#granting-full-exit-to-holders)
+- [Invariants](#invariants)
+  - [Contract invariants](#contract-invariants-enforced-by-code)
+  - [Cross-Layer Safety invariant](#cross-layer-safety-invariant-not-enforceable-on-chain)
+  - [Known Approximation](#known-approximation)
 
 ---
 
@@ -201,7 +204,7 @@ The signing keys must be created before the Coffer contract itself. Yet we need 
 > - Cold SLOAD would cost 2100 gas (or 100 gas if warm)
 > - **Savings:** ~2090 gas per cold read
 
-## Safety Guidelines
+### Safety Guidelines
 
 There are scenarios in which a bad actor could create malicious Coffer contracts. The most obvious example is setting `issueSize` greater than the effective balance of the validator on the beacon chain. Before buying a bond, certain conditions must be thoroughly checked on both the execution and consensus layers for that bond to be safe and repayable at maturity. Below are various scenarios and their safety levels:
 
@@ -233,7 +236,7 @@ There are scenarios in which a bad actor could create malicious Coffer contracts
 > [!WARNING]
 > **`issueSize` in Coffer contract is sometimes enough**
 >
-> A validator can have an `issueSize` that is greater than the effective balance minus possible penalties that could happen before **maximum** duration has passed, but is less than effective balance minus possible penalties that could happen before **minimum** duration has passed. Such a validator is considered partially safe. The holder can choose if they are willing to take the risk and buy a bond from the validator.
+> A validator can have an `issueSize` that is greater than the effective balance minus possible penalties that could happen before **maximum** duration has passed, but is less than the effective balance minus possible penalties that could happen before **minimum** duration has passed. Such a validator is considered partially safe. The holder can choose if they are willing to take the risk and buy a bond from the validator.
 
 > [!WARNING]
 > **`safeTotalStake` should be less than network total stake**

@@ -943,7 +943,7 @@ contract CofferHolderOpsTest is BaseTest {
         vm.store(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, bytes32(uint256(0)), bytes32(EXCESS_INHIBITOR));
 
         vm.prank(holder1);
-        vm.expectRevert(Coffer.WithdrawlContractCallFailed.selector);
+        vm.expectRevert(Coffer.WithdrawalContractCallFailed.selector);
         coffer.holderWithdrawFromConsensus{value: 1 ether}(bondId);
     }
 
@@ -964,7 +964,7 @@ contract CofferHolderOpsTest is BaseTest {
         vm.mockCallRevert(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, fee, data, "");
 
         vm.prank(holder1);
-        vm.expectRevert(Coffer.WithdrawlContractCallFailed.selector);
+        vm.expectRevert(Coffer.WithdrawalContractCallFailed.selector);
         coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 

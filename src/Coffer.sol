@@ -49,7 +49,7 @@ contract Coffer is Ownable, Multicall {
     error CallerIsNotHolder();
     error ContractBalanceLessThanValue();
 
-    error WithdrawlContractCallFailed();
+    error WithdrawalContractCallFailed();
     error ConsolidationContractCallFailed();
     error InsufficientFee();
 
@@ -67,7 +67,7 @@ contract Coffer is Ownable, Multicall {
     /// penalty costs for bonds to be safe. This value represents how much the
     /// validator can use to issue bonds. When a holder buys a bond, it is decreased
     /// by the bond value with interest.
-    /// @param version - Safe measure for holders. Prevents malicious
+    /// @param version - Safety measure for holders. Prevents malicious
     /// validator from frontrunning attacks when holder buys a bond.
     /// @param safeTotalStake - Represents the safe total stake on the network
     /// used to calculate potential penalties. A larger difference
@@ -258,7 +258,7 @@ contract Coffer is Ownable, Multicall {
     }
 
     /// @notice Receive ETH (validator rewards and withdrawals will come here)
-    /// @notice A validator can send ETH here to prevent holder initiating exit
+    /// @notice A validator can send ETH here to prevent a holder from initiating an exit
     /// @dev Empty body is intentional - contract relies on address(this).balance checks
     /// @dev Anyone can send ETH but only validator/holders benefit from it
     receive() external payable {}
@@ -488,10 +488,10 @@ contract Coffer is Ownable, Multicall {
     /// to cover the holder's bond value
     /// @notice Validator or holder can trigger a consensus withdrawal
     /// to fill up the contract with ETH
-    /// @notice If the validator allows holder exit, it can issue bonds for
+    /// @notice If the validator allows holder exits, it can issue bonds for
     /// almost all the consensus amount even if it drops below 32.
     /// Penalties should be considered only while defining issueSize.
-    /// @notice If the validator does not allow holder exit, the holder can
+    /// @notice If the validator does not allow holder exits, the holder can
     /// withdraw from consensus only the owed value after maturity
     /// @notice The BondNft owner can withdraw using their bondId
     /// @param _bondId The ID of the bond NFT to withdraw
@@ -569,7 +569,7 @@ contract Coffer is Ownable, Multicall {
         }
 
         (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
-        require(readOk, WithdrawlContractCallFailed());
+        require(readOk, WithdrawalContractCallFailed());
         // forge-lint: disable-next-line(unsafe-typecast) fee data is always 32 bytes
         uint256 fee = uint256(bytes32(feeData));
 
@@ -584,7 +584,7 @@ contract Coffer is Ownable, Multicall {
         emit HolderWithdrawFromConsensusSuccess(msg.sender, _bondId, holder.bondMaturityValue, isFullExit);
 
         (bool writeOk,) = WITHDRAWAL_CONTRACT.call{value: fee}(data);
-        require(writeOk, WithdrawlContractCallFailed());
+        require(writeOk, WithdrawalContractCallFailed());
     }
 
     /// @notice Validator withdraws from execution layer when no
@@ -625,7 +625,7 @@ contract Coffer is Ownable, Multicall {
     /// @param _amount The amount to withdraw in gwei
     function validatorWithdrawFromConsensus(uint64 _amount) external payable onlyOwner {
         (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
-        require(readOk, WithdrawlContractCallFailed());
+        require(readOk, WithdrawalContractCallFailed());
         // forge-lint: disable-next-line(unsafe-typecast) fee data is always 32 bytes
         uint256 fee = uint256(bytes32(feeData));
 
@@ -642,7 +642,7 @@ contract Coffer is Ownable, Multicall {
         emit ValidatorWithdrawFromConsensus(_amount);
 
         (bool writeOk,) = WITHDRAWAL_CONTRACT.call{value: fee}(data);
-        require(writeOk, WithdrawlContractCallFailed());
+        require(writeOk, WithdrawalContractCallFailed());
     }
 
     /// @notice Validator can add funds at will
