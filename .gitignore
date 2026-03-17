@@ -10,7 +10,12 @@ snapshots/
 
 # Docs
 docs/
+TODO
 
 # Dotenv file
 .env
 .vercel
+
+# VS Code
+.vscode
+
