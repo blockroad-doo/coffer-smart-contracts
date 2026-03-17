@@ -30,7 +30,6 @@ contract Coffer is Ownable2Step, Multicall {
     error InvalidRate();
     error InvalidSafeTotalStake();
 
-    error ValidatorHasExited();
     error ValidatorIsNotActive();
     error ValidatorDoesntCoverTheValue();
     error ValidatorCannotIncreaseInterestRateWhileOutstandingBondExist();
@@ -46,7 +45,7 @@ contract Coffer is Ownable2Step, Multicall {
     error HolderDoesNotExistOrAlreadyWithdrawnValue();
     error HoldersTimeHasNotExpiredYet();
     error HolderCannotBeValidator();
-    error WithdrawlAllreadyInitiated();
+    error WithdrawalAlreadyInitiated();
 
     error CallerIsNotHolder();
     error ContractBalanceLessThanValue();
@@ -259,7 +258,9 @@ contract Coffer is Ownable2Step, Multicall {
             // safe total stake and duration limits in CofferFactory
             sValidatorConditions.issueSize = uint128(
                 Penalty.addMaximumPenalty(
-                    STARTING_EFFECTIVE_BALANCE_FOR_0X00, _safeTotalStake, _maximumDuration / NUMBER_OF_SECONDS_IN_EPOCH
+                    STARTING_EFFECTIVE_BALANCE_FOR_0X00,
+                    _safeTotalStake,
+                    (_maximumDuration + NUMBER_OF_SECONDS_IN_EPOCH - 1) / NUMBER_OF_SECONDS_IN_EPOCH
                 )
             );
         }
@@ -336,6 +337,8 @@ contract Coffer is Ownable2Step, Multicall {
     /// @notice If the contract doesn't have enough to repay,
     /// the validator can send additional funds via msg.value
     /// @param _bondIds Bond IDs of the bonds to be redeemed early
+    /// @dev Slither flags reentrancy-no-eth (false positive): burnCofferBond calls a trusted
+    /// immutable NFT contract whose _burn has no callbacks, and this function is onlyOwner
     function redeemBondsEarly(uint256[] calldata _bondIds) external payable onlyOwner {
         address[] memory holders = new address[](_bondIds.length);
         uint128[] memory amounts = new uint128[](_bondIds.length);
@@ -352,10 +355,18 @@ contract Coffer is Ownable2Step, Multicall {
             amounts[i] = value;
             totalValue += value;
 
-            removeHolder(bondId, value);
+            delete sHolderConditions[bondId];
+
+            // slither-disable-next-line reentrancy-no-eth
+            ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).burnCofferBond(bondId);
 
             emit ValidatorsBondRedeem(holders[i], bondId);
         }
+
+        ValidatorConditions storage vc = sValidatorConditions;
+        // forge-lint: disable-next-line(unsafe-typecast) totalValue is sum of uint128 bondMaturityValues
+        vc.issueSize += uint128(totalValue);
+        vc.outstandingBonds -= uint32(_bondIds.length);
 
         // solhint-disable-next-line gas-strict-inequalities
         require(address(this).balance >= totalValue, ContractBalanceLessThanValue());
@@ -533,7 +544,14 @@ contract Coffer is Ownable2Step, Multicall {
         if (address(this).balance >= holder.bondMaturityValue) {
             // Full withdrawal — existing behavior
             valueToWithdraw = holder.bondMaturityValue;
-            removeHolder(_bondId, valueToWithdraw);
+
+            ValidatorConditions storage vc = sValidatorConditions;
+            // forge-lint: disable-next-line(unsafe-typecast) _value originates from HolderConditions.bondMaturityValue
+            vc.issueSize += uint128(valueToWithdraw);
+            --vc.outstandingBonds;
+            delete sHolderConditions[_bondId];
+            ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).burnCofferBond(_bondId);
+
             emit HolderWithdrawFromExecutionSuccess(msg.sender, _bondId);
         } else {
             // Partial withdrawal — withdraw whatever is available
@@ -548,6 +566,8 @@ contract Coffer is Ownable2Step, Multicall {
             emit HolderPartialWithdrawFromExecutionSuccess(
                 msg.sender, _bondId, valueToWithdraw, holder.bondMaturityValue
             );
+
+            ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).emitMetadataUpdate(_bondId);
         }
 
         Address.sendValue(payable(msg.sender), valueToWithdraw);
@@ -579,7 +599,7 @@ contract Coffer is Ownable2Step, Multicall {
             HolderConsensusWithdrawNotPossibleContractHasEnoughBalance()
         );
 
-        require(!hasInitiatedConsensusWithdrawal[_bondId], WithdrawlAllreadyInitiated());
+        require(!hasInitiatedConsensusWithdrawal[_bondId], WithdrawalAlreadyInitiated());
         hasInitiatedConsensusWithdrawal[_bondId] = true;
 
         // Has time passed so holder can withdraw
@@ -590,7 +610,7 @@ contract Coffer is Ownable2Step, Multicall {
         // If the contract allows exits, 0 should be sent in data; if not, the value should be converted to gwei
         if (!sValidatorConditions.exitAllowed) {
             // forge-lint: disable-next-line(unsafe-typecast) holder.bondMaturityValue < 2048 ETH, fits uint64
-            valueToWithdrawInGwei = uint64(holder.bondMaturityValue / GWEI_RATE);
+            valueToWithdrawInGwei = uint64((holder.bondMaturityValue + GWEI_RATE - 1) / GWEI_RATE);
         }
 
         (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
@@ -690,7 +710,11 @@ contract Coffer is Ownable2Step, Multicall {
 
         // forge-lint: disable-next-line(unsafe-typecast) penalty on msg.value (≤ validator balance) fits uint128
         vc.issueSize += uint128(
-            Penalty.addMaximumPenalty(msg.value, vc.safeTotalStake, vc.maximumDuration / NUMBER_OF_SECONDS_IN_EPOCH)
+            Penalty.addMaximumPenalty(
+                msg.value,
+                vc.safeTotalStake,
+                (vc.maximumDuration + NUMBER_OF_SECONDS_IN_EPOCH - 1) / NUMBER_OF_SECONDS_IN_EPOCH
+            )
         );
 
         // forge-lint: disable-next-line(unsafe-typecast) msg.value checked ≥ 1 ether and is gwei-aligned, fits uint128
@@ -729,20 +753,6 @@ contract Coffer is Ownable2Step, Multicall {
     /// PRIVATE FUNCTIONS
     ///
     ///--------------------------
-
-    /// @notice Cleans up holder data and updates validator data
-    /// @notice Used in: redeemBondsEarly and holderWithdrawFromExecution
-    /// @dev _bondId is verified in callers so no check here
-    /// @param _bondId The ID of the bond NFT to remove
-    /// @param _value The value to restore to issueSize
-    function removeHolder(uint256 _bondId, uint256 _value) private {
-        ValidatorConditions storage vc = sValidatorConditions;
-        // forge-lint: disable-next-line(unsafe-typecast) _value originates from HolderConditions.bondMaturityValue
-        vc.issueSize += uint128(_value);
-        --vc.outstandingBonds;
-        ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).burnCofferBond(_bondId);
-        delete sHolderConditions[_bondId];
-    }
 
     /// @notice Checks if msg.sender owns the bond NFT
     /// @notice Used in: holderWithdrawFromConsensus and

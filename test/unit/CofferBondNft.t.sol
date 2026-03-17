@@ -142,6 +142,30 @@ contract CofferBondNftTest is BaseTest {
     }
 
     // ========================================
+    // EIP-4906 — emitMetadataUpdate & supportsInterface
+    // ========================================
+
+    function test_EmitMetadataUpdate_Success_EmitsEvent() public {
+        uint256 bondId = bondNft.mintCofferBond(holder1);
+
+        vm.expectEmit(false, false, false, true, address(bondNft));
+        emit CofferBondNftEvents.MetadataUpdate(bondId);
+        bondNft.emitMetadataUpdate(bondId);
+    }
+
+    function test_EmitMetadataUpdate_Revert_OnlyCofferCanEmit() public {
+        uint256 bondId = bondNft.mintCofferBond(holder1);
+
+        vm.prank(holder1);
+        vm.expectRevert(CofferBondNft.OnlyCofferCanEmit.selector);
+        bondNft.emitMetadataUpdate(bondId);
+    }
+
+    function test_SupportsInterface_EIP4906() public view {
+        assertTrue(bondNft.supportsInterface(bytes4(0x49064906)));
+    }
+
+    // ========================================
     // ERC721 INTEGRATION (EDGE CASES)
     // ========================================
 

@@ -2,6 +2,9 @@
 pragma solidity ^0.8.33;
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC4906} from "@openzeppelin/contracts/interfaces/IERC4906.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {ICofferBondNft} from "./interfaces/ICofferBondNft.sol";
@@ -13,8 +16,9 @@ import {ICoffer} from "./interfaces/ICoffer.sol";
  * @notice ERC-721 contract representing transferable ownership of Coffer Accepted Offer
  * @notice When a holder accepts Coffer offer, they receive an NFT representing a bond
  */
-contract CofferBondNft is ERC721, ICofferBondNft {
+contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
     error OnlyCofferCanBurn();
+    error OnlyCofferCanEmit();
 
     /// @notice Counter for generating unique bond IDs
     uint256 private sBondIdCounter;
@@ -92,7 +96,21 @@ contract CofferBondNft is ERC721, ICofferBondNft {
     /// now inherits both ICofferBondNft and ERC721, and both define ownerOf
     /// @param _bondId The ID of the bond for which the ownerOf function is overridden
     /// @return The address of the NFT owner with _bondId
-    function ownerOf(uint256 _bondId) public view override(ERC721, ICofferBondNft) returns (address) {
+    function ownerOf(uint256 _bondId) public view override(ERC721, IERC721, ICofferBondNft) returns (address) {
         return super.ownerOf(_bondId);
+    }
+
+    /// @notice Returns true if the contract supports the given interface (ERC-165)
+    /// @param interfaceId The interface identifier to check
+    /// @return True if the interface is supported
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721, IERC165) returns (bool) {
+        return interfaceId == bytes4(0x49064906) || super.supportsInterface(interfaceId);
+    }
+
+    /// @notice Emits EIP-4906 MetadataUpdate event, callable only by the bond's issuing Coffer
+    /// @param _bondId The ID of the bond NFT whose metadata changed
+    function emitMetadataUpdate(uint256 _bondId) external {
+        require(msg.sender == cofferOf[_bondId], OnlyCofferCanEmit());
+        emit MetadataUpdate(_bondId);
     }
 }

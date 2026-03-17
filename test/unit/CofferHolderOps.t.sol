@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.33;
 
-import {BaseTest, CofferEvents, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS} from "./BaseTest.sol";
+import {BaseTest, CofferEvents, CofferBondNftEvents, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS} from "./BaseTest.sol";
 import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
@@ -517,6 +517,9 @@ contract CofferHolderOpsTest is BaseTest {
             holder1, bondId, partialAmount, amtOwed - partialAmount
         );
 
+        vm.expectEmit(false, false, false, true, address(bondNft));
+        emit CofferBondNftEvents.MetadataUpdate(bondId);
+
         vm.prank(holder1);
         coffer.holderWithdrawFromExecution(bondId);
     }
@@ -957,7 +960,7 @@ contract CofferHolderOpsTest is BaseTest {
         // Build the exact 56-byte payload that Coffer will send
         (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
         // forge-lint: disable-next-line(unsafe-typecast) test value fits in uint64
-        uint64 amountGwei = uint64(amtOwed / 1e9);
+        uint64 amountGwei = uint64((uint256(amtOwed) + 1e9 - 1) / 1e9);
         bytes memory data = abi.encodePacked(validPublicKeyPart1, validPublicKeyPart2, amountGwei);
 
         // Mock the write call to revert (fee getter staticcall still works)
@@ -1001,7 +1004,7 @@ contract CofferHolderOpsTest is BaseTest {
         // Second consensus withdrawal on same bond reverts
         fee = getWithdrawalFee();
         vm.prank(holder1);
-        vm.expectRevert(Coffer.WithdrawlAllreadyInitiated.selector);
+        vm.expectRevert(Coffer.WithdrawalAlreadyInitiated.selector);
         coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 

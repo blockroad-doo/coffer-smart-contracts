@@ -501,6 +501,7 @@ interface CofferEvents {
 interface CofferBondNftEvents {
     event CofferBondTokenMinted(uint256 indexed bondId, address indexed holder);
     event CofferBondTokenBurned(uint256 indexed bondId);
+    event MetadataUpdate(uint256 _tokenId);
 }
 
 interface CofferBondsRedeemedEarlyEvents {

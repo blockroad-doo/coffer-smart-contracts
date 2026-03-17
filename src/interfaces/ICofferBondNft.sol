@@ -26,4 +26,8 @@ interface ICofferBondNft {
     /// @param bondId The ID of the bond NFT
     /// @return The address of the bond NFT owner
     function ownerOf(uint256 bondId) external view returns (address);
+
+    /// @notice Emits EIP-4906 MetadataUpdate event for the given bond
+    /// @param bondId The ID of the bond NFT whose metadata changed
+    function emitMetadataUpdate(uint256 bondId) external;
 }
