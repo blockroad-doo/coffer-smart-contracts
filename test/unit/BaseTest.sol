@@ -504,6 +504,6 @@ interface CofferBondNftEvents {
 }
 
 interface CofferBondsRedeemedEarlyEvents {
-    event ClaimDeposited(address indexed holder, uint128 amount);
-    event ClaimWithdrawn(address indexed claimant, address indexed to, uint256 amount);
+    event ClaimDeposited(address indexed holder, uint128 indexed amount);
+    event ClaimWithdrawn(address indexed claimant, address indexed to, uint256 indexed amount);
 }
