@@ -1,9 +1,10 @@
 //SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.33;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
 import {ICofferBondNft} from "./interfaces/ICofferBondNft.sol";
+import {ICofferBondsRedeemedEarly} from "./interfaces/ICofferBondsRedeemedEarly.sol";
 import {IDepositContract} from "./interfaces/IDepositContract.sol";
 import {Interest} from "./libraries/Interest.sol";
 import {Penalty} from "./libraries/Penalty.sol";
@@ -22,7 +23,7 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
  * @notice Uses IDepositContract interface to allow deposits to
  * consensus layer to top up validator's effective balance
  */
-contract Coffer is Ownable, Multicall {
+contract Coffer is Ownable2Step, Multicall {
     error ZeroValue();
     error ValueTooSmallToAccept();
     error InvalidDuration();
@@ -45,6 +46,7 @@ contract Coffer is Ownable, Multicall {
     error HolderDoesNotExistOrAlreadyWithdrawnValue();
     error HoldersTimeHasNotExpiredYet();
     error HolderCannotBeValidator();
+    error WithdrawlAllreadyInitiated();
 
     error CallerIsNotHolder();
     error ContractBalanceLessThanValue();
@@ -123,6 +125,8 @@ contract Coffer is Ownable, Multicall {
 
     /// @notice Address of the shared CofferBondNft contract
     address public immutable I_COFFER_BOND_NFT_ADDRESS;
+    /// @notice Address of the shared CofferBondsRedeemedEarly contract
+    address public immutable I_COFFER_BONDS_REDEEMED_EARLY;
     /// @notice First 32 bytes of the validator BLS signing public key
     /// (immutable so validator cannot point contract to different validator)
     bytes32 public immutable I_PUBLIC_KEY_PART1;
@@ -133,6 +137,8 @@ contract Coffer is Ownable, Multicall {
     ValidatorConditions public sValidatorConditions;
     /// @notice Holder conditions mapped by ERC721 bond NFT ID
     mapping(uint256 => HolderConditions) public sHolderConditions;
+    /// @notice Holder can trigger consensus withdrawl only once
+    mapping(uint256 => bool) public hasInitiatedConsensusWithdrawal;
 
     /// @notice Emitted when a holder buys a bond
     /// @param holderAddress The address of the bond holder
@@ -219,6 +225,7 @@ contract Coffer is Ownable, Multicall {
     constructor(
         address _owner,
         address _cofferBondNftAddress,
+        address _cofferBondsRedeemedEarlyAddress,
         bytes32 _publicKeyPart1,
         bytes16 _publicKeyPart2,
         uint32 _interestRate,
@@ -229,6 +236,7 @@ contract Coffer is Ownable, Multicall {
         bool _exitAllowed
     ) Ownable(_owner) {
         I_COFFER_BOND_NFT_ADDRESS = _cofferBondNftAddress;
+        I_COFFER_BONDS_REDEEMED_EARLY = _cofferBondsRedeemedEarlyAddress;
         I_PUBLIC_KEY_PART1 = _publicKeyPart1;
         I_PUBLIC_KEY_PART2 = _publicKeyPart2;
 
@@ -258,7 +266,10 @@ contract Coffer is Ownable, Multicall {
     }
 
     /// @notice Receive ETH (validator rewards and withdrawals will come here)
-    /// @notice A validator can send ETH here to prevent a holder from initiating an exit
+    /// @notice A validator can send ETH here to prevent a holder from initiating an exit.
+    /// This is a known trust model trade-off: by topping up the contract balance, the validator
+    /// blocks holderWithdrawFromConsensus but simultaneously enables holderWithdrawFromExecution,
+    /// ensuring the holder can still claim their funds from the execution layer
     /// @dev Empty body is intentional - contract relies on address(this).balance checks
     /// @dev Anyone can send ETH but only validator/holders benefit from it
     receive() external payable {}
@@ -319,13 +330,17 @@ contract Coffer is Ownable, Multicall {
         Address.sendValue(payable(owner()), msg.value);
     }
 
-    /// @notice Redeem bonds early
+    /// @notice Redeem bonds early by sending maturity values to CofferBondsRedeemedEarly
     /// @notice Only the validator can call this function
-    /// @notice Bonds are redeemed from the Coffer contract
+    /// @notice Holders claim their funds from CofferBondsRedeemedEarly (pull pattern)
     /// @notice If the contract doesn't have enough to repay,
     /// the validator can send additional funds via msg.value
     /// @param _bondIds Bond IDs of the bonds to be redeemed early
     function redeemBondsEarly(uint256[] calldata _bondIds) external payable onlyOwner {
+        address[] memory holders = new address[](_bondIds.length);
+        uint128[] memory amounts = new uint128[](_bondIds.length);
+        uint256 totalValue = 0;
+
         for (uint256 i = 0; i < _bondIds.length; ++i) {
             uint256 bondId = _bondIds[i];
             HolderConditions storage holder = sHolderConditions[bondId];
@@ -333,16 +348,19 @@ contract Coffer is Ownable, Multicall {
 
             require(value != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
 
-            // solhint-disable-next-line gas-strict-inequalities
-            require(address(this).balance >= value, ContractBalanceLessThanValue());
+            holders[i] = ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).ownerOf(bondId);
+            amounts[i] = value;
+            totalValue += value;
 
-            address holderAddress = ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).ownerOf(bondId);
             removeHolder(bondId, value);
 
-            emit ValidatorsBondRedeem(holderAddress, bondId);
-
-            Address.sendValue(payable(holderAddress), value);
+            emit ValidatorsBondRedeem(holders[i], bondId);
         }
+
+        // solhint-disable-next-line gas-strict-inequalities
+        require(address(this).balance >= totalValue, ContractBalanceLessThanValue());
+
+        ICofferBondsRedeemedEarly(I_COFFER_BONDS_REDEEMED_EARLY).deposit{value: totalValue}(holders, amounts);
     }
 
     /// @notice Change the Coffer's activity
@@ -540,8 +558,12 @@ contract Coffer is Ownable, Multicall {
     /// the validator if possible since we cannot properly check the exact
     /// value vs. full exit
     /// @notice If the contract has enough to redeem the bond, the holder cannot
-    /// withdraw from consensus
-    /// @notice The validator can avoid exits by topping up the contract
+    /// withdraw from consensus — the holder should use holderWithdrawFromExecution instead
+    /// @notice TRUST MODEL: The validator (or anyone) can send ETH to this contract to push
+    /// address(this).balance above bondMaturityValue, blocking this function. This is by design:
+    /// if the contract has enough ETH, the holder is made whole via holderWithdrawFromExecution
+    /// and consensus withdrawal is unnecessary. The validator's incentive to block exits is
+    /// counterbalanced by the economic cost of depositing ETH that the holder can then withdraw
     /// @dev Holder's bond value is in wei, so we must convert it to gwei
     /// @param _bondId The ID of the bond NFT to withdraw
     function holderWithdrawFromConsensus(uint256 _bondId) external payable {
@@ -556,6 +578,9 @@ contract Coffer is Ownable, Multicall {
             address(this).balance <= holder.bondMaturityValue - 1,
             HolderConsensusWithdrawNotPossibleContractHasEnoughBalance()
         );
+
+        require(!hasInitiatedConsensusWithdrawal[_bondId], WithdrawlAllreadyInitiated());
+        hasInitiatedConsensusWithdrawal[_bondId] = true;
 
         // Has time passed so holder can withdraw
         // solhint-disable-next-line gas-strict-inequalities

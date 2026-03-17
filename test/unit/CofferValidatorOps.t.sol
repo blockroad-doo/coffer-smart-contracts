@@ -4,9 +4,11 @@ pragma solidity ^0.8.33;
 import {
     BaseTest,
     CofferEvents,
+    CofferBondsRedeemedEarlyEvents,
     WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS,
     CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS
 } from "./BaseTest.sol";
+
 import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
@@ -59,15 +61,15 @@ contract CofferValidatorOpsTest is BaseTest {
         // Fund contract
         vm.deal(cofferAddr, amtOwed);
 
-        uint256 holderBalBefore = holder1.balance;
-
         vm.prank(validator);
         uint256[] memory ids = new uint256[](1);
         ids[0] = bondId;
         coffer.redeemBondsEarly(ids);
         vm.snapshotGasLastCall("redeemBondsEarly_single");
 
-        assertEq(holder1.balance, holderBalBefore + amtOwed);
+        // ETH lands in CofferBondsRedeemedEarly, not directly to holder
+        assertEq(address(bondsRedeemedEarly).balance, amtOwed);
+        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), amtOwed);
     }
 
     function test_RedeemBondsEarly_MultipleBonds_Success() public {
@@ -189,7 +191,7 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.redeemBondsEarly(ids);
     }
 
-    function test_RedeemBondsEarly_RevertsIfHolderRejectsEther() public {
+    function test_RedeemBondsEarly_SucceedsIfHolderRejectsEther() public {
         // Deploy a RejectEther contract and use it as holder
         RejectEther rejector = new RejectEther();
         vm.deal(address(rejector), 100 ether);
@@ -208,7 +210,74 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         uint256[] memory ids = new uint256[](1);
         ids[0] = bondId;
-        vm.expectRevert(Errors.FailedCall.selector);
+        coffer.redeemBondsEarly(ids); // no longer reverts
+
+        // Funds deposited to CofferBondsRedeemedEarly
+        assertEq(bondsRedeemedEarly.sPendingClaims(address(rejector)), amtOwed);
+
+        // outstandingBonds should be 0
+        (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
+        assertEq(bonds, 0);
+    }
+
+    function test_RedeemBondsEarly_DepositsToCofferBondsRedeemedEarly() public {
+        (uint256 bondId, uint128 amtOwed) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+        vm.deal(cofferAddr, amtOwed);
+
+        uint256 claimBalBefore = address(bondsRedeemedEarly).balance;
+
+        vm.prank(validator);
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = bondId;
+        coffer.redeemBondsEarly(ids);
+
+        assertEq(address(bondsRedeemedEarly).balance, claimBalBefore + amtOwed);
+        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), amtOwed);
+    }
+
+    function test_RedeemBondsEarly_MixedBatch_NormalAndRejectingHolder() public {
+        RejectEther rejector = new RejectEther();
+        vm.deal(address(rejector), 100 ether);
+
+        vm.prank(validator);
+        coffer.changeIssueSize(10 ether); // version -> 2
+
+        // holder1 buys a bond
+        uint256 id1 = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
+        // rejector buys a bond
+        vm.prank(address(rejector));
+        coffer.buyBond{value: 1 ether}(ONE_MONTH, 2);
+        uint256 id2 = 2;
+
+        (uint128 amt1,,) = coffer.sHolderConditions(id1);
+        (uint128 amt2,,) = coffer.sHolderConditions(id2);
+        vm.deal(cofferAddr, amt1 + amt2);
+
+        vm.prank(validator);
+        uint256[] memory ids = new uint256[](2);
+        ids[0] = id1;
+        ids[1] = id2;
+        coffer.redeemBondsEarly(ids); // both succeed
+
+        // Both can claim
+        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), amt1);
+        assertEq(bondsRedeemedEarly.sPendingClaims(address(rejector)), amt2);
+
+        // outstandingBonds == 0
+        (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
+        assertEq(bonds, 0);
+    }
+
+    function test_RedeemBondsEarly_EmitsDepositEvents() public {
+        (uint256 bondId, uint128 amtOwed) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+        vm.deal(cofferAddr, amtOwed);
+
+        vm.expectEmit(true, false, false, true);
+        emit CofferBondsRedeemedEarlyEvents.ClaimDeposited(holder1, amtOwed);
+
+        vm.prank(validator);
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = bondId;
         coffer.redeemBondsEarly(ids);
     }
 

@@ -987,6 +987,24 @@ contract CofferHolderOpsTest is BaseTest {
         coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
+    function test_HolderWithdrawFromConsensus_RevertsIfConsensusWithdrawalAlreadyInitiated() public {
+        uint32 version = _enableBonding(10 ether);
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
+
+        advanceTime(ONE_MONTH + 1);
+        uint256 fee = getWithdrawalFee();
+
+        // First consensus withdrawal succeeds
+        vm.prank(holder1);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
+
+        // Second consensus withdrawal on same bond reverts
+        fee = getWithdrawalFee();
+        vm.prank(holder1);
+        vm.expectRevert(Coffer.WithdrawlAllreadyInitiated.selector);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
+    }
+
     // ========================================
     // Edge Cases
     // ========================================

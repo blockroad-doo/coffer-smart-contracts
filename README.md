@@ -19,6 +19,7 @@
 - [Validator Considerations](#validator-considerations)
   - [Setup Steps](#setup-steps)
   - [Safety Guidelines](#safety-guidelines)
+  - [Redeeming Bonds Early](#redeeming-bonds-early)
 - [Restrictions](#restrictions)
   - [Changing Offer Parameters](#changing-offer-parameters)
   - [Granting Full Exit to Holders](#granting-full-exit-to-holders)
@@ -50,6 +51,7 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 | **`CofferFactory.sol`** | Factory contract for creating validator offers (Coffers) |
 | **`Coffer.sol`** | Individual Coffer contract managing validator-holder relationships |
 | **`CofferBondNft.sol`** | ERC-721 contract representing transferable coffer receivables |
+| **`CofferBondsRedeemedEarly.sol`** | Pull-based claim contract for early bond redemptions |
 
 ### Libraries
 
@@ -62,7 +64,9 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 
 | Interface | Description |
 |-----------|-------------|
+| **`ICoffer.sol`** | Minimal interface for reading bond data from a Coffer contract |
 | **`ICofferBondNft.sol`** | Interface for the core contract CofferBondNft.sol |
+| **`ICofferBondsRedeemedEarly.sol`** | Interface for the pull-based early bond redemption contract |
 | **`IDepositContract.sol`** | Ethereum 2.0 deposit contract interface |
 
 ### Roles
@@ -93,6 +97,7 @@ HOODI_RPC_URL=http://your-execution-node:8545
 # Deployed contract addresses (auto-filled by scripts)
 HOODI_COFFER_FACTORY_ADDRESS=
 HOODI_COFFER_RECEIVABLE_NFT_ADDRESS=
+HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS=
 HOODI_COFFER_ADDRESS=
 
 # Coffer creation parameters
@@ -105,9 +110,7 @@ SAFE_TOTAL_STAKE=42000000
 ALLOW_EXIT=true
 ```
 
-Private keys and testnet accounts (`HOODI_V*`, `HOODI_C*`) are also needed for broadcasting transactions but are omitted here for brevity.
-
-Deployment scripts **auto-update** `.env` via FFI (`sed`) — `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_RECEIVABLE_NFT_ADDRESS`, and `HOODI_COFFER_ADDRESS` are written automatically after each script run.
+Deployment scripts **auto-update** `.env` via FFI (`sed`) — `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_RECEIVABLE_NFT_ADDRESS`, `HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS`, and `HOODI_COFFER_ADDRESS` are written automatically after each script run.
 
 **Hoodi** is the recommended testnet because validators operate there identically to mainnet — the same EIP-7002 withdrawal and EIP-7251 consolidation request contracts are active, making it the closest environment for end-to-end testing.
 
@@ -117,7 +120,7 @@ Two-step deployment flow in `script/`:
 
 **Step 1 — `DeployCofferFactory.s.sol`**
 
-Deploys `CofferFactory` (which internally deploys `CofferBondNft`) and auto-writes `HOODI_COFFER_FACTORY_ADDRESS` and `HOODI_COFFER_RECEIVABLE_NFT_ADDRESS` to `.env`.
+Deploys `CofferFactory` (which internally deploys `CofferBondNft` and `CofferBondsRedeemedEarly`) and auto-writes `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_RECEIVABLE_NFT_ADDRESS`, and `HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS` to `.env`.
 
 ```
 cd coffer-smart-contracts
@@ -144,23 +147,47 @@ forge script script/CreateCoffer.s.sol \
 
 ### Invariant Testing
 
-Invariant tests are **excluded from the default test run** via `no_match_path` in `foundry.toml`.
+Invariant tests (also called stateful fuzz tests) explore random sequences of contract calls to verify that critical properties always hold, no matter what order or combination of actions occurs.
 
-To run them, comment out the `no_match_path` line in `foundry.toml`, then:
+There are five invariant suites: `Coffer`, `CofferFactory`, `CofferBondNft`, `CofferBondsRedeemedEarly`, and `Penalty`.
+
+#### Enabling invariant tests
+
+By default the `no_match_path` line in `foundry.toml` (line 8) is **commented out**, so invariant tests are included in a normal `forge test` run. To exclude them (e.g. for faster iteration), uncomment that line.
+
+#### Non-strict vs strict mode
+
+Each suite that includes intentionally-reverting handler functions (invalid inputs, expected failures) has two test contracts — a **non-strict** variant and a **strict** variant.
+
+| Mode | `fail_on_revert` | What it tests |
+|------|-------------------|---------------|
+| **Non-strict** | `false` | Runs all handlers, including ones that intentionally revert. Verifies invariants hold even when invalid calls are mixed in. |
+| **Strict** | `true` | Runs only valid handlers (excludes intentionally-reverting ones). Any unexpected revert fails the test immediately. |
+
+#### Running non-strict mode
+
+The default `[invariant]` section in `foundry.toml` has `fail_on_revert = true`. To run non-strict tests, change it to `false`:
+
+```toml
+[invariant]
+runs = 512
+depth = 64
+fail_on_revert = false  # ← change to false for non-strict
+```
+
+Then run:
 
 ```
 forge test --mp "test/invariant/*"
 ```
 
-Default invariant config (`[invariant]`): 512 runs, depth 64, `fail_on_revert = false`.
+#### Running strict mode
 
-Strict profile (`[profile.strict.invariant]`): same runs/depth but `fail_on_revert = true`. Run with:
+The strict profile (`[profile.strict.invariant]`) already has `fail_on_revert = true`. No config changes needed:
 
 ```
 forge test --mp "test/invariant/*" --profile strict
 ```
-
-Four invariant suites: `Coffer`, `CofferFactory`, `CofferBondNft`, `Penalty`.
 
 ### Integration Tests (Mock Validation)
 
@@ -260,12 +287,27 @@ There are scenarios in which a bad actor could create malicious Coffer contracts
 >
 > `safeTotalStake` must be set at or below the actual network total stake. Since both `correlationPenalty` and `missingAttestations` in the `Penalty` library divide by `safeTotalStake`, a value that is too high will underestimate penalties, making the `issueSize` appear safer than it actually is. A conservative (slightly below actual) value ensures penalty estimates are accurate or slightly overestimated, protecting bond holders.
 
-### Reasonable Holder Risk
+#### Minor Holder Risk
 
 If the stake of all validators on the network drops below `safeTotalStake`, penalties will be calculated slightly lower than they should be, so buying a bond from that validator will become slightly less safe. The holder is taking an extremely minor risk for a few reasons:
 1. When a validator is penalized, both the holder and the validator lose
 2. Because of the churn limit, if the total stake of the network is dropping, it drops very slowly
 3. Even if the worst things happen, the holder loses a very small amount of ETH.
+
+### Redeeming Bonds Early
+
+A validator can redeem outstanding bonds before maturity by calling `redeemBondsEarly`. This is
+particularly important when the validator needs `outstandingBonds == 0` to change bond parameters
+such as interest rate, issue size, exit permissions, or safe total stake.
+
+When bonds are redeemed early, the maturity values are sent to the `CofferBondsRedeemedEarly`
+contract rather than directly to each bond holder. Holders then claim their funds individually
+by calling `claim()` on that contract.
+
+This pull-based pattern prevents a griefing attack where a bond NFT is transferred to a contract
+that rejects ETH (non-payable or reverting `receive()`). Without this pattern, such a transfer
+would permanently block the validator from redeeming that bond, locking the `outstandingBonds`
+counter and consuming `issueSize` capacity indefinitely.
 
 ---
 

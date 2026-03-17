@@ -5,6 +5,7 @@ import {Test, Vm} from "forge-std/Test.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {CofferFactory} from "../../src/CofferFactory.sol";
 import {CofferBondNft} from "../../src/CofferBondNft.sol";
+import {CofferBondsRedeemedEarly} from "../../src/CofferBondsRedeemedEarly.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
 import {Penalty} from "../../src/libraries/Penalty.sol";
 import {EIP7002Mock, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, SYSTEM_ADDRESS} from "../mock/EIP7002Mock.sol";
@@ -77,6 +78,7 @@ abstract contract BaseTest is Test {
 
     CofferFactory public factory;
     CofferBondNft public bondNft;
+    CofferBondsRedeemedEarly public bondsRedeemedEarly;
     Coffer public coffer;
     EIP7002Mock public withdrawalMock;
     EIP7251Mock public consolidationMock;
@@ -113,6 +115,7 @@ abstract contract BaseTest is Test {
 
         // Get the NFT address from factory
         bondNft = CofferBondNft(factory.I_COFFER_BOND_NFT_ADDRESS());
+        bondsRedeemedEarly = CofferBondsRedeemedEarly(factory.I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS());
 
         // Fund test accounts
         vm.deal(validator, 1000 ether);
@@ -498,4 +501,9 @@ interface CofferEvents {
 interface CofferBondNftEvents {
     event CofferBondTokenMinted(uint256 indexed bondId, address indexed holder);
     event CofferBondTokenBurned(uint256 indexed bondId);
+}
+
+interface CofferBondsRedeemedEarlyEvents {
+    event ClaimDeposited(address indexed holder, uint128 amount);
+    event ClaimWithdrawn(address indexed claimant, address indexed to, uint256 amount);
 }

@@ -3,6 +3,7 @@ pragma solidity ^0.8.33;
 
 import {Coffer} from "./Coffer.sol";
 import {CofferBondNft} from "./CofferBondNft.sol";
+import {CofferBondsRedeemedEarly} from "./CofferBondsRedeemedEarly.sol";
 import {Penalty} from "./libraries/Penalty.sol";
 
 /**
@@ -28,16 +29,20 @@ contract CofferFactory {
 
     /// @notice Address of the shared CofferBondNft contract
     address public immutable I_COFFER_BOND_NFT_ADDRESS;
+    /// @notice Address of the shared CofferBondsRedeemedEarly contract
+    address public immutable I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS;
 
     /// @notice Emitted when a new Coffer contract is created
     /// @param owner The address of the validator who created the Coffer
     /// @param cofferAddress The address of the newly deployed Coffer contract
     event CofferIssued(address indexed owner, address indexed cofferAddress);
 
-    /// @notice Deploys the shared CofferBondNft contract
+    /// @notice Deploys the shared CofferBondNft and CofferBondsRedeemedEarly contracts
     constructor() {
         CofferBondNft iCofferBondNft = new CofferBondNft();
         I_COFFER_BOND_NFT_ADDRESS = address(iCofferBondNft);
+        CofferBondsRedeemedEarly iBondsRedeemedEarly = new CofferBondsRedeemedEarly();
+        I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS = address(iBondsRedeemedEarly);
     }
 
     /// @notice Creates a new Coffer contract for a validator
@@ -49,6 +54,7 @@ contract CofferFactory {
     /// @param _minimumValueToAccept Minimum value a holder must deposit
     /// @param _safeTotalStake Safe total network stake for penalty calculation
     /// @param _exitAllowed Whether holders can initiate validator exits
+    /// @return The address of the newly deployed Coffer contract
     function createCoffer(
         bytes32 _publicKeyPart1,
         bytes16 _publicKeyPart2,
@@ -58,7 +64,7 @@ contract CofferFactory {
         uint128 _minimumValueToAccept,
         uint32 _safeTotalStake,
         bool _exitAllowed
-    ) external {
+    ) external returns (address) {
         require(_minimumDuration != 0, InvalidDuration());
         // solhint-disable-next-line gas-strict-inequalities
         require(_maximumDuration >= _minimumDuration, InvalidDuration());
@@ -83,6 +89,7 @@ contract CofferFactory {
         Coffer newCoffer = new Coffer(
             msg.sender,
             I_COFFER_BOND_NFT_ADDRESS,
+            I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS,
             _publicKeyPart1,
             _publicKeyPart2,
             _interestRate,
@@ -94,5 +101,7 @@ contract CofferFactory {
         );
 
         emit CofferIssued(msg.sender, address(newCoffer));
+
+        return address(newCoffer);
     }
 }

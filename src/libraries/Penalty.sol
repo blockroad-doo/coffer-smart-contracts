@@ -49,6 +49,9 @@ library Penalty {
     /// that a validator can get in a certain period.
     /// @notice Calculates for an extreme situation for holder safety.
     /// Adds up penalties over numberOfEpochs plus the maximum slashing penalty.
+    /// Attestation penalties are summed (not maxed) because the worst case is a
+    /// slash at bond end, where the 8192-epoch penalty period extends beyond
+    /// maturity with no overlap.
     /// @param effectiveBalance The effective balance of the validator
     /// @param safeTotalStake The safe total stake used for penalty calculation
     /// @param numberOfEpochs The number of epochs for penalty calculation

@@ -47,6 +47,12 @@ contract DeployCofferFactory is Script {
         // solhint-disable-next-line gas-small-strings
         updateEnvVariable("HOODI_COFFER_RECEIVABLE_NFT_ADDRESS", addressToString(nftAddress));
 
+        address bondsRedeemedEarlyAddress = cofferFactory.I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS();
+        // solhint-disable-next-line gas-small-strings
+        console.log("CofferBondsRedeemedEarly deployed at:", bondsRedeemedEarlyAddress);
+        // solhint-disable-next-line gas-small-strings
+        updateEnvVariable("HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS", addressToString(bondsRedeemedEarlyAddress));
+
         return cofferFactory;
     }
 

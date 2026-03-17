@@ -13,12 +13,12 @@ import {Vm} from "forge-std/Vm.sol";
  * @dev Reads validator offer parameters from .env, creates a Coffer, and saves the address back to .env
  *
  * Usage:
- *      cd coffer-smart-contracts
- *      set -a && source ../.env && set +a
- *      forge script script/CreateCoffer.s.sol --rpc-url $HOODI_RPC_URL --broadcast --private-key $HOODI_V1_PK
+ *    cd coffer-smart-contracts
+ *    set -a && source ../.env && set +a
+ *    forge script script/CreateCoffer.s.sol --rpc-url $HOODI_RPC_URL --broadcast --private-key $HOODI_V1_PK
  *
  * Note: Requires ffi = true in foundry.toml
- *       `set -a` exports all vars so forge's vm.env*() cheatcodes can read them.
+ *     `set -a` exports all vars so forge's vm.env*() cheatcodes can read them.
  */
 contract CreateCoffer is Script {
     error InvalidPublicKeyLength();
@@ -33,21 +33,13 @@ contract CreateCoffer is Script {
         address factoryAddr = vm.envAddress("HOODI_COFFER_FACTORY_ADDRESS");
         CofferFactory factory = CofferFactory(factoryAddr);
 
-        // Load and split the 48-byte BLS public key into bytes32 + bytes16
-        bytes memory pubKey = vm.envBytes("VALIDATOR_PUBLIC_KEY");
-        if (pubKey.length != 48) revert InvalidPublicKeyLength();
-        bytes32 publicKeyPart1;
-        bytes16 publicKeyPart2;
-        assembly {
-            publicKeyPart1 := mload(add(pubKey, 32))
-            publicKeyPart2 := mload(add(pubKey, 64))
-        }
+        (bytes32 publicKeyPart1, bytes16 publicKeyPart2) = _loadValidatorPublicKey();
 
         // Load remaining parameters
         uint32 interestRate = uint32(vm.envUint("INTEREST_RATE"));
         uint32 minimumDuration = uint32(vm.envUint("MIN_DURATION"));
         uint32 maximumDuration = uint32(vm.envUint("MAX_DURATION"));
-        uint128 minimumAmountToAccept = uint128(vm.envUint("MINIMUM_AMOUNT_TO_ACCEPT"));
+        uint128 minimumAmountToAccept = uint128(vm.envUint("MINIMUM_VALUE_TO_ACCEPT"));
         uint32 safeTotalStake = uint32(vm.envUint("SAFE_TOTAL_STAKE"));
         bool exitAllowed = vm.envBool("ALLOW_EXIT");
 
@@ -74,10 +66,25 @@ contract CreateCoffer is Script {
 
         console.log("Coffer created at:", cofferAddress);
 
+        address bondsRedeemedEarlyAddress = factory.I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS();
+        console.log("CofferBondsRedeemedEarly at:", bondsRedeemedEarlyAddress);
+
         // Update .env file with the new Coffer address
         console.log("\nUpdating .env file...");
         updateEnvVariable("HOODI_COFFER_ADDRESS", addressToString(cofferAddress));
         console.log("COFFER_ADDRESS saved to .env");
+    }
+
+    /// @notice Loads and splits the 48-byte BLS public key from env into bytes32 + bytes16
+    /// @return publicKeyPart1 First 32 bytes of the BLS public key
+    /// @return publicKeyPart2 Remaining 16 bytes of the BLS public key
+    function _loadValidatorPublicKey() private returns (bytes32 publicKeyPart1, bytes16 publicKeyPart2) {
+        bytes memory pubKey = vm.envBytes("VALIDATOR_PUBLIC_KEY");
+        if (pubKey.length != 48) revert InvalidPublicKeyLength();
+        assembly {
+            publicKeyPart1 := mload(add(pubKey, 32))
+            publicKeyPart2 := mload(add(pubKey, 64))
+        }
     }
 
     /// @notice Extracts the Coffer address from CofferIssued event logs
