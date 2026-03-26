@@ -79,8 +79,8 @@ contract CofferValidatorOpsTest is BaseTest {
         uint256 id1 = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
         uint256 id2 = buyBond(cofferAddr, holder2, 1 ether, ONE_MONTH, 2);
 
-        (uint128 amt1,,) = coffer.sHolderConditions(id1);
-        (uint128 amt2,,) = coffer.sHolderConditions(id2);
+        (uint128 amt1,,,) = coffer.sHolderConditions(id1);
+        (uint128 amt2,,,) = coffer.sHolderConditions(id2);
 
         vm.deal(cofferAddr, amt1 + amt2);
 
@@ -107,7 +107,7 @@ contract CofferValidatorOpsTest is BaseTest {
         ids[0] = bondId;
         coffer.redeemBondsEarly{value: amtOwed - partial_}(ids);
 
-        (uint128 amt,,) = coffer.sHolderConditions(bondId);
+        (uint128 amt,,,) = coffer.sHolderConditions(bondId);
         assertEq(amt, 0); // deleted
     }
 
@@ -121,6 +121,30 @@ contract CofferValidatorOpsTest is BaseTest {
         uint256[] memory ids = new uint256[](1);
         ids[0] = bondId;
         coffer.redeemBondsEarly(ids); // should succeed
+    }
+
+    function test_RedeemBondsEarly_ClearsConsensusReserved() public {
+        (uint256 bondId, uint128 amtOwed) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+
+        // Advance past maturity so consensus withdrawal is allowed
+        advanceTime(ONE_MONTH + 1);
+
+        // Holder initiates consensus withdrawal (sets consensusWithdrawTriggered = true)
+        uint256 fee = getWithdrawalFee();
+        vm.prank(holder1);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
+
+        // Validator redeems early — should clear the consensus reservation
+        vm.deal(cofferAddr, amtOwed);
+        vm.prank(validator);
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = bondId;
+        coffer.redeemBondsEarly(ids);
+
+        (uint128 amt,,,) = coffer.sHolderConditions(bondId);
+        assertEq(amt, 0); // bond deleted
+        (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
+        assertEq(bonds, 0); // outstanding bonds cleared
     }
 
     function test_RedeemBondsEarly_RestoresState() public {
@@ -204,7 +228,7 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.buyBond{value: 1 ether}(ONE_MONTH, 2);
         uint256 bondId = 1; // first bond
 
-        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
+        (uint128 amtOwed,,,) = coffer.sHolderConditions(bondId);
         vm.deal(cofferAddr, amtOwed);
 
         vm.prank(validator);
@@ -249,8 +273,8 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.buyBond{value: 1 ether}(ONE_MONTH, 2);
         uint256 id2 = 2;
 
-        (uint128 amt1,,) = coffer.sHolderConditions(id1);
-        (uint128 amt2,,) = coffer.sHolderConditions(id2);
+        (uint128 amt1,,,) = coffer.sHolderConditions(id1);
+        (uint128 amt2,,,) = coffer.sHolderConditions(id2);
         vm.deal(cofferAddr, amt1 + amt2);
 
         vm.prank(validator);
@@ -449,14 +473,14 @@ contract CofferValidatorOpsTest is BaseTest {
         assertEq(maxDur, ONE_MONTH);
     }
 
-    function test_ChangeMinimumAndMaximumDuration_DoesNotIncrementVersion() public {
+    function test_ChangeMinimumAndMaximumDuration_IncrementsVersion() public {
         (,,,,, uint32 vBefore,,,,) = coffer.sValidatorConditions();
 
         vm.prank(validator);
         coffer.changeMinimumAndMaximumDuration(ONE_WEEK, FIVE_YEARS);
 
         (,,,,, uint32 vAfter,,,,) = coffer.sValidatorConditions();
-        assertEq(vAfter, vBefore);
+        assertEq(vAfter, vBefore + 1);
     }
 
     function test_ChangeMinimumAndMaximumDuration_RevertsIfMaxLessThanMin() public {
@@ -482,6 +506,25 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(holder1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, holder1));
         coffer.changeMinimumAndMaximumDuration(ONE_WEEK, FIVE_YEARS);
+    }
+
+    function test_ChangeMinimumAndMaximumDuration_RevertsIfMaxIncreasedWithOutstandingBonds() public {
+        _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+
+        vm.prank(validator);
+        vm.expectRevert(Coffer.ValidatorCannotIncreaseMaximumDurationWhileOutstandingBondExist.selector);
+        coffer.changeMinimumAndMaximumDuration(ONE_WEEK, FIVE_YEARS); // FIVE_YEARS > ONE_YEAR (default max)
+    }
+
+    function test_ChangeMinimumAndMaximumDuration_AllowsMaxDecreaseWithOutstandingBonds() public {
+        _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+
+        vm.prank(validator);
+        coffer.changeMinimumAndMaximumDuration(ONE_WEEK, SIX_MONTHS); // SIX_MONTHS < ONE_YEAR (default max)
+
+        (,, uint32 minDur, uint32 maxDur,,,,,,) = coffer.sValidatorConditions();
+        assertEq(minDur, ONE_WEEK);
+        assertEq(maxDur, SIX_MONTHS);
     }
 
     // ========================================
@@ -775,13 +818,114 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.validatorWithdrawFromExecution(2 ether);
     }
 
-    function test_ValidatorWithdrawFromExecution_RevertsIfOutstandingBonds() public {
+    function test_ValidatorWithdrawFromExecution_SucceedsWithOutstandingBonds() public {
+        (uint256 bondId, uint128 amtOwed) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+        vm.deal(cofferAddr, 10 ether);
+
+        (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
+        uint256 valBalBefore = validator.balance;
+
+        // Withdraw exactly issueSize
+        vm.prank(validator);
+        coffer.validatorWithdrawFromExecution(issueSizeBefore);
+
+        assertEq(validator.balance, valBalBefore + issueSizeBefore);
+
+        // issueSize is now 0
+        (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeAfter, 0);
+
+        // Bond is still active
+        (uint128 bondAmt,,,) = coffer.sHolderConditions(bondId);
+        assertEq(bondAmt, amtOwed);
+    }
+
+    function test_ValidatorWithdrawFromExecution_DecreasesIssueSizeWhenBondsExist() public {
         _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
         vm.deal(cofferAddr, 10 ether);
 
+        (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
+
+        uint128 withdrawAmt = 1 ether;
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorCannotWithdrawFromExecutionWhileOutstandingBondExists.selector);
-        coffer.validatorWithdrawFromExecution(1 ether);
+        coffer.validatorWithdrawFromExecution(withdrawAmt);
+
+        (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeAfter, issueSizeBefore - withdrawAmt);
+    }
+
+    function test_ValidatorWithdrawFromExecution_RevertsIfExceedsIssueSize() public {
+        _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+        vm.deal(cofferAddr, 10 ether);
+
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
+
+        // Try to withdraw more than issueSize
+        vm.prank(validator);
+        vm.expectRevert(Coffer.ValidatorDoesntCoverTheValue.selector);
+        coffer.validatorWithdrawFromExecution(issueSize + 1);
+    }
+
+    function test_ValidatorWithdrawFromExecution_ProtectsConsensusReserved() public {
+        (uint256 bondId, uint128 amtOwed) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+
+        // Advance past maturity so consensus withdrawal is allowed
+        advanceTime(ONE_MONTH + 1);
+
+        // Holder initiates consensus withdrawal
+        uint256 fee = getWithdrawalFee();
+        vm.prank(holder1);
+        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
+
+        // Fund contract with exactly amtOwed (simulating consensus ETH arrival)
+        vm.deal(cofferAddr, amtOwed);
+
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
+
+        // Even though issueSize allows it, balance check should fail
+        // because totalConsensusReserved protects the balance for the holder
+        if (issueSize > 0) {
+            vm.prank(validator);
+            vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
+            coffer.validatorWithdrawFromExecution(issueSize);
+        }
+    }
+
+    function test_ValidatorWithdrawFromExecution_NoBonds_WorksWithZeroIssueSize() public {
+        // Default coffer with exitAllowed=false starts with issueSize=0
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSize, 0);
+
+        // Fund contract and withdraw — no bonds, so no issueSize check
+        vm.deal(cofferAddr, 5 ether);
+
+        vm.prank(validator);
+        coffer.validatorWithdrawFromExecution(5 ether);
+
+        assertEq(cofferAddr.balance, 0);
+    }
+
+    function test_ValidatorWithdrawFromExecution_WithBonds_AfterReceiveTopUp() public {
+        _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+
+        (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
+
+        // Validator sends ETH via receive() — issueSize increases
+        vm.prank(validator);
+        (bool success,) = cofferAddr.call{value: 3 ether}("");
+        assertTrue(success);
+
+        (uint128 issueSizeAfterReceive,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeAfterReceive, issueSizeBefore + 3 ether);
+
+        // Validator can withdraw the 3 ETH they just sent (within issueSize)
+        vm.prank(validator);
+        coffer.validatorWithdrawFromExecution(3 ether);
+
+        (uint128 issueSizeAfterWithdraw,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeAfterWithdraw, issueSizeBefore);
+
+        assertEq(cofferAddr.balance, 0);
     }
 
     function test_ValidatorWithdrawFromExecution_RevertsIfNotOwner() public {

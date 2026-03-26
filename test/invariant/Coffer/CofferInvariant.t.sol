@@ -43,7 +43,7 @@ contract CofferInvariantTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,) = coffer.sHolderConditions(bondId);
+            (uint128 amount,,,) = coffer.sHolderConditions(bondId);
             assertEq(
                 uint256(handler.ghostBondAmount(bondId)), uint256(amount), "ghostBondAmount must match on-chain amount"
             );
@@ -57,7 +57,7 @@ contract CofferInvariantTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,) = coffer.sHolderConditions(bondId);
+            (uint128 amount,,,) = coffer.sHolderConditions(bondId);
             totalBondAmounts += uint256(amount);
         }
 
@@ -88,7 +88,7 @@ contract CofferInvariantTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,) = coffer.sHolderConditions(bondId);
+            (uint128 amount,,,) = coffer.sHolderConditions(bondId);
             assertTrue(amount > 0, "Active bond must have non-zero amount");
         }
     }
@@ -159,7 +159,7 @@ contract CofferInvariantTest is BaseTest {
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
             if (handler.ghostHasPendingConsensusWithdrawal(bondId)) {
-                (uint128 amount,,) = coffer.sHolderConditions(bondId);
+                (uint128 amount,,,) = coffer.sHolderConditions(bondId);
                 assertGt(amount, 0, "Pending consensus bond must have non-zero on-chain amount");
             }
         }
@@ -182,6 +182,7 @@ contract CofferInvariantTest is BaseTest {
         console2.log("changeInterestRate:         ", handler.callsChangeInterestRate());
         console2.log("changeIssueSize:            ", handler.callsChangeIssueSize());
         console2.log("advanceTime:                ", handler.callsAdvanceTime());
+        console2.log("sendEthToCoffer:            ", handler.callsSendEthToCoffer());
         console2.log("--- Ghost Totals ---");
         console2.log("totalBought:                ", handler.ghostTotalBondsBought());
         console2.log("totalWithdrawnExecution:     ", handler.ghostTotalBondsWithdrawnExecution());

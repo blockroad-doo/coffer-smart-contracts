@@ -12,10 +12,11 @@ interface ICoffer {
     /// @return bondMaturityValue The value the bond pays at maturity
     /// @return duration The duration of the bond in seconds
     /// @return startTimestamp The timestamp when the bond was created
+    /// @return consensusWithdrawTriggered Whether consensus withdrawal has been initiated
     function sHolderConditions(uint256 bondId)
         external
         view
-        returns (uint128 bondMaturityValue, uint32 duration, uint32 startTimestamp);
+        returns (uint128 bondMaturityValue, uint32 duration, uint32 startTimestamp, bool consensusWithdrawTriggered);
 
     /// @notice Returns the first part of the validator public key
     /// @return The first 32 bytes of the validator public key

@@ -191,6 +191,55 @@ contract CofferMainOpsTest is BaseTest {
         assertEq(cofferAddr.balance, 3 ether);
     }
 
+    function test_Receive_IncreasesIssueSize() public {
+        (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
+
+        vm.deal(unauthorizedUser, 10 ether);
+        vm.prank(unauthorizedUser);
+        (bool success,) = cofferAddr.call{value: 1 ether}("");
+        assertTrue(success);
+
+        (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeAfter, issueSizeBefore + 1 ether);
+    }
+
+    function test_Receive_ZeroValueNoIssueSizeChange() public {
+        (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
+
+        vm.prank(holder1);
+        (bool success,) = cofferAddr.call{value: 0}("");
+        assertTrue(success);
+
+        (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeAfter, issueSizeBefore);
+    }
+
+    function test_Receive_CumulativeIssueSizeIncrease() public {
+        (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
+
+        vm.prank(holder1);
+        (bool s1,) = cofferAddr.call{value: 1 ether}("");
+        assertTrue(s1);
+
+        vm.prank(holder2);
+        (bool s2,) = cofferAddr.call{value: 2 ether}("");
+        assertTrue(s2);
+
+        (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeAfter, issueSizeBefore + 3 ether);
+    }
+
+    function test_Receive_IssueSizeIncreaseFromValidator() public {
+        (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
+
+        vm.prank(validator);
+        (bool success,) = cofferAddr.call{value: 5 ether}("");
+        assertTrue(success);
+
+        (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeAfter, issueSizeBefore + 5 ether);
+    }
+
     // ========================================
     // OUTSTANDING BONDS RESTRICTIONS
     // ========================================
@@ -225,15 +274,22 @@ contract CofferMainOpsTest is BaseTest {
         coffer.changeSafeTotalStake(30_000_000);
     }
 
-    function test_ValidatorWithdrawFromExecution_RevertsWhenBondsExist() public {
+    function test_ValidatorWithdrawFromExecution_BoundedByIssueSizeWhenBondsExist() public {
         _setupBondForModifierTests();
 
-        // Fund the contract so the balance check doesn't fail first
+        // Fund the contract so balance is sufficient
         vm.deal(cofferAddr, 10 ether);
 
+        // Read current issueSize (reduced after bond purchase)
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
+
+        // Withdraw exactly issueSize — should succeed
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorCannotWithdrawFromExecutionWhileOutstandingBondExists.selector);
-        coffer.validatorWithdrawFromExecution(1 ether);
+        coffer.validatorWithdrawFromExecution(issueSize);
+
+        // issueSize should now be 0
+        (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeAfter, 0);
     }
 
     // ========================================

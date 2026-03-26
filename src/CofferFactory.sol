@@ -79,7 +79,9 @@ contract CofferFactory {
 
         // Validator cannot set the minimum value to accept to more than the maximum it could accept
         uint256 maxMinimumValueToAccept = Penalty.addMaximumPenalty(
-            VALIDATOR_STARTING_ETH, _safeTotalStake, _maximumDuration / NUMBER_OF_SECONDS_IN_EPOCH
+            VALIDATOR_STARTING_ETH,
+            _safeTotalStake,
+            (_maximumDuration + NUMBER_OF_SECONDS_IN_EPOCH - 1) / NUMBER_OF_SECONDS_IN_EPOCH
         );
 
         require(_minimumValueToAccept != 0, InvalidMinimumValueToAccept());

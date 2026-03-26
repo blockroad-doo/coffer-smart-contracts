@@ -48,9 +48,9 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 
 | Contract | Description |
 |----------|-------------|
-| **`CofferFactory.sol`** | Factory contract for creating validator offers (Coffers) |
+| **`CofferFactory.sol`** | Factory contract for creating Coffers |
 | **`Coffer.sol`** | Individual Coffer contract managing validator-holder relationships |
-| **`CofferBondNft.sol`** | ERC-721 contract representing transferable coffer receivables |
+| **`CofferBondNft.sol`** | ERC-721 contract representing transferable coffer bonds |
 | **`CofferBondsRedeemedEarly.sol`** | Pull-based claim contract for early bond redemptions |
 
 ### Libraries
@@ -96,7 +96,7 @@ HOODI_RPC_URL=http://your-execution-node:8545
 
 # Deployed contract addresses (auto-filled by scripts)
 HOODI_COFFER_FACTORY_ADDRESS=
-HOODI_COFFER_RECEIVABLE_NFT_ADDRESS=
+HOODI_COFFER_BOND_NFT_ADDRESS=
 HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS=
 HOODI_COFFER_ADDRESS=
 
@@ -110,7 +110,7 @@ SAFE_TOTAL_STAKE=42000000
 ALLOW_EXIT=true
 ```
 
-Deployment scripts **auto-update** `.env` via FFI (`sed`) — `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_RECEIVABLE_NFT_ADDRESS`, `HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS`, and `HOODI_COFFER_ADDRESS` are written automatically after each script run.
+Deployment scripts **auto-update** `.env` via FFI (`sed`) — `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_BOND_NFT_ADDRESS`, `HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS`, and `HOODI_COFFER_ADDRESS` are written automatically after each script run.
 
 **Hoodi** is the recommended testnet because validators operate there identically to mainnet — the same EIP-7002 withdrawal and EIP-7251 consolidation request contracts are active, making it the closest environment for end-to-end testing.
 
@@ -120,7 +120,7 @@ Two-step deployment flow in `script/`:
 
 **Step 1 — `DeployCofferFactory.s.sol`**
 
-Deploys `CofferFactory` (which internally deploys `CofferBondNft` and `CofferBondsRedeemedEarly`) and auto-writes `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_RECEIVABLE_NFT_ADDRESS`, and `HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS` to `.env`.
+Deploys `CofferFactory` (which internally deploys `CofferBondNft` and `CofferBondsRedeemedEarly`) and auto-writes `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_BOND_NFT_ADDRESS`, and `HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS` to `.env`.
 
 ```
 cd coffer-smart-contracts
@@ -348,9 +348,10 @@ counter and consuming `issueSize` capacity indefinitely.
 
 ### Contract Invariants (enforced by code)
 
-- **issueSize conservation**: `issueSize + sum(bondMaturityValues) = totalIssuableCapacity` (capacity = cumulative penalty-adjusted deposits minus explicit issueSize decreases)
+- **issueSize conservation**: `issueSize + sum(bondMaturityValues) = totalIssuableCapacity` (capacity = cumulative penalty-adjusted deposits + execution-layer receive() deposits minus explicit issueSize decreases)
+- **receive() issueSize top-up**: `receive()` increases `issueSize` by `msg.value`. Beacon chain withdrawals (EIP-4895) credit balance without code execution and do not trigger `receive()`, so all `receive()` invocations are execution-layer transfers with real ETH backing
 - **Parameter monotonicity**: While `outstandingBonds > 0`: issueSize, interestRate, safeTotalStake can only decrease; exitAllowed can only go false→true
-- **Validator execution withdrawal lock**: Validator cannot withdraw from execution while `outstandingBonds > 0`
+- **Validator execution withdrawal bound**: Validator can withdraw from execution up to `issueSize` while preserving `totalConsensusReserved`; unrestricted when `outstandingBonds == 0`
 - **outstandingBonds accuracy**: Equals the number of bonds with `bondMaturityValue > 0`
 - **Bond-NFT bijection**: Each active bond maps 1:1 to a live NFT (mint on buy, burn on full withdrawal/redeem)
 - **Version monotonicity**: `version` strictly increases on any parameter change that affects holder safety
@@ -367,8 +368,8 @@ issueSize + sum(bondMaturityValues) <= (effectiveBalance_consensus + cofferBalan
 Justified by:
 
 - Validator sets issueSize ≤ effectiveBalance - maxPenalties at creation
-- issueSize can only decrease while bonds outstanding (except validatorAddFundsToConsensus which adds penalty-adjusted deposit amount)
-- cofferBalance is locked — validator cannot withdraw from execution while outstandingBonds > 0
+- issueSize can only decrease while bonds outstanding (except validatorAddFundsToConsensus which adds penalty-adjusted deposit amount, and receive() which adds execution-layer ETH 1:1)
+- cofferBalance is bounded — validator can only withdraw up to issueSize (unbonded capacity) while outstandingBonds > 0, and must preserve totalConsensusReserved; the solvency invariant is algebraically preserved because both sides of the inequality decrease by the same amount
 - Consensus withdrawals go to coffer contract (total consensus + coffer stays constant minus penalties)
 - For the nth bond with (n-1) bonds outstanding: remaining issueSize is already reduced by bonds 1..(n-1), and since issueSize cannot be increased, bond n is safe if the initial configuration was correct
 

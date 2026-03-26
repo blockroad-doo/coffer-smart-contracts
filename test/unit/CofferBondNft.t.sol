@@ -165,6 +165,10 @@ contract CofferBondNftTest is BaseTest {
         assertTrue(bondNft.supportsInterface(bytes4(0x49064906)));
     }
 
+    function test_SupportsInterface_ERC721() public view {
+        assertTrue(bondNft.supportsInterface(bytes4(0x80ac58cd)));
+    }
+
     // ========================================
     // ERC721 INTEGRATION (EDGE CASES)
     // ========================================

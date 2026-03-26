@@ -278,7 +278,7 @@ abstract contract BaseTest is Test {
         public
     {
         Coffer targetCoffer = Coffer(payable(cofferAddr));
-        (uint128 amount, uint64 duration, uint64 startTimestamp) = targetCoffer.sHolderConditions(bondId);
+        (uint128 amount, uint64 duration, uint64 startTimestamp,) = targetCoffer.sHolderConditions(bondId);
 
         assertEq(amount, expectedAmount, "Holder amount mismatch");
         assertEq(duration, expectedDuration, "Holder duration mismatch");

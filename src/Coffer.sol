@@ -36,10 +36,10 @@ contract Coffer is Ownable2Step, Multicall {
     error ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist();
     error ValidatorCannotForbidExitsWhileOutstandingBondExists();
     error ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist();
-    error ValidatorCannotWithdrawFromExecutionWhileOutstandingBondExists();
+    error ValidatorCannotIncreaseMaximumDurationWhileOutstandingBondExist();
+    error ValidatorDepositValueNotMultipleOfGwei();
     error ValidatorConditionsVersionMismatch();
     error ValidatorDepositValueTooLow();
-    error ValidatorDepositValueNotMultipleOfGwei();
 
     error HolderConsensusWithdrawNotPossibleContractHasEnoughBalance();
     error HolderDoesNotExistOrAlreadyWithdrawnValue();
@@ -55,10 +55,12 @@ contract Coffer is Ownable2Step, Multicall {
     error InsufficientFee();
 
     /// @notice When block.timestamp >= startTimestamp + duration, the bond reaches maturity
+    /// @notice consensusWithdrawTriggered can be triggered only once
     struct HolderConditions {
         uint128 bondMaturityValue;
         uint32 duration;
         uint32 startTimestamp;
+        bool consensusWithdrawTriggered;
     }
 
     /// @param issueSize - After finishing Coffer setup, this parameter has
@@ -136,8 +138,8 @@ contract Coffer is Ownable2Step, Multicall {
     ValidatorConditions public sValidatorConditions;
     /// @notice Holder conditions mapped by ERC721 bond NFT ID
     mapping(uint256 => HolderConditions) public sHolderConditions;
-    /// @notice Holder can trigger consensus withdrawl only once
-    mapping(uint256 => bool) public hasInitiatedConsensusWithdrawal;
+    /// @notice Tracking how much has been withdrawn from Consensus by holders
+    uint128 public totalConsensusReserved;
 
     /// @notice Emitted when a holder buys a bond
     /// @param holderAddress The address of the bond holder
@@ -266,14 +268,19 @@ contract Coffer is Ownable2Step, Multicall {
         }
     }
 
-    /// @notice Receive ETH (validator rewards and withdrawals will come here)
+    /// @notice Receive ETH and increase issueSize by the received amount
+    /// @notice Beacon chain withdrawals (EIP-4895) credit balance without code execution,
+    /// so receive() is only triggered by execution-layer transfers. This ETH is real
+    /// on-execution backing, so it is safe to increase issueSize.
     /// @notice A validator can send ETH here to prevent a holder from initiating an exit.
     /// This is a known trust model trade-off: by topping up the contract balance, the validator
     /// blocks holderWithdrawFromConsensus but simultaneously enables holderWithdrawFromExecution,
     /// ensuring the holder can still claim their funds from the execution layer
-    /// @dev Empty body is intentional - contract relies on address(this).balance checks
     /// @dev Anyone can send ETH but only validator/holders benefit from it
-    receive() external payable {}
+    receive() external payable {
+        // forge-lint: disable-next-line(unsafe-typecast) msg.value < total ETH supply, fits uint128
+        sValidatorConditions.issueSize += uint128(msg.value);
+    }
 
     ///--------------------------
     ///
@@ -317,7 +324,8 @@ contract Coffer is Ownable2Step, Multicall {
             duration: _duration,
             startTimestamp: uint32(block.timestamp),
             // forge-lint: disable-next-line(unsafe-typecast) bondMaturityValue ≤ issueSize which is uint128
-            bondMaturityValue: uint128(bondMaturityValue)
+            bondMaturityValue: uint128(bondMaturityValue),
+            consensusWithdrawTriggered: false
         });
 
         emit BondBought(
@@ -354,6 +362,10 @@ contract Coffer is Ownable2Step, Multicall {
             holders[i] = ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).ownerOf(bondId);
             amounts[i] = value;
             totalValue += value;
+
+            if (holder.consensusWithdrawTriggered) {
+                totalConsensusReserved -= holder.bondMaturityValue;
+            }
 
             delete sHolderConditions[bondId];
 
@@ -411,17 +423,25 @@ contract Coffer is Ownable2Step, Multicall {
 
     /// @notice Validator can change the duration period without
     /// affecting previous bonds since the duration is defined when a bond is bought
-    /// @notice The duration period cannot affect the holder while buying a bond,
-    /// so the version doesn't have to be updated
+    /// @notice Increasing maximumDuration is blocked while outstanding bonds exist
+    /// to prevent issueSize undercollateralization. Version is incremented on change.
     /// @param _minimumDuration The new minimum duration in seconds
     /// @param _maximumDuration The new maximum duration in seconds
     function changeMinimumAndMaximumDuration(uint32 _minimumDuration, uint32 _maximumDuration) external onlyOwner {
+        ValidatorConditions storage vc = sValidatorConditions;
+
+        require(
+            _maximumDuration < vc.maximumDuration || vc.outstandingBonds == 0,
+            ValidatorCannotIncreaseMaximumDurationWhileOutstandingBondExist()
+        );
+
         require(_minimumDuration != 0, InvalidDuration());
         // solhint-disable-next-line gas-strict-inequalities
         require(_maximumDuration >= _minimumDuration, InvalidDuration());
         // solhint-disable-next-line gas-strict-inequalities
         require(_maximumDuration <= MAX_DURATION, InvalidDuration());
-        ValidatorConditions storage vc = sValidatorConditions;
+
+        ++vc.version;
         vc.minimumDuration = _minimumDuration;
         vc.maximumDuration = _maximumDuration;
         emit DurationRangeChanged(_minimumDuration, _maximumDuration);
@@ -539,9 +559,10 @@ contract Coffer is Ownable2Step, Multicall {
         require(holder.duration + holder.startTimestamp <= block.timestamp, HoldersTimeHasNotExpiredYet());
 
         uint128 valueToWithdraw;
+        uint128 reserved = (holder.consensusWithdrawTriggered ? 0 : totalConsensusReserved);
 
         // solhint-disable-next-line gas-strict-inequalities
-        if (address(this).balance >= holder.bondMaturityValue) {
+        if (address(this).balance >= holder.bondMaturityValue + reserved) {
             // Full withdrawal — existing behavior
             valueToWithdraw = holder.bondMaturityValue;
 
@@ -549,19 +570,22 @@ contract Coffer is Ownable2Step, Multicall {
             // forge-lint: disable-next-line(unsafe-typecast) _value originates from HolderConditions.bondMaturityValue
             vc.issueSize += uint128(valueToWithdraw);
             --vc.outstandingBonds;
+            totalConsensusReserved -= (holder.consensusWithdrawTriggered ? valueToWithdraw : 0);
             delete sHolderConditions[_bondId];
             ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).burnCofferBond(_bondId);
 
             emit HolderWithdrawFromExecutionSuccess(msg.sender, _bondId);
         } else {
+            require(address(this).balance > reserved, ContractBalanceLessThanValue());
+
             // Partial withdrawal — withdraw whatever is available
             // forge-lint: disable-next-line(unsafe-typecast)
             // balance < holder.bondMaturityValue (uint128), so fits uint128
-            valueToWithdraw = uint128(address(this).balance);
-            require(valueToWithdraw != 0, ContractBalanceLessThanValue());
+            valueToWithdraw = uint128(address(this).balance - reserved);
 
             holder.bondMaturityValue -= valueToWithdraw;
             sValidatorConditions.issueSize += valueToWithdraw;
+            totalConsensusReserved -= (holder.consensusWithdrawTriggered ? valueToWithdraw : 0);
 
             emit HolderPartialWithdrawFromExecutionSuccess(
                 msg.sender, _bondId, valueToWithdraw, holder.bondMaturityValue
@@ -595,12 +619,11 @@ contract Coffer is Ownable2Step, Multicall {
 
         require(
             // solhint-disable-next-line gas-strict-inequalities
-            address(this).balance <= holder.bondMaturityValue - 1,
+            address(this).balance - msg.value <= holder.bondMaturityValue - 1,
             HolderConsensusWithdrawNotPossibleContractHasEnoughBalance()
         );
 
-        require(!hasInitiatedConsensusWithdrawal[_bondId], WithdrawalAlreadyInitiated());
-        hasInitiatedConsensusWithdrawal[_bondId] = true;
+        require(!holder.consensusWithdrawTriggered, WithdrawalAlreadyInitiated());
 
         // Has time passed so holder can withdraw
         // solhint-disable-next-line gas-strict-inequalities
@@ -626,24 +649,36 @@ contract Coffer is Ownable2Step, Multicall {
         bytes memory data = abi.encodePacked(I_PUBLIC_KEY_PART1, I_PUBLIC_KEY_PART2, valueToWithdrawInGwei);
 
         bool isFullExit = (valueToWithdrawInGwei == 0);
+        holder.consensusWithdrawTriggered = true;
+        totalConsensusReserved += holder.bondMaturityValue;
+
         emit HolderWithdrawFromConsensusSuccess(msg.sender, _bondId, holder.bondMaturityValue, isFullExit);
 
         (bool writeOk,) = WITHDRAWAL_CONTRACT.call{value: fee}(data);
         require(writeOk, WithdrawalContractCallFailed());
     }
 
-    /// @notice Validator withdraws from execution layer when no
-    /// outstanding bonds exist
+    /// @notice Validator withdraws from execution layer
+    /// @notice When outstanding bonds exist, withdrawal is bounded:
+    /// the validator can only withdraw up to issueSize (unbonded capacity)
+    /// and must leave at least totalConsensusReserved in the contract.
+    /// When no bonds exist, the validator can withdraw freely.
     /// @notice Version of validator conditions must be updated to
     /// avoid the validator front-running the holder
     /// @param _amount The amount to withdraw
     function validatorWithdrawFromExecution(uint128 _amount) external onlyOwner {
         ValidatorConditions storage vc = sValidatorConditions;
 
-        require(vc.outstandingBonds == 0, ValidatorCannotWithdrawFromExecutionWhileOutstandingBondExists());
-
-        // solhint-disable-next-line gas-strict-inequalities
-        require(_amount <= address(this).balance, ContractBalanceLessThanValue());
+        if (vc.outstandingBonds > 0) {
+            // solhint-disable-next-line gas-strict-inequalities
+            require(_amount <= vc.issueSize, ValidatorDoesntCoverTheValue());
+            // solhint-disable-next-line gas-strict-inequalities
+            require(address(this).balance >= uint256(_amount) + totalConsensusReserved, ContractBalanceLessThanValue());
+            vc.issueSize -= _amount;
+        } else {
+            // solhint-disable-next-line gas-strict-inequalities
+            require(_amount <= address(this).balance, ContractBalanceLessThanValue());
+        }
 
         ++vc.version;
 
@@ -653,12 +688,14 @@ contract Coffer is Ownable2Step, Multicall {
     }
 
     /// @notice Validator can withdraw from consensus as much as it
-    /// wants, even perform an exit. Holders' funds are still covered.
+    /// wants, even perform an exit, and contract must be designed so
+    /// exits from consensus do not change state since exit can be done
+    /// bypassing contract, interacting directly with beacon chain
     /// @dev If _amount == 0, a full exit is initiated; otherwise a partial
-    /// withdrawal is initiated. When the validator exits, there shouldn't be any flags in
-    /// the contract to switch since the validator can bypass the contract and exit
-    /// through the beacon chain directly. The contract must work whenever
-    /// the validator chooses to exit.
+    /// withdrawal is initiated. When the validator exits, there shouldn't be any state
+    /// changes in the contract since the validator can bypass the contract and exit
+    /// through the beacon chain directly. The contract must be design so it
+    /// works whenever the validator chooses to exit.
     /// @dev If _amount != 0, a partial withdrawal will be initiated.
     /// The validator should be aware it cannot withdraw from the Coffer while
     /// there are outstanding bonds.

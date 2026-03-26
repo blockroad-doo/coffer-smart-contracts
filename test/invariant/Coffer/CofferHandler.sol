@@ -61,6 +61,7 @@ contract CofferHandler is Test {
     uint256 public callsChangeInterestRate;
     uint256 public callsChangeIssueSize;
     uint256 public callsAdvanceTime;
+    uint256 public callsSendEthToCoffer;
 
     // ── Constructor ────────────────────────────────────────────────────────
     constructor(Coffer _coffer, CofferBondNft _bondNft) {
@@ -193,7 +194,7 @@ contract CofferHandler is Test {
         address holder = ghostBondHolder[bondId];
 
         // Read on-chain holder conditions
-        (uint128 amount, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(bondId);
+        (uint128 amount, uint32 duration, uint32 startTimestamp,) = coffer.sHolderConditions(bondId);
         if (amount == 0) return;
 
         // Check maturity
@@ -206,7 +207,10 @@ contract CofferHandler is Test {
         vm.prank(holder);
         coffer.holderWithdrawFromExecution(bondId);
 
-        if (balance >= amount) {
+        // Re-read on-chain amount after withdrawal to determine what happened
+        (uint128 amountAfter,,,) = coffer.sHolderConditions(bondId);
+
+        if (amountAfter == 0) {
             // Full withdrawal — remove from active
             ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
             ghostActiveBondIds.pop();
@@ -217,9 +221,8 @@ contract CofferHandler is Test {
             ++ghostTotalBondsWithdrawnExecution;
         } else {
             // Partial withdrawal — update ghost amount, keep active
-            // casting to 'uint128' is safe because balance < amount and amount is uint128
-            // forge-lint: disable-next-line(unsafe-typecast)
-            ghostBondAmount[bondId] -= uint128(balance);
+            uint128 withdrawn = amount - amountAfter;
+            ghostBondAmount[bondId] -= withdrawn;
         }
     }
 
@@ -234,7 +237,7 @@ contract CofferHandler is Test {
         address holder = ghostBondHolder[bondId];
 
         // Read on-chain holder conditions
-        (uint128 amount, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(bondId);
+        (uint128 amount, uint32 duration, uint32 startTimestamp,) = coffer.sHolderConditions(bondId);
         if (amount == 0) return;
 
         // Check maturity
@@ -303,7 +306,7 @@ contract CofferHandler is Test {
         uint256 bondId = ghostActiveBondIds[idx];
 
         // Read on-chain amount
-        (uint128 amount,,) = coffer.sHolderConditions(bondId);
+        (uint128 amount,,,) = coffer.sHolderConditions(bondId);
         if (amount == 0) return;
 
         // Calculate top-up needed
@@ -336,17 +339,45 @@ contract CofferHandler is Test {
     function handlerValidatorWithdrawFromExecution(uint256 amount) external {
         ++callsValidatorWithdrawFromExecution;
 
-        // Read outstandingBonds
-        (,,,,,, uint32 outstandingBonds,,,) = coffer.sValidatorConditions();
-        if (outstandingBonds != 0) return;
+        (uint128 issueSize,,,,,, uint32 outstandingBonds,,,) = coffer.sValidatorConditions();
 
         uint256 contractBalance = address(coffer).balance;
         if (contractBalance == 0) return;
 
-        uint128 amt = uint128(bound(amount, 1, contractBalance));
+        if (outstandingBonds > 0) {
+            // Bounded withdrawal: capped by issueSize and balance - consensusReserved
+            if (issueSize == 0) return;
+            uint128 consensusReserved = coffer.totalConsensusReserved();
+            uint256 maxByBalance = contractBalance > consensusReserved ? contractBalance - consensusReserved : 0;
+            if (maxByBalance == 0) return;
 
-        vm.prank(validator);
-        coffer.validatorWithdrawFromExecution(amt);
+            uint256 maxWithdraw = issueSize < maxByBalance ? issueSize : maxByBalance;
+            uint128 amt = uint128(bound(amount, 1, maxWithdraw));
+
+            vm.prank(validator);
+            coffer.validatorWithdrawFromExecution(amt);
+        } else {
+            // No bonds — free withdrawal
+            uint128 amt = uint128(bound(amount, 1, contractBalance));
+
+            vm.prank(validator);
+            coffer.validatorWithdrawFromExecution(amt);
+        }
+    }
+
+    function handlerSendEthToCoffer(uint256 amount) external {
+        ++callsSendEthToCoffer;
+
+        // Bound to reasonable range
+        uint128 amt = uint128(bound(amount, 0.01 ether, 10 ether));
+
+        // Pick a random holder to send from
+        address sender = holders[amount % holders.length];
+        if (sender.balance < amt) return;
+
+        vm.prank(sender);
+        (bool success,) = address(coffer).call{value: amt}("");
+        if (!success) return;
     }
 
     function handlerValidatorAddFundsToConsensus(uint256 amount) external {

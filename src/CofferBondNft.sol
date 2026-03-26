@@ -64,7 +64,8 @@ contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
         address _cofferAddress = cofferOf[_bondId];
         ICoffer cofferContract = ICoffer(_cofferAddress);
 
-        (uint128 bondMaturityValue, uint32 duration, uint32 startTimestamp) = cofferContract.sHolderConditions(_bondId);
+        (uint128 bondMaturityValue, uint32 duration, uint32 startTimestamp, bool consensusWithdrawTriggered) =
+            cofferContract.sHolderConditions(_bondId);
 
         string memory validatorPubKey = Strings.toHexString(
             abi.encodePacked(cofferContract.I_PUBLIC_KEY_PART1(), cofferContract.I_PUBLIC_KEY_PART2())
@@ -86,7 +87,9 @@ contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
             Strings.toString(maturesAt),
             ",\"maturityValue\":\"",
             Strings.toString(uint256(bondMaturityValue)),
-            "\"}"
+            "\",\"consensusWithdrawTriggered\":",
+            consensusWithdrawTriggered ? "true" : "false",
+            "}"
         );
 
         return string.concat("data:application/json;base64,", Base64.encode(bytes(json)));
