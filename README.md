@@ -235,19 +235,24 @@ These tests verify that our Solidity mocks (used in unit tests) faithfully repli
 
 > **Important:** It is crucial to make the validator signing public key `immutable` to ensure the validator cannot change it later and perform malicious activities. This is also more gas efficient (reading from an `immutable` variable rather than from `storage`).
 
-The signing keys must be created before the Coffer contract itself. Yet we need to later assign the Coffer contract address to validator signing keys. The only way to achieve this is through the following steps:
+#### Recommended Flow (0x02 Direct — requires Pectra / EIP-7251)
+
+CofferFactory uses CREATE2 deterministic deployment, so the Coffer address can be predicted before deployment. This allows validators to deposit with `0x02` compounding credentials directly, skipping the `BLSToExecutionChange` and `convertToCompounding()` steps.
+
+- [ ] **Step 1:** Create BLS signing keys
+- [ ] **Step 2:** Call `CofferFactory.predictCofferAddress(yourAddress, pubKeyPart1, pubKeyPart2)` to compute the Coffer contract address
+- [ ] **Step 3:** Make a deposit with 32–2048 ETH using `0x02` withdrawal credentials pointing to the predicted Coffer address
+- [ ] **Step 4:** Create Coffer contract through `CofferFactory.createCoffer(...)` with matching `_startingBalance` — deploys at the predicted address
+
+#### Validators with 0x00 (or 0x01) withdrawal credentials
+
+For validators already created with `0x00` credentials:
 
 - [ ] **Step 1:** Create signing keys with `0x00` credentials
 - [ ] **Step 2:** Make a deposit with 32 ETH using signing keys from Step 1
 - [ ] **Step 3:** Create Coffer contract through CofferFactory (pass signing public key from Step 1)
 - [ ] **Step 4:** Perform one-time `BLSToExecutionChange` to transform `0x00` → `0x01` with the Coffer contract as the withdrawal credential
 - [ ] **Step 5:** Call Coffer function `convertToCompounding()` to convert from `0x01` → `0x02`
-
-> **Gas Optimization Note:**
-> - Reading validator public key costs essentially 0 gas (~3x2 gas for PUSH32)
-> - Value is embedded directly into contract bytecode at deploy time
-> - Cold SLOAD would cost 2100 gas (or 100 gas if warm)
-> - **Savings:** ~2090 gas per cold read
 
 ### Safety Guidelines
 
@@ -383,7 +388,9 @@ The solvency property:
 issueSize + sum(bondMaturityValues) <= (effectiveBalance_consensus + cofferBalance) - maxPenalties
 ```
 
-If it holds with `n` outstanding bonds (`n > 0`), it is preserved when the `(n+1)`th bond is bought. Buying a bond decreases `issueSize` and increases `sum(bondMaturityValues)` by the same maturity value, so the left side is unchanged. Consensus withdrawals go to the coffer contract, meaning `effectiveBalance_consensus` decreases while `cofferBalance` increases by the same amount, leaving the right side unchanged. When the validator adds funds to consensus, `issueSize` increases only by the penalty-adjusted deposit amount (`deposit - maxPenalties`), so the left side grows no more than the right side, preserving the inequality. The base case (`0 → 1`) depends on the validator's initial configuration being correct, which cannot be enforced on-chain (see [Safety Guidelines](#safety-guidelines)). When `outstandingBonds == 0`, the property may not hold. The validator can withdraw freely and modify parameters which is harmless since no bond holders exist to be affected.
+If it holds with `n` outstanding bonds (`n > 0`), it is preserved when the `(n+1)`th bond is bought. Buying a bond decreases `issueSize` and increases `sum(bondMaturityValues)` by the same maturity value, so the left side is unchanged. Consensus withdrawals go to the coffer contract, meaning `effectiveBalance_consensus` decreases while `cofferBalance` increases by the same amount, leaving the right side unchanged. When the validator adds funds to consensus, `issueSize` increases only by the penalty-adjusted deposit amount (`deposit - maxPenalties`), so the left side grows no more than the right side, preserving the inequality. 
+
+The base case (`0 → 1`) depends on the validator's initial configuration being correct, which cannot be enforced on-chain (see [Safety Guidelines](#safety-guidelines)). When `outstandingBonds == 0`, the property may not hold. The validator can withdraw freely and modify parameters which is harmless since no bond holders exist to be affected. However, if the solvency property does hold when `outstandingBonds == 0`, front-run protection guarantees it is preserved when the first bond is bought.
 
 ### Known Approximation
 

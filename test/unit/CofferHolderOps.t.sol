@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.34;
+pragma solidity 0.8.34;
 
 import {BaseTest, CofferEvents, CofferBondNftEvents, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS} from "./BaseTest.sol";
 import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
@@ -161,8 +161,8 @@ contract CofferHolderOpsTest is BaseTest {
     function test_BuyBond_ExitAllowedCofferPath() public {
         address exitCofferAddr = createCoffer(
             validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
+            bytes32(uint256(10)),
+            bytes16(uint128(20)),
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
@@ -397,8 +397,8 @@ contract CofferHolderOpsTest is BaseTest {
     function test_HolderWithdrawFromExecution_ExitAllowedCoffer() public {
         address exitCofferAddr = createCoffer(
             validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
+            bytes32(uint256(10)),
+            bytes16(uint128(20)),
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
@@ -596,8 +596,8 @@ contract CofferHolderOpsTest is BaseTest {
         // Use exitAllowed coffer so consensus withdrawal triggers full exit
         address exitCofferAddr = createCoffer(
             validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
+            bytes32(uint256(10)),
+            bytes16(uint128(20)),
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
@@ -819,8 +819,8 @@ contract CofferHolderOpsTest is BaseTest {
     function test_HolderWithdrawFromConsensus_ExitAllowed_FullExit() public {
         address exitCofferAddr = createCoffer(
             validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
+            bytes32(uint256(10)),
+            bytes16(uint128(20)),
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
@@ -848,8 +848,8 @@ contract CofferHolderOpsTest is BaseTest {
     function test_HolderWithdrawFromConsensus_ExitAllowed_VerifyPayload() public {
         address exitCofferAddr = createCoffer(
             validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
+            bytes32(uint256(10)),
+            bytes16(uint128(20)),
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,

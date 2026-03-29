@@ -7,7 +7,7 @@ optimizer_runs = 200
 #ffi = true  # Enable FFI for deployment scripts to update .env file
 unchecked_cheatcode_artifacts = true # we need this so test can run older solc verions (0.6.11 for DepositContract.sol)
 no_match_coverage = "^test/|^script/|^integration/"
-no_match_path =  "test/{invariant,integration}/*" #comment this line if wan to test invariants with -> forge test --mp "test/invariant/*"
+#no_match_path =  "test/{invariant,integration}/*" #comment this line if wan to test invariants with -> forge test --mp "test/invariant/*"
 remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/", "solady/=lib/solady/src/"]
 ignored_error_codes = [4591, 2424] #openzeppelin warnings cause too many warnings which have to be ignored
 

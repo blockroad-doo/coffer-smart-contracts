@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.34;
+pragma solidity 0.8.34;
 
-import {Test, Vm} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {CofferFactory} from "../../../src/CofferFactory.sol";
 import {Penalty} from "../../../src/libraries/Penalty.sol";
 
@@ -35,7 +35,8 @@ contract CofferFactoryHandler is Test {
         uint32 maxDur,
         uint128 minAmount,
         uint32 safeTotalStake,
-        bool exitAllowed
+        bool exitAllowed,
+        uint128 startingBalance
     ) external {
         address actor = actors[actorSeed % actors.length];
 
@@ -49,29 +50,28 @@ contract CofferFactoryHandler is Test {
         // Clamp safeTotalStake
         safeTotalStake = uint32(bound(uint256(safeTotalStake), 1, 300_000_000));
 
+        // Clamp startingBalance to EIP-7251 range
+        startingBalance = uint128(bound(uint256(startingBalance), 32 ether, 2048 ether));
+
         // Compute maxMinAmount
-        uint256 maxMinAmount = Penalty.addMaximumPenalty(32 ether, safeTotalStake, maxDur / NUMBER_OF_SECONDS_IN_EPOCH);
+        uint256 maxMinAmount =
+            Penalty.addMaximumPenalty(startingBalance, safeTotalStake, maxDur / NUMBER_OF_SECONDS_IN_EPOCH);
         if (maxMinAmount == 0) return;
 
         // Clamp minAmount
         minAmount = uint128(bound(uint256(minAmount), 1, maxMinAmount));
 
-        vm.recordLogs();
+        // Use predictCofferAddress and try/catch for duplicate salt reverts
+        address predicted = factory.predictCofferAddress(actor, pk1, pk2);
         vm.prank(actor);
-        factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, safeTotalStake, exitAllowed);
-
-        // Extract deployed address from CofferIssued event
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        address cofferAddress;
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("CofferIssued(address,address)")) {
-                cofferAddress = address(uint160(uint256(entries[i].topics[2])));
-                break;
-            }
+        try factory.createCoffer(
+            pk1, pk2, rate, minDur, maxDur, minAmount, safeTotalStake, exitAllowed, startingBalance
+        ) {
+            ghostDeployedCoffers.push(predicted);
+            ++ghostDeploymentCount;
+        } catch {
+            // Duplicate (actor, pk1, pk2) — skip
         }
-
-        ghostDeployedCoffers.push(cofferAddress);
-        ++ghostDeploymentCount;
     }
 
     function handlerCreateCofferInvalid(
@@ -83,12 +83,13 @@ contract CofferFactoryHandler is Test {
         uint32 maxDur,
         uint128 minAmount,
         uint32 safeTotalStake,
-        bool exitAllowed
+        bool exitAllowed,
+        uint128 startingBalance
     ) external {
         address actor = actors[actorSeed % actors.length];
         // Pass raw unclamped inputs — expected to revert
         vm.prank(actor);
-        factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, safeTotalStake, exitAllowed);
+        factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, safeTotalStake, exitAllowed, startingBalance);
         // Ghost state NOT updated
     }
 

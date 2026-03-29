@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.34;
+pragma solidity 0.8.34;
 
-import {Test, Vm} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {CofferFactory} from "../../src/CofferFactory.sol";
 import {CofferBondNft} from "../../src/CofferBondNft.sol";
@@ -99,6 +99,7 @@ abstract contract BaseTest is Test {
     uint128 public defaultMinimumAmount = 1 ether;
     uint32 public defaultSafeTotalStake = 20_000_000; // 20M ETH as default total stake
     bool public defaultExitAllowed = false;
+    uint128 public defaultStartingBalance = 32 ether;
 
     // ========================================
     // SETUP FUNCTIONS
@@ -138,7 +139,8 @@ abstract contract BaseTest is Test {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultSafeTotalStake,
-            defaultExitAllowed
+            defaultExitAllowed,
+            defaultStartingBalance
         );
     }
 
@@ -153,29 +155,46 @@ abstract contract BaseTest is Test {
         uint32 safeTotalStake,
         bool exitAllowed
     ) public returns (address) {
-        vm.startPrank(owner);
-
-        // Record logs before the call
-        vm.recordLogs();
-
-        factory.createCoffer(
-            pubKeyPart1, pubKeyPart2, interestRate, minDuration, maxDuration, minimumAmount, safeTotalStake, exitAllowed
+        return createCoffer(
+            owner,
+            pubKeyPart1,
+            pubKeyPart2,
+            interestRate,
+            minDuration,
+            maxDuration,
+            minimumAmount,
+            safeTotalStake,
+            exitAllowed,
+            defaultStartingBalance
         );
+    }
 
-        // Get the deployed coffer address from the recorded logs
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        address cofferAddress;
-
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("CofferIssued(address,address)")) {
-                cofferAddress = address(uint160(uint256(entries[i].topics[2])));
-                break;
-            }
-        }
-
-        vm.stopPrank();
-
-        return cofferAddress;
+    function createCoffer(
+        address owner,
+        bytes32 pubKeyPart1,
+        bytes16 pubKeyPart2,
+        uint32 interestRate,
+        uint32 minDuration,
+        uint32 maxDuration,
+        uint128 minimumAmount,
+        uint32 safeTotalStake,
+        bool exitAllowed,
+        uint128 startingBalance
+    ) public returns (address) {
+        address predicted = factory.predictCofferAddress(owner, pubKeyPart1, pubKeyPart2);
+        vm.prank(owner);
+        factory.createCoffer(
+            pubKeyPart1,
+            pubKeyPart2,
+            interestRate,
+            minDuration,
+            maxDuration,
+            minimumAmount,
+            safeTotalStake,
+            exitAllowed,
+            startingBalance
+        );
+        return predicted;
     }
 
     // ========================================
@@ -297,12 +316,16 @@ abstract contract BaseTest is Test {
     // HELPER FUNCTIONS - PENALTY CALCULATION
     // ========================================
 
-    function calculateExpectedIssueSize(uint256 safeTotalStake, uint256 maxDuration) public pure returns (uint256) {
-        uint256 slashingPenalty = Penalty.slashing(32 ether, safeTotalStake);
+    function calculateExpectedIssueSize(uint256 startingBalance, uint256 safeTotalStake, uint256 maxDuration)
+        public
+        pure
+        returns (uint256)
+    {
+        uint256 slashingPenalty = Penalty.slashing(startingBalance, safeTotalStake);
         // Convert duration in seconds to epochs (384 seconds per epoch)
         uint256 epochs = maxDuration / 384;
-        uint256 attestationPenalty = Penalty.missingAttestations(32 ether, safeTotalStake, epochs);
-        return 32 ether - (slashingPenalty + attestationPenalty);
+        uint256 attestationPenalty = Penalty.missingAttestations(startingBalance, safeTotalStake, epochs);
+        return startingBalance - (slashingPenalty + attestationPenalty);
     }
 
     // ========================================

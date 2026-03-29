@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.34;
+pragma solidity 0.8.34;
 
 import {BaseTest} from "./BaseTest.sol";
 import {Coffer} from "../../src/Coffer.sol";
@@ -18,7 +18,7 @@ contract CofferFactoryTest is BaseTest {
     // ========================================
 
     uint256 private constant MAX_RATE = 1e8;
-    uint256 private constant VALIDATOR_STARTING_ETH = 32 ether;
+    uint128 private constant DEFAULT_STARTING_BALANCE = 32 ether;
     uint256 private constant MAX_DURATION = 1_576_800_000; // 50 years
     uint256 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
 
@@ -26,7 +26,7 @@ contract CofferFactoryTest is BaseTest {
     // DRY HELPERS
     // ========================================
 
-    /// @dev Calls factory.createCoffer with given params, captures CofferIssued event, returns deployed address
+    /// @dev Calls factory.createCoffer with given params, returns deployed address via predictCofferAddress
     function _createCofferAndGetAddress(
         address caller,
         bytes32 pubKeyPart1,
@@ -38,22 +38,46 @@ contract CofferFactoryTest is BaseTest {
         uint32 safeTotalStake,
         bool exitAllowed
     ) internal returns (address cofferAddr) {
-        vm.startPrank(caller);
-        vm.recordLogs();
-
-        factory.createCoffer(
-            pubKeyPart1, pubKeyPart2, interestRate, minDuration, maxDuration, minimumAmount, safeTotalStake, exitAllowed
+        return _createCofferAndGetAddress(
+            caller,
+            pubKeyPart1,
+            pubKeyPart2,
+            interestRate,
+            minDuration,
+            maxDuration,
+            minimumAmount,
+            safeTotalStake,
+            exitAllowed,
+            DEFAULT_STARTING_BALANCE
         );
+    }
 
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-        for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("CofferIssued(address,address)")) {
-                cofferAddr = address(uint160(uint256(entries[i].topics[2])));
-                break;
-            }
-        }
-
-        vm.stopPrank();
+    /// @dev Overload with explicit startingBalance
+    function _createCofferAndGetAddress(
+        address caller,
+        bytes32 pubKeyPart1,
+        bytes16 pubKeyPart2,
+        uint32 interestRate,
+        uint32 minDuration,
+        uint32 maxDuration,
+        uint128 minimumAmount,
+        uint32 safeTotalStake,
+        bool exitAllowed,
+        uint128 startingBalance
+    ) internal returns (address cofferAddr) {
+        cofferAddr = factory.predictCofferAddress(caller, pubKeyPart1, pubKeyPart2);
+        vm.prank(caller);
+        factory.createCoffer(
+            pubKeyPart1,
+            pubKeyPart2,
+            interestRate,
+            minDuration,
+            maxDuration,
+            minimumAmount,
+            safeTotalStake,
+            exitAllowed,
+            startingBalance
+        );
     }
 
     /// @dev Reads sValidatorConditions into a Coffer.ValidatorConditions struct (avoids stack-too-deep)
@@ -111,10 +135,13 @@ contract CofferFactoryTest is BaseTest {
         assertEq(vc.exitAllowed, expectedExitAllowed, "exitAllowed mismatch");
     }
 
-    /// @dev Computes the dynamic max for _minimumAmountToAccept given safeTotalStake and maxDuration
-    function _maxMinimumAmount(uint256 safeTotalStake, uint256 maxDuration) internal pure returns (uint256) {
-        return
-            Penalty.addMaximumPenalty(VALIDATOR_STARTING_ETH, safeTotalStake, maxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
+    /// @dev Computes the dynamic max for _minimumAmountToAccept given startingBalance, safeTotalStake and maxDuration
+    function _maxMinimumAmount(uint256 startingBalance, uint256 safeTotalStake, uint256 maxDuration)
+        internal
+        pure
+        returns (uint256)
+    {
+        return Penalty.addMaximumPenalty(startingBalance, safeTotalStake, maxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
     }
 
     // ========================================
@@ -143,7 +170,8 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultSafeTotalStake,
-            defaultExitAllowed
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
         );
 
         Vm.Log[] memory entries = vm.getRecordedLogs();
@@ -238,7 +266,7 @@ contract CofferFactoryTest is BaseTest {
         );
 
         uint256 expectedAvailable = Penalty.addMaximumPenalty(
-            VALIDATOR_STARTING_ETH, defaultSafeTotalStake, defaultMaxDuration / NUMBER_OF_SECONDS_IN_EPOCH
+            DEFAULT_STARTING_BALANCE, defaultSafeTotalStake, defaultMaxDuration / NUMBER_OF_SECONDS_IN_EPOCH
         );
 
         Coffer c = Coffer(payable(cofferAddr));
@@ -310,7 +338,8 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultSafeTotalStake,
-            defaultExitAllowed
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
         );
     }
 
@@ -325,7 +354,8 @@ contract CofferFactoryTest is BaseTest {
             ONE_MONTH, // max = 1 month < min
             defaultMinimumAmount,
             defaultSafeTotalStake,
-            defaultExitAllowed
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
         );
     }
 
@@ -341,7 +371,8 @@ contract CofferFactoryTest is BaseTest {
             uint32(MAX_DURATION) + 1, // exceeds 50-year cap
             defaultMinimumAmount,
             defaultSafeTotalStake,
-            defaultExitAllowed
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
         );
     }
 
@@ -356,7 +387,8 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultSafeTotalStake,
-            defaultExitAllowed
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
         );
     }
 
@@ -372,7 +404,8 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultSafeTotalStake,
-            defaultExitAllowed
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
         );
     }
 
@@ -387,7 +420,8 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             0, // _minimumAmountToAccept = 0
             defaultSafeTotalStake,
-            defaultExitAllowed
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
         );
     }
 
@@ -402,7 +436,8 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             0, // safeTotalStake = 0
-            defaultExitAllowed
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
         );
     }
 
@@ -417,12 +452,13 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             300_000_001, // exceeds 300_000_000 cap
-            defaultExitAllowed
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
         );
     }
 
     function test_CreateCoffer_Revert_MinAmountExceedsMax() public {
-        uint256 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, defaultMaxDuration);
+        uint256 maxAllowed = _maxMinimumAmount(DEFAULT_STARTING_BALANCE, defaultSafeTotalStake, defaultMaxDuration);
         // Ensure maxAllowed is positive so the +1 actually exceeds it
         assertTrue(maxAllowed > 0, "maxAllowed should be positive for default params");
 
@@ -437,7 +473,8 @@ contract CofferFactoryTest is BaseTest {
             // forge-lint: disable-next-line(unsafe-typecast) maxAllowed derived from safe test params fits uint128
             uint128(maxAllowed) + 1,
             defaultSafeTotalStake,
-            defaultExitAllowed
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
         );
     }
 
@@ -463,7 +500,7 @@ contract CofferFactoryTest is BaseTest {
     function test_CreateCoffer_Boundary_ExactMaxDuration() public {
         // Use MAX_DURATION for both max and min (min must be > 0 and <= max)
         // With very long duration, penalty is large, so use a very small minimumAmount
-        uint256 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, MAX_DURATION);
+        uint256 maxAllowed = _maxMinimumAmount(DEFAULT_STARTING_BALANCE, defaultSafeTotalStake, MAX_DURATION);
         // If maxAllowed is 0, the only way to create would fail on minAmount validation.
         // Use a small minAmount if possible, otherwise skip boundary check.
         if (maxAllowed > 0) {
@@ -515,7 +552,7 @@ contract CofferFactoryTest is BaseTest {
     }
 
     function test_CreateCoffer_Boundary_ExactMaxMinimumAmount() public {
-        uint256 maxAllowed = _maxMinimumAmount(defaultSafeTotalStake, defaultMaxDuration);
+        uint256 maxAllowed = _maxMinimumAmount(DEFAULT_STARTING_BALANCE, defaultSafeTotalStake, defaultMaxDuration);
         assertTrue(maxAllowed > 0, "maxAllowed should be positive for default params");
 
         address cofferAddr = _createCofferAndGetAddress(
@@ -546,5 +583,134 @@ contract CofferFactoryTest is BaseTest {
             defaultExitAllowed
         );
         assertTrue(cofferAddr != address(0), "Should succeed at min amount = 1 wei");
+    }
+
+    // ========================================
+    // CREATE2 DETERMINISTIC DEPLOYMENT TESTS
+    // ========================================
+
+    function test_PredictCofferAddress_MatchesDeployedAddress() public {
+        address predicted = factory.predictCofferAddress(validator, validPublicKeyPart1, validPublicKeyPart2);
+
+        address deployed = _createCofferAndGetAddress(
+            validator,
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            defaultExitAllowed
+        );
+
+        assertEq(predicted, deployed, "Predicted address should match deployed address");
+    }
+
+    function test_PredictCofferAddress_DifferentOwners_DifferentAddresses() public {
+        address addr1 = factory.predictCofferAddress(validator, validPublicKeyPart1, validPublicKeyPart2);
+        address addr2 = factory.predictCofferAddress(holder1, validPublicKeyPart1, validPublicKeyPart2);
+
+        assertTrue(addr1 != addr2, "Different owners should produce different addresses");
+    }
+
+    function test_PredictCofferAddress_DifferentPubKeys_DifferentAddresses() public {
+        address addr1 = factory.predictCofferAddress(validator, validPublicKeyPart1, validPublicKeyPart2);
+        address addr2 = factory.predictCofferAddress(validator, bytes32(uint256(99)), bytes16(uint128(100)));
+
+        assertTrue(addr1 != addr2, "Different pubkeys should produce different addresses");
+    }
+
+    function test_CreateCoffer_Revert_DuplicateDeployment() public {
+        _createCofferAndGetAddress(
+            validator,
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            defaultExitAllowed
+        );
+
+        // Second deployment with same sender + pubkey should revert
+        vm.prank(validator);
+        vm.expectRevert();
+        factory.createCoffer(
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
+        );
+    }
+
+    // ========================================
+    // STARTING BALANCE TESTS
+    // ========================================
+
+    function test_CreateCoffer_Revert_StartingBalanceTooLow() public {
+        vm.prank(validator);
+        vm.expectRevert(CofferFactory.InvalidStartingBalance.selector);
+        factory.createCoffer(
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            defaultExitAllowed,
+            31 ether // below 32 ETH minimum
+        );
+    }
+
+    function test_CreateCoffer_Revert_StartingBalanceTooHigh() public {
+        vm.prank(validator);
+        vm.expectRevert(CofferFactory.InvalidStartingBalance.selector);
+        factory.createCoffer(
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            defaultExitAllowed,
+            2049 ether // above 2048 ETH maximum
+        );
+    }
+
+    function test_CreateCoffer_Success_CustomStartingBalance() public {
+        uint128 customBalance = 64 ether;
+        address cofferAddr = _createCofferAndGetAddress(
+            validator,
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            true, // exitAllowed — so issueSize is computed from startingBalance
+            customBalance
+        );
+
+        uint256 expectedWith32 =
+            Penalty.addMaximumPenalty(32 ether, defaultSafeTotalStake, defaultMaxDuration / NUMBER_OF_SECONDS_IN_EPOCH);
+        uint256 expectedWith64 = Penalty.addMaximumPenalty(
+            customBalance, defaultSafeTotalStake, defaultMaxDuration / NUMBER_OF_SECONDS_IN_EPOCH
+        );
+
+        Coffer c = Coffer(payable(cofferAddr));
+        (uint128 issueSize,,,,,,,,,) = c.sValidatorConditions();
+
+        assertEq(issueSize, expectedWith64, "Issue size should use custom starting balance");
+        assertGt(expectedWith64, expectedWith32, "64 ETH should produce larger issue size than 32 ETH");
     }
 }

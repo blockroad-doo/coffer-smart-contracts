@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.34;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {CofferFactory} from "../../../src/CofferFactory.sol";
@@ -93,7 +93,8 @@ contract CofferFactoryHoodi is Test {
             365 days,
             1 ether,
             20_000_000,
-            true
+            true,
+            32 ether
         );
     }
 }

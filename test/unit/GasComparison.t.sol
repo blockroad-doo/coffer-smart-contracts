@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.34;
+pragma solidity 0.8.34;
 
 import {BaseTest} from "./BaseTest.sol";
 import {Coffer} from "../../src/Coffer.sol";
@@ -13,11 +13,11 @@ contract GasComparisonTest is BaseTest {
         cofferAddr = createDefaultCoffer();
         coffer = Coffer(payable(cofferAddr));
 
-        // Create a second coffer with exitAllowed = true
+        // Create a second coffer with exitAllowed = true (different pubkey for CREATE2 uniqueness)
         cofferAddrExit = createCoffer(
             validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
+            bytes32(uint256(10)),
+            bytes16(uint128(20)),
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
@@ -35,8 +35,8 @@ contract GasComparisonTest is BaseTest {
         uint256 gasBefore = gasleft();
         createCoffer(
             validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
+            bytes32(uint256(30)),
+            bytes16(uint128(40)),
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,

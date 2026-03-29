@@ -113,9 +113,6 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Address of the consolidation contract
     address private constant CONSOLIDATION_CONTRACT = 0x0000BBdDc7CE488642fb579F8B00f3a590007251;
 
-    /// @notice Every validator created by CofferFactory is initially a
-    /// validator with 32 ETH effective balance
-    uint256 private constant STARTING_EFFECTIVE_BALANCE_FOR_0X00 = 32 ether;
     uint256 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
     uint256 private constant MAX_DURATION = 1_576_800_000; // 50 years
     // Total ETH staked amount that shouldn't be reached in 100 years
@@ -274,6 +271,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @param _minimumValueToAccept Minimum value a holder must deposit
     /// @param _safeTotalStake Safe total network stake for penalty calculation
     /// @param _exitAllowed Whether holders can initiate validator exits
+    /// @param _startingBalance Validator's starting effective balance (32–2048 ETH per EIP-7251)
     function initialize(
         address _owner,
         uint32 _interestRate,
@@ -281,7 +279,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         uint32 _maximumDuration,
         uint128 _minimumValueToAccept,
         uint32 _safeTotalStake,
-        bool _exitAllowed
+        bool _exitAllowed,
+        uint128 _startingBalance
     ) external initializer {
         _transferOwnership(_owner);
 
@@ -304,7 +303,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
             // safe total stake and duration limits in CofferFactory
             sValidatorConditions.issueSize = uint128(
                 Penalty.addMaximumPenalty(
-                    STARTING_EFFECTIVE_BALANCE_FOR_0X00,
+                    _startingBalance,
                     _safeTotalStake,
                     (_maximumDuration + NUMBER_OF_SECONDS_IN_EPOCH - 1) / NUMBER_OF_SECONDS_IN_EPOCH
                 )
@@ -805,8 +804,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         emit ValidatorFundsAdded(uint128(msg.value));
     }
 
-    /// @notice Should be called after the contract address is successfully
-    /// assigned to the validator's BLS public key
+    /// @notice Converts validator from 0x01 to 0x02 (compounding) credentials via EIP-7251 self-consolidation
+    /// @dev Only needed for validators using the legacy 0x00 → 0x01 setup flow.
+    ///      Validators deposited with 0x02 credentials directly can skip this.
     function convertToCompounding() external payable onlyOwner {
         (bool readOk, bytes memory feeData) = CONSOLIDATION_CONTRACT.staticcall("");
         require(readOk, ConsolidationContractCallFailed());

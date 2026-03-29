@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.34;
+pragma solidity 0.8.34;
 
 import {BaseTest} from "./BaseTest.sol";
 import {Coffer} from "../../src/Coffer.sol";
@@ -80,8 +80,8 @@ contract CofferMainOpsTest is BaseTest {
     function test_Constructor_ExitAllowed_CalculatesAvailableAmount() public {
         address exitCofferAddr = createCoffer(
             validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
+            bytes32(uint256(10)),
+            bytes16(uint128(20)),
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
@@ -93,15 +93,16 @@ contract CofferMainOpsTest is BaseTest {
 
         (uint128 issueSize,,,,,,,,,) = exitCoffer.sValidatorConditions();
 
-        uint256 expected = Penalty.addMaximumPenalty(32 ether, defaultSafeTotalStake, defaultMaxDuration / 384);
+        uint256 expected =
+            Penalty.addMaximumPenalty(defaultStartingBalance, defaultSafeTotalStake, defaultMaxDuration / 384);
         assertEq(issueSize, expected);
     }
 
     function test_Constructor_ExitAllowed_AvailableAmountIsPositive() public {
         address exitCofferAddr = createCoffer(
             validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
+            bytes32(uint256(10)),
+            bytes16(uint128(20)),
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
@@ -118,8 +119,8 @@ contract CofferMainOpsTest is BaseTest {
     function test_Constructor_ExitAllowed_SetsAllValidatorConditions() public {
         address exitCofferAddr = createCoffer(
             validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
+            bytes32(uint256(10)),
+            bytes16(uint128(20)),
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
@@ -142,7 +143,8 @@ contract CofferMainOpsTest is BaseTest {
             bool exitAllowed
         ) = exitCoffer.sValidatorConditions();
 
-        uint256 expectedAvailable = Penalty.addMaximumPenalty(32 ether, defaultSafeTotalStake, defaultMaxDuration / 384);
+        uint256 expectedAvailable =
+            Penalty.addMaximumPenalty(defaultStartingBalance, defaultSafeTotalStake, defaultMaxDuration / 384);
 
         assertEq(issueSize, expectedAvailable);
         assertEq(interestRate, defaultInterestRate);
@@ -326,7 +328,8 @@ contract CofferMainOpsTest is BaseTest {
                 defaultMaxDuration,
                 defaultMinimumAmount,
                 defaultSafeTotalStake,
-                false
+                false,
+                defaultStartingBalance
             );
     }
 

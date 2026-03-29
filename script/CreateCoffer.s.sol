@@ -35,15 +35,43 @@ contract CreateCoffer is Script {
 
         (bytes32 publicKeyPart1, bytes16 publicKeyPart2) = _loadValidatorPublicKey();
 
-        // Load remaining parameters
+        // Predict the deterministic address before deployment
+        address predicted = factory.predictCofferAddress(msg.sender, publicKeyPart1, publicKeyPart2);
+        console.log("Predicted Coffer address:", predicted);
+
+        // Create the coffer
+        address cofferAddress = _createCoffer(factory, publicKeyPart1, publicKeyPart2);
+        if (cofferAddress == address(0)) revert CofferIssuedEventNotFound();
+        assert(cofferAddress == predicted);
+
+        console.log("Coffer created at:", cofferAddress);
+
+        address bondsRedeemedEarlyAddress = factory.I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS();
+        console.log("CofferBondsRedeemedEarly at:", bondsRedeemedEarlyAddress);
+
+        // Update .env file with the new Coffer address
+        console.log("\nUpdating .env file...");
+        updateEnvVariable("HOODI_COFFER_ADDRESS", addressToString(cofferAddress));
+        console.log("COFFER_ADDRESS saved to .env");
+    }
+
+    /// @notice Loads env parameters, broadcasts the createCoffer tx, and returns the new Coffer address
+    /// @param factory The CofferFactory contract instance
+    /// @param publicKeyPart1 First 32 bytes of the BLS public key
+    /// @param publicKeyPart2 Remaining 16 bytes of the BLS public key
+    /// @return The address of the newly created Coffer
+    function _createCoffer(CofferFactory factory, bytes32 publicKeyPart1, bytes16 publicKeyPart2)
+        private
+        returns (address)
+    {
         uint32 interestRate = uint32(vm.envUint("INTEREST_RATE"));
         uint32 minimumDuration = uint32(vm.envUint("MIN_DURATION"));
         uint32 maximumDuration = uint32(vm.envUint("MAX_DURATION"));
         uint128 minimumAmountToAccept = uint128(vm.envUint("MINIMUM_VALUE_TO_ACCEPT"));
         uint32 safeTotalStake = uint32(vm.envUint("SAFE_TOTAL_STAKE"));
         bool exitAllowed = vm.envBool("ALLOW_EXIT");
+        uint128 startingBalance = uint128(vm.envUint("STARTING_BALANCE"));
 
-        // Create the coffer
         vm.recordLogs();
         vm.startBroadcast();
 
@@ -55,24 +83,13 @@ contract CreateCoffer is Script {
             maximumDuration,
             minimumAmountToAccept,
             safeTotalStake,
-            exitAllowed
+            exitAllowed,
+            startingBalance
         );
 
         vm.stopBroadcast();
 
-        // Extract coffer address from CofferIssued event
-        address cofferAddress = _extractCofferAddress(vm.getRecordedLogs());
-        if (cofferAddress == address(0)) revert CofferIssuedEventNotFound();
-
-        console.log("Coffer created at:", cofferAddress);
-
-        address bondsRedeemedEarlyAddress = factory.I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS();
-        console.log("CofferBondsRedeemedEarly at:", bondsRedeemedEarlyAddress);
-
-        // Update .env file with the new Coffer address
-        console.log("\nUpdating .env file...");
-        updateEnvVariable("HOODI_COFFER_ADDRESS", addressToString(cofferAddress));
-        console.log("COFFER_ADDRESS saved to .env");
+        return _extractCofferAddress(vm.getRecordedLogs());
     }
 
     /// @notice Loads and splits the 48-byte BLS public key from env into bytes32 + bytes16

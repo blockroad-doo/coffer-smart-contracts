@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.34;
+pragma solidity 0.8.34;
 
 import {BaseTest} from "./BaseTest.sol";
 import {EIP7002Mock, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
