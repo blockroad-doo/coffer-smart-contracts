@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.33;
+pragma solidity 0.8.34;
 
 /**
  * @title ICoffer
@@ -20,9 +20,9 @@ interface ICoffer {
 
     /// @notice Returns the first part of the validator public key
     /// @return The first 32 bytes of the validator public key
-    function I_PUBLIC_KEY_PART1() external view returns (bytes32);
+    function iPublicKeyPart1() external view returns (bytes32);
 
     /// @notice Returns the second part of the validator public key
     /// @return The remaining 16 bytes of the validator public key
-    function I_PUBLIC_KEY_PART2() external view returns (bytes16);
+    function iPublicKeyPart2() external view returns (bytes16);
 }

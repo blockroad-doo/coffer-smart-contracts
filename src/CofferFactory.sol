@@ -1,10 +1,11 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.33;
+pragma solidity 0.8.34;
 
 import {Coffer} from "./Coffer.sol";
 import {CofferBondNft} from "./CofferBondNft.sol";
 import {CofferBondsRedeemedEarly} from "./CofferBondsRedeemedEarly.sol";
 import {Penalty} from "./libraries/Penalty.sol";
+import {LibClone} from "solady/utils/LibClone.sol";
 
 /**
  * @title CofferFactory
@@ -31,20 +32,24 @@ contract CofferFactory {
     address public immutable I_COFFER_BOND_NFT_ADDRESS;
     /// @notice Address of the shared CofferBondsRedeemedEarly contract
     address public immutable I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS;
+    /// @notice Address of the Coffer implementation contract (used for CWIA cloning)
+    address public immutable I_COFFER_IMPLEMENTATION;
 
     /// @notice Emitted when a new Coffer contract is created
     /// @param owner The address of the validator who created the Coffer
     /// @param cofferAddress The address of the newly deployed Coffer contract
     event CofferIssued(address indexed owner, address indexed cofferAddress);
 
-    /// @notice Deploys the shared CofferBondNft and CofferBondsRedeemedEarly contracts
+    /// @notice Deploys shared contracts and the Coffer implementation for CWIA cloning
     constructor() {
         CofferBondNft iCofferBondNft = new CofferBondNft();
         I_COFFER_BOND_NFT_ADDRESS = address(iCofferBondNft);
         CofferBondsRedeemedEarly iBondsRedeemedEarly = new CofferBondsRedeemedEarly();
         I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS = address(iBondsRedeemedEarly);
+        I_COFFER_IMPLEMENTATION = address(new Coffer());
     }
 
+    // solhint-disable function-max-lines
     /// @notice Creates a new Coffer contract for a validator
     /// @param _publicKeyPart1 First 32 bytes of the validator BLS public key
     /// @param _publicKeyPart2 Last 16 bytes of the validator BLS public key
@@ -88,22 +93,32 @@ contract CofferFactory {
         // solhint-disable-next-line gas-strict-inequalities
         require(_minimumValueToAccept <= maxMinimumValueToAccept, InvalidMinimumValueToAccept());
 
-        Coffer newCoffer = new Coffer(
-            msg.sender,
-            I_COFFER_BOND_NFT_ADDRESS,
-            I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS,
-            _publicKeyPart1,
-            _publicKeyPart2,
-            _interestRate,
-            _minimumDuration,
-            _maximumDuration,
-            _minimumValueToAccept,
-            _safeTotalStake,
-            _exitAllowed
+        // Pack 88 bytes of CWIA immutable args
+        bytes memory data = abi.encodePacked(
+            I_COFFER_BOND_NFT_ADDRESS, // 20 bytes, offset 0
+            I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS, // 20 bytes, offset 20
+            _publicKeyPart1, // 32 bytes, offset 40
+            _publicKeyPart2 // 16 bytes, offset 72
         );
 
-        emit CofferIssued(msg.sender, address(newCoffer));
+        // Deploy minimal clone with immutable args
+        address clone = LibClone.clone(I_COFFER_IMPLEMENTATION, data);
 
-        return address(newCoffer);
+        // Initialize the clone's storage
+        Coffer(payable(clone))
+            .initialize(
+                msg.sender,
+                _interestRate,
+                _minimumDuration,
+                _maximumDuration,
+                _minimumValueToAccept,
+                _safeTotalStake,
+                _exitAllowed
+            );
+
+        emit CofferIssued(msg.sender, clone);
+
+        return clone;
     }
+    // solhint-enable function-max-lines
 }

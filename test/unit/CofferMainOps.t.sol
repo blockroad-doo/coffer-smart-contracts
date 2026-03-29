@@ -1,9 +1,11 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.34;
 
 import {BaseTest} from "./BaseTest.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {Penalty} from "../../src/libraries/Penalty.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
 contract CofferMainOpsTest is BaseTest {
     address public cofferAddr;
@@ -34,9 +36,10 @@ contract CofferMainOpsTest is BaseTest {
     }
 
     function test_Constructor_ExitNotAllowed_SetsImmutables() public view {
-        assertEq(coffer.I_COFFER_BOND_NFT_ADDRESS(), address(bondNft));
-        assertEq(coffer.I_PUBLIC_KEY_PART1(), validPublicKeyPart1);
-        assertEq(coffer.I_PUBLIC_KEY_PART2(), validPublicKeyPart2);
+        assertEq(coffer.iCofferBondNftAddress(), address(bondNft));
+        assertEq(coffer.iCofferBondsRedeemedEarly(), address(bondsRedeemedEarly));
+        assertEq(coffer.iPublicKeyPart1(), validPublicKeyPart1);
+        assertEq(coffer.iPublicKeyPart2(), validPublicKeyPart2);
     }
 
     function test_Constructor_ExitNotAllowed_AvailableAmountIsZero() public view {
@@ -290,6 +293,41 @@ contract CofferMainOpsTest is BaseTest {
         // issueSize should now be 0
         (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(issueSizeAfter, 0);
+    }
+
+    // ========================================
+    // RENOUNCE OWNERSHIP
+    // ========================================
+
+    function test_RenounceOwnership_RevertsWhenCalledByOwner() public {
+        vm.prank(validator);
+        vm.expectRevert(Coffer.RenounceOwnershipDisabled.selector);
+        coffer.renounceOwnership();
+    }
+
+    function test_RenounceOwnership_RevertsWhenCalledByNonOwner() public {
+        vm.prank(holder1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, holder1));
+        coffer.renounceOwnership();
+    }
+
+    // ========================================
+    // IMPLEMENTATION CANNOT BE REINITIALIZED
+    // ========================================
+
+    function test_Implementation_CannotBeReinitialized() public {
+        address impl = factory.I_COFFER_IMPLEMENTATION();
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        Coffer(payable(impl))
+            .initialize(
+                validator,
+                defaultInterestRate,
+                defaultMinDuration,
+                defaultMaxDuration,
+                defaultMinimumAmount,
+                defaultSafeTotalStake,
+                false
+            );
     }
 
     // ========================================

@@ -10,6 +10,7 @@
   - [Core Contracts](#core-contracts)
   - [Libraries](#libraries)
   - [Interfaces](#interfaces)
+  - [Clone Architecture (CWIA)](#clone-architecture-cwia)
   - [Roles](#roles)
 - [Testing](#testing)
   - [Environment Setup](#environment-setup)
@@ -69,6 +70,23 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 | **`ICofferBondsRedeemedEarly.sol`** | Interface for the pull-based early bond redemption contract |
 | **`IDepositContract.sol`** | Ethereum 2.0 deposit contract interface |
 
+### Clone Architecture (CWIA)
+
+Each Coffer is deployed as a minimal proxy clone using Solady's `LibClone`. The factory deploys a single Coffer implementation contract at construction time; every `createCoffer` call creates a lightweight clone pointing to it.
+
+88 bytes of immutable data are appended to each clone's bytecode via the Clones With Immutable Args (CWIA) pattern:
+
+| Arg | Type | Byte Offset | Reason |
+|-----|------|-------------|--------|
+| CofferBondNft address | `address` | 0 | Shared across all Coffers, never changes |
+| CofferBondsRedeemedEarly address | `address` | 20 | Shared across all Coffers, never changes |
+| Validator BLS public key (part 1) | `bytes32` | 40 | Must be immutable for trust (see [Setup Steps](#setup-steps)) |
+| Validator BLS public key (part 2) | `bytes16` | 72 | Must be immutable for trust (see [Setup Steps](#setup-steps)) |
+
+These values are read via `extcodecopy` in assembly, costing ~6 gas versus 2,100 for a cold `SLOAD`. Because the clone's bytecode is deployed once and never changes, CWIA args cannot be altered by anyone: not the validator, not the factory, not an upgrade.
+
+The remaining parameters (interest rate, durations, minimum value, safe total stake, exit allowed, validator address) are set via `initialize()` and stored in regular storage. These are the parameters validators can later modify, subject to the [restrictions](#changing-offer-parameters) documented below.
+
 ### Roles
 
 #### **Validators**
@@ -112,13 +130,13 @@ ALLOW_EXIT=true
 
 Deployment scripts **auto-update** `.env` via FFI (`sed`) — `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_BOND_NFT_ADDRESS`, `HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS`, and `HOODI_COFFER_ADDRESS` are written automatically after each script run.
 
-**Hoodi** is the recommended testnet because validators operate there identically to mainnet — the same EIP-7002 withdrawal and EIP-7251 consolidation request contracts are active, making it the closest environment for end-to-end testing.
+**Hoodi** is the recommended testnet because validators operate there identically to mainnet. The same EIP-7002 withdrawal and EIP-7251 consolidation request contracts are active, making it the closest environment for end-to-end testing.
 
 ### Deployment Scripts
 
 Two-step deployment flow in `script/`:
 
-**Step 1 — `DeployCofferFactory.s.sol`**
+**Step 1 - `DeployCofferFactory.s.sol`**
 
 Deploys `CofferFactory` (which internally deploys `CofferBondNft` and `CofferBondsRedeemedEarly`) and auto-writes `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_BOND_NFT_ADDRESS`, and `HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS` to `.env`.
 
@@ -130,7 +148,7 @@ forge script script/DeployCofferFactory.s.sol \
   --private-key <DEPLOYER_PRIVATE_KEY>
 ```
 
-**Step 2 — `CreateCoffer.s.sol`**
+**Step 2 - `CreateCoffer.s.sol`**
 
 Reads Coffer offer parameters from `.env` (`VALIDATOR_PUBLIC_KEY`, `INTEREST_RATE`, etc.), calls `factory.createCoffer(...)`, and writes `HOODI_COFFER_ADDRESS` back to `.env`. You must source `.env` first so the `vm.env*()` cheatcodes can read the variables.
 
@@ -283,9 +301,9 @@ There are scenarios in which a bad actor could create malicious Coffer contracts
 > If the validator's `effective balance - issueSize < 32 ETH`, `exitAllowed` must be set to `true`. Partial withdrawals cannot bring enough ETH to the Coffer contract because the beacon chain enforces a 32 ETH minimum for compounding validators. Without exit capability, the holder cannot trigger a full validator exit and must depend on the validator voluntarily depositing ETH or earning enough through network issuance, which can take much longer than the bond duration.
 
 > [!TIP]
-> **`safeTotalStake` is conservatively set**
+> **`safeTotalStake` is at or below actual network stake**
 >
-> `safeTotalStake` must be set at or below the actual network total stake. Since both `correlationPenalty` and `missingAttestations` in the `Penalty` library divide by `safeTotalStake`, a value that is too high will underestimate penalties, making the `issueSize` appear safer than it actually is. A conservative (slightly below actual) value ensures penalty estimates are accurate or slightly overestimated, protecting bond holders.
+> Since both `correlationPenalty` and `missingAttestations` in the `Penalty` library divide by `safeTotalStake`, a value that is too high will underestimate penalties, making the `issueSize` appear safer than it actually is. A conservative (slightly below actual) value ensures penalty estimates are accurate or slightly overestimated, protecting bond holders.
 
 #### Minor Holder Risk
 
@@ -316,10 +334,10 @@ counter and consuming `issueSize` capacity indefinitely.
 ### Changing Offer Parameters
 
 > [!IMPORTANT]
-> Validators **CANNOT** change `exitAllowed` in the Coffer contract, and they cannot **INCREASE** `issueSize`, `interestRate`, or `safeTotalStake` while there are unmatured bonds. This would give the validator the ability to manipulate the amounts the Coffer contract handles, benefiting themselves at the expense of holders.
+> Validators cannot **CHANGE** `exitAllowed` to `false` in the Coffer contract, and they cannot **INCREASE** `issueSize`, `interestRate`, `safeTotalStake`, or `maximumDuration` while there are unmatured bonds. This would give the validator the ability to manipulate the amounts the Coffer contract handles, benefiting themselves at the expense of holders.
 
 > [!NOTE]
-> Since the validator can decrease `issueSize`, `interestRate`, and `safeTotalStake` whenever the Coffer contract becomes unsafe for whatever reason, the validator can adjust these parameters to restore safety while there are outstanding bonds. The only situation in which the validator cannot make the Coffer contract safe is if `exitAllowed` isn't true and `issueSize` is too low to adjust. But if the validator has `exitAllowed` set to true, or set to false with sufficient `issueSize`, it is extremely unlikely for the Coffer contract to reach a severely unsafe state.
+> Decreasing `issueSize`, `interestRate`, `safeTotalStake`, and `maximumDuration` as well as turning `exitAllowed` from `false → true`, can only make the contract safer for the holder.
 
 
 ### Granting Full Exit to Holders
@@ -350,7 +368,7 @@ counter and consuming `issueSize` capacity indefinitely.
 
 - **issueSize conservation**: `issueSize + sum(bondMaturityValues) = totalIssuableCapacity` (capacity = cumulative penalty-adjusted deposits + execution-layer receive() deposits minus explicit issueSize decreases)
 - **receive() issueSize top-up**: `receive()` increases `issueSize` by `msg.value`. Beacon chain withdrawals (EIP-4895) credit balance without code execution and do not trigger `receive()`, so all `receive()` invocations are execution-layer transfers with real ETH backing
-- **Parameter monotonicity**: While `outstandingBonds > 0`: issueSize, interestRate, safeTotalStake can only decrease; exitAllowed can only go false→true
+- **Parameter monotonicity**: While `outstandingBonds > 0`: issueSize, interestRate, safeTotalStake, maximumDuration can only decrease; exitAllowed can only go false→true
 - **Validator execution withdrawal bound**: Validator can withdraw from execution up to `issueSize` while preserving `totalConsensusReserved`; unrestricted when `outstandingBonds == 0`
 - **outstandingBonds accuracy**: Equals the number of bonds with `bondMaturityValue > 0`
 - **Bond-NFT bijection**: Each active bond maps 1:1 to a live NFT (mint on buy, burn on full withdrawal/redeem)
@@ -365,13 +383,7 @@ The solvency property:
 issueSize + sum(bondMaturityValues) <= (effectiveBalance_consensus + cofferBalance) - maxPenalties
 ```
 
-Justified by:
-
-- Validator sets issueSize ≤ effectiveBalance - maxPenalties at creation
-- issueSize can only decrease while bonds outstanding (except validatorAddFundsToConsensus which adds penalty-adjusted deposit amount, and receive() which adds execution-layer ETH 1:1)
-- cofferBalance is bounded — validator can only withdraw up to issueSize (unbonded capacity) while outstandingBonds > 0, and must preserve totalConsensusReserved; the solvency invariant is algebraically preserved because both sides of the inequality decrease by the same amount
-- Consensus withdrawals go to coffer contract (total consensus + coffer stays constant minus penalties)
-- For the nth bond with (n-1) bonds outstanding: remaining issueSize is already reduced by bonds 1..(n-1), and since issueSize cannot be increased, bond n is safe if the initial configuration was correct
+If it holds with `n` outstanding bonds (`n > 0`), it is preserved when the `(n+1)`th bond is bought. Buying a bond decreases `issueSize` and increases `sum(bondMaturityValues)` by the same maturity value, so the left side is unchanged. Consensus withdrawals go to the coffer contract, meaning `effectiveBalance_consensus` decreases while `cofferBalance` increases by the same amount, leaving the right side unchanged. When the validator adds funds to consensus, `issueSize` increases only by the penalty-adjusted deposit amount (`deposit - maxPenalties`), so the left side grows no more than the right side, preserving the inequality. The base case (`0 → 1`) depends on the validator's initial configuration being correct, which cannot be enforced on-chain (see [Safety Guidelines](#safety-guidelines)). When `outstandingBonds == 0`, the property may not hold. The validator can withdraw freely and modify parameters which is harmless since no bond holders exist to be affected.
 
 ### Known Approximation
 

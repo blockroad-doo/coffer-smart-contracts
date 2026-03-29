@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.34;
 
 import {BaseTest} from "../../unit/BaseTest.sol";
 import {CofferFactory} from "../../../src/CofferFactory.sol";
@@ -39,7 +39,7 @@ contract CofferFactoryInvariantTest is BaseTest {
         for (uint256 i = 0; i < len; i++) {
             address cofferAddr = handler.getDeployedCofferAt(i);
             assertEq(
-                Coffer(payable(cofferAddr)).I_COFFER_BOND_NFT_ADDRESS(),
+                Coffer(payable(cofferAddr)).iCofferBondNftAddress(),
                 factory.I_COFFER_BOND_NFT_ADDRESS(),
                 "Coffer NFT address must match factory NFT address"
             );

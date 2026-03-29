@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.33;
+pragma solidity 0.8.34;
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
@@ -67,9 +67,8 @@ contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
         (uint128 bondMaturityValue, uint32 duration, uint32 startTimestamp, bool consensusWithdrawTriggered) =
             cofferContract.sHolderConditions(_bondId);
 
-        string memory validatorPubKey = Strings.toHexString(
-            abi.encodePacked(cofferContract.I_PUBLIC_KEY_PART1(), cofferContract.I_PUBLIC_KEY_PART2())
-        );
+        string memory validatorPubKey =
+            Strings.toHexString(abi.encodePacked(cofferContract.iPublicKeyPart1(), cofferContract.iPublicKeyPart2()));
 
         uint256 maturesAt = uint256(startTimestamp) + uint256(duration);
 

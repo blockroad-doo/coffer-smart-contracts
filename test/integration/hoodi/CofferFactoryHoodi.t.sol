@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {CofferFactory} from "../../../src/CofferFactory.sol";
@@ -68,7 +68,7 @@ contract CofferFactoryHoodi is Test {
     function test_CofferHasCorrectFactory() public skipIfNotConfigured {
         Coffer coffer = Coffer(payable(deployedCofferAddr));
         assertEq(
-            coffer.I_COFFER_BOND_NFT_ADDRESS(),
+            coffer.iCofferBondNftAddress(),
             factory.I_COFFER_BOND_NFT_ADDRESS(),
             "Coffer NFT address should match factory NFT address"
         );

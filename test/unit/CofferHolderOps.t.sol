@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.34;
 
 import {BaseTest, CofferEvents, CofferBondNftEvents, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS} from "./BaseTest.sol";
 import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";

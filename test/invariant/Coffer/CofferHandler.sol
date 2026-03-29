@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.34;
 
 import {Test, Vm} from "forge-std/Test.sol";
 import {Coffer} from "../../../src/Coffer.sol";
@@ -395,7 +395,7 @@ contract CofferHandler is Test {
         if (validator.balance < amt) return;
 
         // Reconstruct the deposit_data_root exactly as the DepositContract does
-        bytes memory pubkey = abi.encodePacked(coffer.I_PUBLIC_KEY_PART1(), coffer.I_PUBLIC_KEY_PART2());
+        bytes memory pubkey = abi.encodePacked(coffer.iPublicKeyPart1(), coffer.iPublicKeyPart2());
         // forge-lint: disable-next-line(unsafe-typecast) bounded by validator balance
         bytes memory amountLe = _toLittleEndian64(uint64(uint256(amt) / 1 gwei));
 

@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.30;
+pragma solidity ^0.8.34;
 
 import {BaseTest, CofferBondNftEvents} from "./BaseTest.sol";
 import {CofferBondNft} from "../../src/CofferBondNft.sol";

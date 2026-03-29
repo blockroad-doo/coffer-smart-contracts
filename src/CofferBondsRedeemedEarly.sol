@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.33;
+pragma solidity 0.8.34;
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ICofferBondsRedeemedEarly} from "./interfaces/ICofferBondsRedeemedEarly.sol";
@@ -7,7 +7,7 @@ import {ICofferBondsRedeemedEarly} from "./interfaces/ICofferBondsRedeemedEarly.
 /**
  * @title CofferBondsRedeemedEarly
  * @author Blockroad Ltd
- * @notice Pull-based claim contract for early bond redemptions
+ * @notice Simple pull-based claim contract for early bond redemptions
  * @notice When a validator redeems bonds early, Coffer deposits the ETH here
  * @notice Holders claim their funds individually via claim()
  * @notice This prevents griefing by non-payable holder contracts
@@ -37,9 +37,11 @@ contract CofferBondsRedeemedEarly is ICofferBondsRedeemedEarly {
     function deposit(address[] calldata _holders, uint128[] calldata _amounts) external payable {
         require(_holders.length == _amounts.length, DepositArrayLengthMismatch());
         uint256 total = 0;
+
         for (uint256 i = 0; i < _holders.length; ++i) {
             sPendingClaims[_holders[i]] += _amounts[i];
             total += _amounts[i];
+
             emit ClaimDeposited(_holders[i], _amounts[i]);
         }
         require(msg.value == total, DepositMsgValueMismatch());
@@ -51,8 +53,10 @@ contract CofferBondsRedeemedEarly is ICofferBondsRedeemedEarly {
     function claim(address payable _to) external {
         uint256 amount = sPendingClaims[msg.sender];
         require(amount != 0, NoPendingClaim());
+
         sPendingClaims[msg.sender] = 0;
         emit ClaimWithdrawn(msg.sender, _to, amount);
+
         Address.sendValue(_to, amount);
     }
 }

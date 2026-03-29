@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.30;
+pragma solidity ^0.8.34;
 
 import {BaseTest} from "./BaseTest.sol";
 import {Coffer} from "../../src/Coffer.sol";
@@ -191,9 +191,9 @@ contract CofferFactoryTest is BaseTest {
         );
 
         Coffer c = Coffer(payable(cofferAddr));
-        assertEq(c.I_PUBLIC_KEY_PART1(), validPublicKeyPart1);
-        assertEq(c.I_PUBLIC_KEY_PART2(), validPublicKeyPart2);
-        assertEq(c.I_COFFER_BOND_NFT_ADDRESS(), factory.I_COFFER_BOND_NFT_ADDRESS());
+        assertEq(c.iPublicKeyPart1(), validPublicKeyPart1);
+        assertEq(c.iPublicKeyPart2(), validPublicKeyPart2);
+        assertEq(c.iCofferBondNftAddress(), factory.I_COFFER_BOND_NFT_ADDRESS());
     }
 
     function test_CreateCoffer_Success_SetsValidatorConditions() public {

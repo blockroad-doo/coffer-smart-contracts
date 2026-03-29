@@ -1,8 +1,9 @@
 //SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.33;
+pragma solidity 0.8.34;
 
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ICofferBondNft} from "./interfaces/ICofferBondNft.sol";
 import {ICofferBondsRedeemedEarly} from "./interfaces/ICofferBondsRedeemedEarly.sol";
 import {IDepositContract} from "./interfaces/IDepositContract.sol";
@@ -23,7 +24,7 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
  * @notice Uses IDepositContract interface to allow deposits to
  * consensus layer to top up validator's effective balance
  */
-contract Coffer is Ownable2Step, Multicall {
+contract Coffer is Ownable2Step, Multicall, Initializable {
     error ZeroValue();
     error ValueTooSmallToAccept();
     error InvalidDuration();
@@ -53,6 +54,7 @@ contract Coffer is Ownable2Step, Multicall {
     error WithdrawalContractCallFailed();
     error ConsolidationContractCallFailed();
     error InsufficientFee();
+    error RenounceOwnershipDisabled();
 
     /// @notice When block.timestamp >= startTimestamp + duration, the bond reaches maturity
     /// @notice consensusWithdrawTriggered can be triggered only once
@@ -124,15 +126,46 @@ contract Coffer is Ownable2Step, Multicall {
     uint256 private constant MAX_RATE = 1e8; // 1e8 = 100%
     uint256 private constant GWEI_RATE = 1e9;
 
-    /// @notice Address of the shared CofferBondNft contract
-    address public immutable I_COFFER_BOND_NFT_ADDRESS;
-    /// @notice Address of the shared CofferBondsRedeemedEarly contract
-    address public immutable I_COFFER_BONDS_REDEEMED_EARLY;
-    /// @notice First 32 bytes of the validator BLS signing public key
-    /// (immutable so validator cannot point contract to different validator)
-    bytes32 public immutable I_PUBLIC_KEY_PART1;
-    /// @notice Last 16 bytes of the validator BLS signing public key
-    bytes16 public immutable I_PUBLIC_KEY_PART2;
+    /// @notice CWIA args offset — proxy runtime bytecode is 0x2d (45) bytes,
+    /// immutable args are appended after that in the clone's deployed bytecode.
+    /// During delegatecall, address(this) is the clone, so extcodecopy reads the clone's code.
+    uint256 private constant _ARGS_OFFSET = 0x2d;
+
+    /// @notice Address of the shared CofferBondNft contract (CWIA arg at offset 0)
+    /// @return result The CofferBondNft contract address
+    function iCofferBondNftAddress() public view returns (address result) {
+        assembly {
+            extcodecopy(address(), 12, _ARGS_OFFSET, 20)
+            result := mload(0)
+        }
+    }
+
+    /// @notice Address of the shared CofferBondsRedeemedEarly contract (CWIA arg at offset 20)
+    /// @return result The CofferBondsRedeemedEarly contract address
+    function iCofferBondsRedeemedEarly() public view returns (address result) {
+        assembly {
+            extcodecopy(address(), 12, add(_ARGS_OFFSET, 20), 20)
+            result := mload(0)
+        }
+    }
+
+    /// @notice First 32 bytes of the validator BLS signing public key (CWIA arg at offset 40)
+    /// @return result The first 32 bytes of the BLS public key
+    function iPublicKeyPart1() public view returns (bytes32 result) {
+        assembly {
+            extcodecopy(address(), 0, add(_ARGS_OFFSET, 40), 32)
+            result := mload(0)
+        }
+    }
+
+    /// @notice Last 16 bytes of the validator BLS signing public key (CWIA arg at offset 72)
+    /// @return result The last 16 bytes of the BLS public key
+    function iPublicKeyPart2() public view returns (bytes16 result) {
+        assembly {
+            extcodecopy(address(), 0, add(_ARGS_OFFSET, 72), 16)
+            result := mload(0)
+        }
+    }
 
     /// @notice Current validator conditions for bond issuance
     ValidatorConditions public sValidatorConditions;
@@ -182,7 +215,8 @@ contract Coffer is Ownable2Step, Multicall {
     /// @param amount The amount withdrawn
     event ValidatorWithdrawFromExecution(uint128 indexed amount);
     /// @notice Emitted when validator withdraws from consensus layer
-    /// @param amount The amount withdrawn in gwei
+    /// @dev Emitted in wei for consistency with all other events, even though the function accepts gwei
+    /// @param amount The amount withdrawn in wei
     event ValidatorWithdrawFromConsensus(uint128 indexed amount);
     /// @notice Emitted when validator adds funds to consensus layer
     /// @param amount The amount of funds added
@@ -219,27 +253,37 @@ contract Coffer is Ownable2Step, Multicall {
 
     ///--------------------------
     ///
-    /// CONSTRUCTOR
+    /// CONSTRUCTOR & INITIALIZER
     ///
     ///--------------------------
 
-    constructor(
+    /// @dev Implementation constructor — locks the implementation so it cannot be initialized.
+    /// Passes address(1) to Ownable because OZ reverts on address(0).
+    constructor() Ownable(address(1)) {
+        _disableInitializers();
+    }
+
+    /// @notice Initializes a CWIA clone with validator parameters
+    /// @dev Called once by CofferFactory after cloning. The 4 "immutable" values
+    /// (NFT address, early redemption address, public key parts) are read from
+    /// CWIA args appended to this clone's bytecode — not passed here.
+    /// @param _owner The validator address that will own this Coffer
+    /// @param _interestRate Yearly interest rate offered to bond holders
+    /// @param _minimumDuration Minimum bond duration in seconds
+    /// @param _maximumDuration Maximum bond duration in seconds
+    /// @param _minimumValueToAccept Minimum value a holder must deposit
+    /// @param _safeTotalStake Safe total network stake for penalty calculation
+    /// @param _exitAllowed Whether holders can initiate validator exits
+    function initialize(
         address _owner,
-        address _cofferBondNftAddress,
-        address _cofferBondsRedeemedEarlyAddress,
-        bytes32 _publicKeyPart1,
-        bytes16 _publicKeyPart2,
         uint32 _interestRate,
         uint32 _minimumDuration,
         uint32 _maximumDuration,
         uint128 _minimumValueToAccept,
         uint32 _safeTotalStake,
         bool _exitAllowed
-    ) Ownable(_owner) {
-        I_COFFER_BOND_NFT_ADDRESS = _cofferBondNftAddress;
-        I_COFFER_BONDS_REDEEMED_EARLY = _cofferBondsRedeemedEarlyAddress;
-        I_PUBLIC_KEY_PART1 = _publicKeyPart1;
-        I_PUBLIC_KEY_PART2 = _publicKeyPart2;
+    ) external initializer {
+        _transferOwnership(_owner);
 
         sValidatorConditions = ValidatorConditions({
             issueSize: 0,
@@ -317,7 +361,7 @@ contract Coffer is Ownable2Step, Multicall {
         ++vs.outstandingBonds;
 
         // Mint NFT representing the bond
-        uint256 bondId = ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).mintCofferBond(msg.sender);
+        uint256 bondId = ICofferBondNft(iCofferBondNftAddress()).mintCofferBond(msg.sender);
 
         // Store coffer conditions using bondId as key
         sHolderConditions[bondId] = HolderConditions({
@@ -359,7 +403,7 @@ contract Coffer is Ownable2Step, Multicall {
 
             require(value != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
 
-            holders[i] = ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).ownerOf(bondId);
+            holders[i] = ICofferBondNft(iCofferBondNftAddress()).ownerOf(bondId);
             amounts[i] = value;
             totalValue += value;
 
@@ -370,7 +414,7 @@ contract Coffer is Ownable2Step, Multicall {
             delete sHolderConditions[bondId];
 
             // slither-disable-next-line reentrancy-no-eth
-            ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).burnCofferBond(bondId);
+            ICofferBondNft(iCofferBondNftAddress()).burnCofferBond(bondId);
 
             emit ValidatorsBondRedeem(holders[i], bondId);
         }
@@ -383,7 +427,7 @@ contract Coffer is Ownable2Step, Multicall {
         // solhint-disable-next-line gas-strict-inequalities
         require(address(this).balance >= totalValue, ContractBalanceLessThanValue());
 
-        ICofferBondsRedeemedEarly(I_COFFER_BONDS_REDEEMED_EARLY).deposit{value: totalValue}(holders, amounts);
+        ICofferBondsRedeemedEarly(iCofferBondsRedeemedEarly()).deposit{value: totalValue}(holders, amounts);
     }
 
     /// @notice Change the Coffer's activity
@@ -430,10 +474,12 @@ contract Coffer is Ownable2Step, Multicall {
     function changeMinimumAndMaximumDuration(uint32 _minimumDuration, uint32 _maximumDuration) external onlyOwner {
         ValidatorConditions storage vc = sValidatorConditions;
 
+        // solhint-disable gas-strict-inequalities
         require(
-            _maximumDuration < vc.maximumDuration || vc.outstandingBonds == 0,
+            _maximumDuration <= vc.maximumDuration || vc.outstandingBonds == 0,
             ValidatorCannotIncreaseMaximumDurationWhileOutstandingBondExist()
         );
+        // solhint-enable gas-strict-inequalities
 
         require(_minimumDuration != 0, InvalidDuration());
         // solhint-disable-next-line gas-strict-inequalities
@@ -572,7 +618,7 @@ contract Coffer is Ownable2Step, Multicall {
             --vc.outstandingBonds;
             totalConsensusReserved -= (holder.consensusWithdrawTriggered ? valueToWithdraw : 0);
             delete sHolderConditions[_bondId];
-            ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).burnCofferBond(_bondId);
+            ICofferBondNft(iCofferBondNftAddress()).burnCofferBond(_bondId);
 
             emit HolderWithdrawFromExecutionSuccess(msg.sender, _bondId);
         } else {
@@ -591,7 +637,7 @@ contract Coffer is Ownable2Step, Multicall {
                 msg.sender, _bondId, valueToWithdraw, holder.bondMaturityValue
             );
 
-            ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).emitMetadataUpdate(_bondId);
+            ICofferBondNft(iCofferBondNftAddress()).emitMetadataUpdate(_bondId);
         }
 
         Address.sendValue(payable(msg.sender), valueToWithdraw);
@@ -619,7 +665,7 @@ contract Coffer is Ownable2Step, Multicall {
 
         require(
             // solhint-disable-next-line gas-strict-inequalities
-            address(this).balance - msg.value <= holder.bondMaturityValue - 1,
+            address(this).balance - msg.value <= holder.bondMaturityValue + totalConsensusReserved - 1,
             HolderConsensusWithdrawNotPossibleContractHasEnoughBalance()
         );
 
@@ -646,7 +692,7 @@ contract Coffer is Ownable2Step, Multicall {
         require(fee <= msg.value, InsufficientFee());
 
         // EIP-7002: 48-byte BLS public key + 8-byte withdrawal amount = 56 bytes
-        bytes memory data = abi.encodePacked(I_PUBLIC_KEY_PART1, I_PUBLIC_KEY_PART2, valueToWithdrawInGwei);
+        bytes memory data = abi.encodePacked(iPublicKeyPart1(), iPublicKeyPart2(), valueToWithdrawInGwei);
 
         bool isFullExit = (valueToWithdrawInGwei == 0);
         holder.consensusWithdrawTriggered = true;
@@ -719,9 +765,10 @@ contract Coffer is Ownable2Step, Multicall {
         // [public_key (48 bytes), amountToWithdraw (8 bytes)]
         // EIP-7002 format: 48-byte BLS public key + 8-byte withdrawal amount
         // Use abi.encodePacked for tight packing: 32 + 16 + 8 = 56 bytes
-        bytes memory data = abi.encodePacked(I_PUBLIC_KEY_PART1, I_PUBLIC_KEY_PART2, _amount);
+        bytes memory data = abi.encodePacked(iPublicKeyPart1(), iPublicKeyPart2(), _amount);
 
-        emit ValidatorWithdrawFromConsensus(_amount);
+        // forge-lint: disable-next-line(unsafe-typecast) _amount is uint64, fits uint128 after gwei→wei conversion
+        emit ValidatorWithdrawFromConsensus(uint128(_amount) * uint128(GWEI_RATE));
 
         (bool writeOk,) = WITHDRAWAL_CONTRACT.call{value: fee}(data);
         require(writeOk, WithdrawalContractCallFailed());
@@ -737,7 +784,7 @@ contract Coffer is Ownable2Step, Multicall {
         require(msg.value % GWEI_RATE == 0, ValidatorDepositValueNotMultipleOfGwei());
 
         IDepositContract(DEPOSIT_CONTRACT).deposit{value: msg.value}(
-            abi.encodePacked(I_PUBLIC_KEY_PART1, I_PUBLIC_KEY_PART2),
+            abi.encodePacked(iPublicKeyPart1(), iPublicKeyPart2()),
             new bytes(32), // withdrawal credentials can be all 0
             new bytes(96), // signature can be all 0
             _depositDataRoot
@@ -772,17 +819,22 @@ contract Coffer is Ownable2Step, Multicall {
         // Source and target are the same for self-consolidation
         bytes memory data = abi.encodePacked(
             //source
-            I_PUBLIC_KEY_PART1,
-            I_PUBLIC_KEY_PART2,
+            iPublicKeyPart1(),
+            iPublicKeyPart2(),
             //target
-            I_PUBLIC_KEY_PART1,
-            I_PUBLIC_KEY_PART2
+            iPublicKeyPart1(),
+            iPublicKeyPart2()
         );
 
         (bool success,) = CONSOLIDATION_CONTRACT.call{value: fee}(data);
         require(success, ConsolidationContractCallFailed());
 
         emit ValidatorConvertedToCompounding();
+    }
+
+    /// @notice Disables renounceOwnership to prevent irreversible protocol bricking
+    function renounceOwnership() public view override onlyOwner {
+        revert RenounceOwnershipDisabled();
     }
 
     ///--------------------------
@@ -797,6 +849,6 @@ contract Coffer is Ownable2Step, Multicall {
     /// @dev _bondId is verified in callers so no check here
     /// @param _bondId The ID of the bond NFT to check ownership
     function holderIsCaller(uint256 _bondId) private view {
-        require(msg.sender == ICofferBondNft(I_COFFER_BOND_NFT_ADDRESS).ownerOf(_bondId), CallerIsNotHolder());
+        require(msg.sender == ICofferBondNft(iCofferBondNftAddress()).ownerOf(_bondId), CallerIsNotHolder());
     }
 }
