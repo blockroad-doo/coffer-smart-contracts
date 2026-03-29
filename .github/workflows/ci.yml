@@ -18,6 +18,7 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
+          cache: false
 
       - name: Install solhint
         run: npm i -g solhint
@@ -37,6 +38,7 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
+          cache: false
 
       - name: Build
         run: forge build --sizes --deny warnings
@@ -53,6 +55,7 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
+          cache: false
 
       - name: Build for Slither
         run: forge build --build-info --skip test script
@@ -76,6 +79,7 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
+          cache: false
 
       - name: Set weekly fuzz seed
         run: >
