@@ -10,8 +10,9 @@ contract CofferBondNftInvariantTest is Test {
     CofferBondNftHandler public handler;
 
     function setUp() public virtual {
-        nft = new CofferBondNft();
+        nft = new CofferBondNft(address(this));
         handler = new CofferBondNftHandler(nft);
+        nft.registerCoffer(address(handler));
         targetContract(address(handler));
     }
 

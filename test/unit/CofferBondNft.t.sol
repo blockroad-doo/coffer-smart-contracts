@@ -12,6 +12,18 @@ import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.s
  */
 contract CofferBondNftTest is BaseTest {
     // ========================================
+    // SETUP — standalone NFT with test as factory
+    // ========================================
+
+    function setUp() public override {
+        super.setUp();
+        // Create a standalone CofferBondNft with this test as the factory,
+        // so we can call mintCofferBond directly in unit tests.
+        bondNft = new CofferBondNft(address(this));
+        bondNft.registerCoffer(address(this));
+    }
+
+    // ========================================
     // DRY HELPERS
     // ========================================
 
@@ -209,5 +221,31 @@ contract CofferBondNftTest is BaseTest {
 
         bondNft.burnCofferBond(id1);
         assertEq(bondNft.balanceOf(holder1), 1);
+    }
+
+    // ========================================
+    // ACCESS CONTROL — registerCoffer & mintCofferBond
+    // ========================================
+
+    function test_Mint_Revert_UnregisteredCaller() public {
+        vm.prank(unauthorizedUser);
+        vm.expectRevert(CofferBondNft.OnlyRegisteredCoffer.selector);
+        bondNft.mintCofferBond(holder1);
+    }
+
+    function test_RegisterCoffer_Revert_OnlyFactory() public {
+        vm.prank(unauthorizedUser);
+        vm.expectRevert(CofferBondNft.OnlyFactory.selector);
+        bondNft.registerCoffer(unauthorizedUser);
+    }
+
+    function test_RegisterCoffer_Success_AllowsMinting() public {
+        address newCoffer = makeAddr("newCoffer");
+        bondNft.registerCoffer(newCoffer);
+        assertTrue(bondNft.isRegisteredCoffer(newCoffer));
+
+        vm.prank(newCoffer);
+        uint256 bondId = bondNft.mintCofferBond(holder1);
+        assertEq(bondNft.ownerOf(bondId), holder1);
     }
 }

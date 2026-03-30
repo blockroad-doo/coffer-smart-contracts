@@ -30,4 +30,13 @@ interface ICofferBondNft {
     /// @notice Emits EIP-4906 MetadataUpdate event for the given bond
     /// @param bondId The ID of the bond NFT whose metadata changed
     function emitMetadataUpdate(uint256 bondId) external;
+
+    /// @notice Registers a Coffer contract as authorized to mint bonds
+    /// @param coffer The address of the Coffer contract to register
+    function registerCoffer(address coffer) external;
+
+    /// @notice Returns whether a Coffer address is registered
+    /// @param coffer The address to check
+    /// @return True if the address is a registered Coffer
+    function isRegisteredCoffer(address coffer) external view returns (bool);
 }

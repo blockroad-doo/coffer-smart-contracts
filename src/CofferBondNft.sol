@@ -19,11 +19,17 @@ import {ICoffer} from "./interfaces/ICoffer.sol";
 contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
     error OnlyCofferCanBurn();
     error OnlyCofferCanEmit();
+    error OnlyFactory();
+    error OnlyRegisteredCoffer();
 
+    /// @notice Address of the CofferFactory that deployed this contract
+    address public immutable I_FACTORY;
     /// @notice Counter for generating unique bond IDs
     uint256 private sBondIdCounter;
     /// @notice Mapping from bond ID to the Coffer contract that issued it
     mapping(uint256 => address) public cofferOf;
+    /// @notice Mapping of Coffer addresses registered by the factory
+    mapping(address => bool) public isRegisteredCoffer;
 
     /// @notice Emitted when a new bond NFT is minted
     /// @param bondId The ID of the newly minted bond
@@ -33,13 +39,26 @@ contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
     /// @param bondId The ID of the burned bond
     event CofferBondTokenBurned(uint256 indexed bondId);
 
-    constructor() ERC721("Coffer Bond", "CB") {}
+    /// @notice Initializes the bond NFT with the factory that will register authorized Coffers
+    /// @param _factory The address of the CofferFactory deploying this contract
+    constructor(address _factory) ERC721("Coffer Bond", "CB") {
+        I_FACTORY = _factory;
+    }
+
+    /// @notice Registers a Coffer contract as authorized to mint bonds
+    /// @dev Only callable by the factory that deployed this contract
+    /// @param _coffer The address of the Coffer contract to register
+    function registerCoffer(address _coffer) external {
+        require(msg.sender == I_FACTORY, OnlyFactory());
+        isRegisteredCoffer[_coffer] = true;
+    }
 
     /// @notice Mints a bond NFT and records msg.sender as the issuing Coffer contract
     /// @notice Only the Coffer contract that minted a bond is authorized to burn it
     /// @param _holderAddress The address to receive the bond NFT
     /// @return bondId The ID of the newly minted bond
     function mintCofferBond(address _holderAddress) external returns (uint256) {
+        require(isRegisteredCoffer[msg.sender], OnlyRegisteredCoffer());
         uint256 bondId = ++sBondIdCounter;
         cofferOf[bondId] = msg.sender;
         _mint(_holderAddress, bondId);

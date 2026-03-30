@@ -44,7 +44,7 @@ contract CofferFactory {
 
     /// @notice Deploys shared contracts and the Coffer implementation for CWIA cloning
     constructor() {
-        CofferBondNft iCofferBondNft = new CofferBondNft();
+        CofferBondNft iCofferBondNft = new CofferBondNft(address(this));
         I_COFFER_BOND_NFT_ADDRESS = address(iCofferBondNft);
         CofferBondsRedeemedEarly iBondsRedeemedEarly = new CofferBondsRedeemedEarly();
         I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS = address(iBondsRedeemedEarly);
@@ -120,6 +120,8 @@ contract CofferFactory {
                 _exitAllowed,
                 _startingBalance
             );
+
+        CofferBondNft(I_COFFER_BOND_NFT_ADDRESS).registerCoffer(clone);
 
         emit CofferIssued(msg.sender, clone);
 
