@@ -681,7 +681,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// holderWithdrawFromExecution, which can be called repeatedly as funds arrive.
     /// @dev Holder's bond value is in wei, so we must convert it to gwei
     /// @param _bondId The ID of the bond NFT to withdraw
-    function holderWithdrawFromConsensus(uint256 _bondId) external payable { 
+    function holderWithdrawFromConsensus(uint256 _bondId) external payable {
         HolderConditions storage holder = sHolderConditions[_bondId];
 
         require(holder.bondMaturityValue != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
