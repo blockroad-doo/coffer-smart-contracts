@@ -70,7 +70,7 @@ contract CofferFactoryHandler is Test {
             ghostDeployedCoffers.push(predicted);
             ++ghostDeploymentCount;
         } catch {
-            // Duplicate (actor, pk1, pk2) — skip
+            // Duplicate (actor, pk1, pk2): skip
         }
     }
 
@@ -87,7 +87,7 @@ contract CofferFactoryHandler is Test {
         uint128 startingBalance
     ) external {
         address actor = actors[actorSeed % actors.length];
-        // Pass raw unclamped inputs — expected to revert
+        // Pass raw unclamped inputs: expected to revert
         vm.prank(actor);
         factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, safeTotalStake, exitAllowed, startingBalance);
         // Ghost state NOT updated

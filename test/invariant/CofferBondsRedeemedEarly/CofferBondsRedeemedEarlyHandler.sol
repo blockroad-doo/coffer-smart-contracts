@@ -100,7 +100,7 @@ contract CofferBondsRedeemedEarlyHandler is Test {
         if (ghostHasActiveClaim[actor]) return;
 
         vm.prank(actor);
-        // Will revert with NoPendingClaim() — absorbed by fail_on_revert = false
+        // Will revert with NoPendingClaim(): absorbed by fail_on_revert = false
         escrow.claim(payable(actor));
     }
 
@@ -117,7 +117,7 @@ contract CofferBondsRedeemedEarlyHandler is Test {
         amounts[0] = 1 ether;
 
         vm.prank(depositor);
-        // Will revert with DepositArrayLengthMismatch() — absorbed by fail_on_revert = false
+        // Will revert with DepositArrayLengthMismatch(): absorbed by fail_on_revert = false
         escrow.deposit{value: 1 ether}(holders, amounts);
     }
 

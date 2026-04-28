@@ -47,6 +47,30 @@ contract CofferMainOpsTest is BaseTest {
         assertEq(issueSize, 0);
     }
 
+    function test_Constructor_ExitNotAllowed_LargeBalance_IssueSizeMinusThirtyTwoEther() public {
+        uint128 largeStartingBalance = 256 ether;
+        address noExitCofferAddr = createCoffer(
+            validator,
+            bytes32(uint256(11)),
+            bytes16(uint128(21)),
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultSafeTotalStake,
+            false,
+            largeStartingBalance
+        );
+        Coffer noExitCoffer = Coffer(payable(noExitCofferAddr));
+
+        (uint128 issueSize,,,,,,,,,) = noExitCoffer.sValidatorConditions();
+
+        uint256 base = Penalty.addMaximumPenalty(largeStartingBalance, defaultSafeTotalStake, defaultMaxDuration / 384);
+        // exitAllowed = false reserves an extra 32 ether headroom on top of maxPenalty.
+        assertGt(base, 32 ether);
+        assertEq(issueSize, base - 32 ether);
+    }
+
     function test_Constructor_ExitNotAllowed_SetsAllValidatorConditions() public view {
         (
             uint128 issueSize,
@@ -288,7 +312,7 @@ contract CofferMainOpsTest is BaseTest {
         // Read current issueSize (reduced after bond purchase)
         (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
 
-        // Withdraw exactly issueSize — should succeed
+        // Withdraw exactly issueSize: should succeed
         vm.prank(validator);
         coffer.validatorWithdrawFromExecution(issueSize);
 

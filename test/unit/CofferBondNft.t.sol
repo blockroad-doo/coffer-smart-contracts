@@ -12,7 +12,7 @@ import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.s
  */
 contract CofferBondNftTest is BaseTest {
     // ========================================
-    // SETUP — standalone NFT with test as factory
+    // SETUP: standalone NFT with test as factory
     // ========================================
 
     function setUp() public override {
@@ -43,7 +43,7 @@ contract CofferBondNftTest is BaseTest {
     }
 
     // ========================================
-    // HAPPY CASES — mintCofferBond
+    // HAPPY CASES: mintCofferBond
     // ========================================
 
     function test_Mint_Success_ReturnsBondId() public {
@@ -78,7 +78,7 @@ contract CofferBondNftTest is BaseTest {
     }
 
     // ========================================
-    // HAPPY CASES — burnCofferBond
+    // HAPPY CASES: burnCofferBond
     // ========================================
 
     function test_Burn_Success_RemovesToken() public {
@@ -110,7 +110,7 @@ contract CofferBondNftTest is BaseTest {
     }
 
     // ========================================
-    // HAPPY CASES — ownerOf
+    // HAPPY CASES: ownerOf
     // ========================================
 
     function test_ownerOf_ReturnsCorrectOwner() public {
@@ -154,7 +154,7 @@ contract CofferBondNftTest is BaseTest {
     }
 
     // ========================================
-    // EIP-4906 — emitMetadataUpdate & supportsInterface
+    // EIP-4906: emitMetadataUpdate & supportsInterface
     // ========================================
 
     function test_EmitMetadataUpdate_Success_EmitsEvent() public {
@@ -224,7 +224,7 @@ contract CofferBondNftTest is BaseTest {
     }
 
     // ========================================
-    // ACCESS CONTROL — registerCoffer & mintCofferBond
+    // ACCESS CONTROL: registerCoffer & mintCofferBond
     // ========================================
 
     function test_Mint_Revert_UnregisteredCaller() public {

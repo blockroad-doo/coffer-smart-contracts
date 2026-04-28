@@ -81,13 +81,13 @@ contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
         _requireOwned(_bondId);
 
         address _cofferAddress = cofferOf[_bondId];
-        ICoffer cofferContract = ICoffer(_cofferAddress);
+        ICoffer coffer = ICoffer(_cofferAddress);
 
-        (uint128 bondMaturityValue, uint32 duration, uint32 startTimestamp, bool consensusWithdrawTriggered) =
-            cofferContract.sHolderConditions(_bondId);
+        // slither-disable-next-line unused-return
+        (uint128 bondMaturityValue, uint32 duration, uint32 startTimestamp,) = coffer.sHolderConditions(_bondId);
 
         string memory validatorPubKey =
-            Strings.toHexString(abi.encodePacked(cofferContract.iPublicKeyPart1(), cofferContract.iPublicKeyPart2()));
+            Strings.toHexString(abi.encodePacked(coffer.iPublicKeyPart1(), coffer.iPublicKeyPart2()));
 
         uint256 maturesAt = uint256(startTimestamp) + uint256(duration);
 
@@ -105,9 +105,7 @@ contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
             Strings.toString(maturesAt),
             ",\"maturityValue\":\"",
             Strings.toString(uint256(bondMaturityValue)),
-            "\",\"consensusWithdrawTriggered\":",
-            consensusWithdrawTriggered ? "true" : "false",
-            "}"
+            "\"}"
         );
 
         return string.concat("data:application/json;base64,", Base64.encode(bytes(json)));

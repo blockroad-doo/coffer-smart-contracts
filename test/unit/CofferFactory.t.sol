@@ -155,7 +155,7 @@ contract CofferFactoryTest is BaseTest {
     }
 
     // ========================================
-    // HAPPY CASES — createCoffer
+    // HAPPY CASES: createCoffer
     // ========================================
 
     function test_CreateCoffer_Success_EmitsCofferIssued() public {
@@ -324,7 +324,7 @@ contract CofferFactoryTest is BaseTest {
     }
 
     // ========================================
-    // TRIGGER EVERY REVERT — createCoffer
+    // TRIGGER EVERY REVERT: createCoffer
     // ========================================
 
     function test_CreateCoffer_Revert_MinDurationZero() public {
@@ -697,7 +697,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultSafeTotalStake,
-            true, // exitAllowed — so issueSize is computed from startingBalance
+            true, // exitAllowed, so issueSize is computed from startingBalance
             customBalance
         );
 

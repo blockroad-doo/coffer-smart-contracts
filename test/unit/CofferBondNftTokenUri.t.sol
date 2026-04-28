@@ -86,9 +86,6 @@ contract CofferBondNftTokenUriTest is BaseTest {
         assertTrue(
             _contains(json, string.concat('"maturityValue":"', Strings.toString(uint256(bondMaturityValue)), '"'))
         );
-
-        // Verify consensusWithdrawTriggered
-        assertTrue(_contains(json, '"consensusWithdrawTriggered":false'));
     }
 
     // ========================================

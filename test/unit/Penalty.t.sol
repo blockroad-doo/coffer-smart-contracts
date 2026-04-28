@@ -20,7 +20,7 @@ contract PenaltyTest is BaseTest {
     uint256 constant INITIAL_SLASHING_PENALTY_QUOTIENT = 4096;
     uint256 constant PROPORTIONAL_SLASHING_MULTIPLIER = 3;
     uint256 constant SLASHING_PENALTY_DURATION_IN_EPOCH = 8192;
-    uint256 constant BASE_REWARD = 40;
+    uint256 constant MISSED_ATTESTATION_FACTOR = 40;
     uint256 constant WEI_DECIMALS = 1e18;
     uint256 constant GWEI_DECIMALS = 1e9;
 
@@ -93,7 +93,7 @@ contract PenaltyTest is BaseTest {
         pure
         returns (uint256)
     {
-        return effectiveBalance * BASE_REWARD * epochs / Math.sqrt(safeTotalStake * GWEI_DECIMALS);
+        return effectiveBalance * MISSED_ATTESTATION_FACTOR * epochs / Math.sqrt(safeTotalStake * GWEI_DECIMALS);
     }
 
     /**

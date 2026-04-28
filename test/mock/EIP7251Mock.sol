@@ -40,9 +40,9 @@ uint256 constant CONSOLIDATION_QUEUE_ENTRY_SIZE = 116;
  *         Each consolidation request contains two 48-byte pubkeys (source + target).
  *         Queue entries use 4 slots:
  *           slot+0: msg.sender (address)
- *           slot+1: calldataload(0)   — source pubkey bytes [0:32]
- *           slot+2: calldataload(32)  — source pubkey bytes [32:48] + target pubkey bytes [0:16]
- *           slot+3: calldataload(64)  — target pubkey bytes [16:48] + zero-padding
+ *           slot+1: calldataload(0),   source pubkey bytes [0:32]
+ *           slot+2: calldataload(32),  source pubkey bytes [32:48] + target pubkey bytes [0:16]
+ *           slot+3: calldataload(64),  target pubkey bytes [16:48] + zero-padding
  *
  * @dev    Deploy this at the canonical address 0x0000BBdDc7CE488642fb579F8B00f3a590007251
  *         in your test setup using vm.etch().
@@ -143,9 +143,9 @@ contract EIP7251Mock {
 
         // Store:
         //   slot+0: msg.sender
-        //   slot+1: calldataload(0)   — source pubkey [0:32]
-        //   slot+2: calldataload(32)  — source pubkey [32:48] + target pubkey [0:16]
-        //   slot+3: calldataload(64)  — target pubkey [16:48] + zero-padding
+        //   slot+1: calldataload(0),   source pubkey [0:32]
+        //   slot+2: calldataload(32),  source pubkey [32:48] + target pubkey [0:16]
+        //   slot+3: calldataload(64),  target pubkey [16:48] + zero-padding
         assembly {
             sstore(queueSlot, caller())
             sstore(add(queueSlot, 1), calldataload(0))

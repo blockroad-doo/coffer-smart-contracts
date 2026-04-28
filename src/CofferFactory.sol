@@ -63,7 +63,7 @@ contract CofferFactory {
     /// @param _minimumValueToAccept Minimum value a holder must deposit
     /// @param _safeTotalStake Safe total network stake for penalty calculation
     /// @param _exitAllowed Whether holders can initiate validator exits
-    /// @param _startingBalance Validator's starting effective balance (32–2048 ETH per EIP-7251)
+    /// @param _startingBalance Validator's starting consensus balance (32–2048 ETH per EIP-7251)
     /// @return The address of the newly deployed Coffer contract
     function createCoffer(
         bytes32 _publicKeyPart1,

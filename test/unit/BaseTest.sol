@@ -55,8 +55,6 @@ abstract contract BaseTest is Test {
     string constant ERROR_INVALID_RATE = "InvalidRate()";
     string constant ERROR_VALIDATOR_NOT_ACTIVE = "ValidatorIsNotActive()";
     string constant ERROR_VERSION_MISMATCH = "ValidatorConditionsVersionMismatch()";
-    string constant ERROR_CONSENSUS_WITHDRAW_NOT_POSSIBLE =
-        "HolderConsensusWithdrawNotPossibleContractHasEnoughBalance()";
     string constant ERROR_HOLDER_DOES_NOT_EXIST = "HolderDoesNotExistOrAlreadyWithdrawnValue()";
     string constant ERROR_TIME_NOT_EXPIRED = "HoldersTimeHasNotExpiredYet()";
     string constant ERROR_HOLDER_CANNOT_BE_VALIDATOR = "HolderCannotBeValidator()";
@@ -329,15 +327,6 @@ abstract contract BaseTest is Test {
     }
 
     // ========================================
-    // HELPER FUNCTIONS - EVENT ASSERTIONS
-    // ========================================
-
-    function expectBondBoughtEvent(address holder, uint256 bondId, uint128 bondMaturityValue, uint32 duration) public {
-        vm.expectEmit(true, true, true, true);
-        emit CofferEvents.BondBought(holder, bondId, bondMaturityValue, duration);
-    }
-
-    // ========================================
     // EIP7002 MOCK HELPER FUNCTIONS
     // ========================================
 
@@ -493,7 +482,12 @@ interface CofferFactoryEvents {
 
 interface CofferEvents {
     event BondBought(
-        address indexed holderAddress, uint256 indexed bondId, uint128 indexed bondMaturityValue, uint32 duration
+        address indexed holderAddress,
+        uint256 indexed bondId,
+        uint128 indexed bondMaturityValue,
+        uint32 duration,
+        uint128 principal,
+        uint32 interestRate
     );
     event HolderWithdrawFromExecutionSuccess(address indexed holderAddress, uint256 indexed bondId);
     event HolderPartialWithdrawFromExecutionSuccess(
@@ -502,7 +496,7 @@ interface CofferEvents {
         uint128 valueWithdrawn,
         uint128 remainingBondMaturityValue
     );
-    event HolderWithdrawFromConsensusSuccess(
+    event HolderWithdrawFromConsensusClosed(
         address indexed holderAddress, uint256 indexed bondId, uint128 value, bool indexed isFullExit
     );
     event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId);

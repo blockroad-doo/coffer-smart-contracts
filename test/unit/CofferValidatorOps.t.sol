@@ -36,7 +36,7 @@ contract CofferValidatorOpsTest is BaseTest {
     // HELPERS
     // ========================================
 
-    /// @dev Creates coffer, sets available amount, buys a bond — returns (bondId, amountWithInterest)
+    /// @dev Creates coffer, sets available amount, buys a bond, returns (bondId, amountWithInterest)
     function _setupSingleBond(uint128 available, uint128 bondAmount, uint32 duration)
         internal
         returns (uint256 bondId, uint128 amountWithInterest)
@@ -114,7 +114,7 @@ contract CofferValidatorOpsTest is BaseTest {
     function test_RedeemBondsEarly_BeforeMaturity_Success() public {
         (uint256 bondId, uint128 amtOwed) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
 
-        // No time advancement — bond hasn't matured, but redeemBondsEarly has no time check
+        // No time advancement: bond hasn't matured, but redeemBondsEarly has no time check
         vm.deal(cofferAddr, amtOwed);
 
         vm.prank(validator);
@@ -129,12 +129,12 @@ contract CofferValidatorOpsTest is BaseTest {
         // Advance past maturity so consensus withdrawal is allowed
         advanceTime(ONE_MONTH + 1);
 
-        // Holder initiates consensus withdrawal (sets consensusWithdrawTriggered = true)
+        // Holder initiates consensus withdrawal (sets consensusWithdrawClosed = true)
         uint256 fee = getWithdrawalFee();
         vm.prank(holder1);
         coffer.holderWithdrawFromConsensus{value: fee}(bondId);
 
-        // Validator redeems early — should clear the consensus reservation
+        // Validator redeems early: should clear the consensus reservation
         vm.deal(cofferAddr, amtOwed);
         vm.prank(validator);
         uint256[] memory ids = new uint256[](1);
@@ -147,18 +147,21 @@ contract CofferValidatorOpsTest is BaseTest {
         assertEq(bonds, 0); // outstanding bonds cleared
     }
 
-    function test_RedeemBondsEarly_RestoresState() public {
+    function test_RedeemBondsEarly_DoesNotRestoreIssueSize() public {
         (uint256 bondId,) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
         vm.deal(cofferAddr, 10 ether);
+
+        (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
 
         vm.prank(validator);
         uint256[] memory ids = new uint256[](1);
         ids[0] = bondId;
         coffer.redeemBondsEarly(ids);
 
-        (uint128 issueSize,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
+        (uint128 issueSizeAfter,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 0);
-        assertEq(issueSize, 10 ether); // fully restored
+        // C-1: issueSize is not restored on bond settlement.
+        assertEq(issueSizeAfter, issueSizeBefore);
     }
 
     function test_RedeemBondsEarly_EmitsEvent() public {
@@ -372,7 +375,7 @@ contract CofferValidatorOpsTest is BaseTest {
     function test_ChangeInterestRate_DecreaseRate_WithBonds_Success() public {
         _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
 
-        uint32 newRate = 2e6; // 2% — decrease is allowed with bonds
+        uint32 newRate = 2e6; // 2%, decrease is allowed with bonds
         vm.prank(validator);
         coffer.changeInterestRate(newRate);
 
@@ -736,7 +739,7 @@ contract CofferValidatorOpsTest is BaseTest {
     }
 
     // ========================================
-    // changeIssueSize / changeSafeTotalStake — decrease with bonds
+    // changeIssueSize / changeSafeTotalStake: decrease with bonds
     // ========================================
 
     function test_ChangeIssueSize_DecreaseWithBonds_Success() public {
@@ -896,7 +899,7 @@ contract CofferValidatorOpsTest is BaseTest {
         (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(issueSize, 0);
 
-        // Fund contract and withdraw — no bonds, so no issueSize check
+        // Fund contract and withdraw: no bonds, so no issueSize check
         vm.deal(cofferAddr, 5 ether);
 
         vm.prank(validator);
@@ -910,7 +913,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
         (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
 
-        // Validator sends ETH via receive() — issueSize increases
+        // Validator sends ETH via receive(): issueSize increases
         vm.prank(validator);
         (bool success,) = cofferAddr.call{value: 3 ether}("");
         assertTrue(success);

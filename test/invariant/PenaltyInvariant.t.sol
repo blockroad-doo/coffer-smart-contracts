@@ -61,7 +61,7 @@ contract PenaltyWrapper {
     //                 roundTripFailures++;
     //             }
     //         } catch {
-    //             // removeMaximumPenalty reverted (arithmetic overflow) — count as failure
+    //             // removeMaximumPenalty reverted (arithmetic overflow): count as failure
     //             roundTripFailures++;
     //         }
     //     }
@@ -87,7 +87,7 @@ contract PenaltyInvariantTest is Test {
     uint256 constant INITIAL_SLASHING_PENALTY_QUOTIENT = 4096;
     uint256 constant PROPORTIONAL_SLASHING_MULTIPLIER = 3;
     uint256 constant SLASHING_PENALTY_DURATION_IN_EPOCH = 8192;
-    uint256 constant BASE_REWARD = 40;
+    uint256 constant MISSED_ATTESTATION_FACTOR = 40;
     uint256 constant WEI_DECIMALS = 1e18;
     uint256 constant GWEI_DECIMALS = 1e9;
 
@@ -117,7 +117,7 @@ contract PenaltyInvariantTest is Test {
     }
 
     // // ========================================
-    // // FUZZ TEST #1: Round-trip — remove undoes add
+    // // FUZZ TEST #1: Round-trip, remove undoes add
     // // ========================================
 
     // function testFuzz_RoundTrip_RemoveUndoesAdd(uint128 eb, uint32 s, uint32 n) public pure {

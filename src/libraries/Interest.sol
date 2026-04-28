@@ -12,6 +12,11 @@ library Interest {
     /// @notice Function to calculate the interest based on the amount, duration, and interest rate
     /// @notice We use simple interest calculation based on time duration to calculate the interest
     /// @notice The interest is calculated as: (amount * interest rate * duration) / (RATE_DIVISOR * SECONDS_IN_YEAR)
+    /// @notice Uses integer division, so the result is floor(amount * rate * duration / (MAX_RATE * SECONDS_IN_YEAR)).
+    /// @notice Truncation rounds in the validator's favor. The maximum loss is 1 wei per bond, and dust-sized
+    /// inputs may truncate to zero.
+    /// @notice The exact maturity value is readable on-chain via sHolderConditions(bondId).bondMaturityValue before
+    /// the holder commits to purchase.
     /// @param _amount The amount for which interest is to be calculated
     /// @param _duration The duration for which interest is to be calculated
     /// @param _rate The yearly interest rate to be applied, should be in the range (0, 1e8]

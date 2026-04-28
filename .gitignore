@@ -12,6 +12,10 @@ snapshots/
 # Docs
 docs/
 TODO
+TODO.md
+answers_for_audit.txt
+changes_since_last_quote.md
+report_responses.pdf
 
 # Dotenv file
 .env

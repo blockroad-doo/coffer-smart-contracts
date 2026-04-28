@@ -61,7 +61,7 @@ contract CofferInvariantTest is BaseTest {
             totalBondAmounts += uint256(amount);
         }
 
-        // Sum must fit in uint128 — no overflow/underflow corruption
+        // Sum must fit in uint128: no overflow/underflow corruption
         assertTrue(
             uint256(issueSize) + totalBondAmounts <= type(uint128).max,
             "issueSize + sum(bond amounts) must fit in uint128"
@@ -163,6 +163,47 @@ contract CofferInvariantTest is BaseTest {
                 assertGt(amount, 0, "Pending consensus bond must have non-zero on-chain amount");
             }
         }
+    }
+
+    /// @dev Front-run griefing fix invariant. After every handler call, the contract balance
+    /// must cover the sum of bondMaturityValue for every bond with consensusWithdrawClosed
+    /// set. validatorWithdrawFromExecution's gate `balance >= amount + totalConsensusReserved`
+    /// enforces this property: after the cover-in-place fallback bumps totalConsensusReserved,
+    /// the validator cannot drain principal that has been logically reserved for a holder.
+    function invariant_validatorCannotDrainConsensusReservedFunds() public view {
+        uint256 sumLocked = 0;
+        uint256 len = handler.getActiveBondIdsLength();
+        for (uint256 i = 0; i < len; i++) {
+            uint256 bondId = handler.getActiveBondIdAt(i);
+            (uint128 amount,,, bool flag) = coffer.sHolderConditions(bondId);
+            if (flag) {
+                // Only count bonds whose ETH is logically present in the contract:
+                // either the cover-in-place fallback fired (already there) or the
+                // EIP-7002 path's simulated arrival has delivered the ETH.
+                bool ethInContract = !isPendingEip7002Arrival(bondId);
+                if (ethInContract) {
+                    sumLocked += uint256(amount);
+                }
+            }
+        }
+        assertGe(
+            address(coffer).balance,
+            sumLocked,
+            "Validator must not drain balance below sum of consensusWithdrawClosed bondMaturityValues"
+        );
+    }
+
+    /// @dev True iff the bond is currently waiting on simulated EIP-7002 ETH arrival.
+    /// For these bonds, the consensusWithdrawClosed flag is set on-chain but the ETH
+    /// has not yet arrived from the consensus layer, so the "balance covers reserved"
+    /// invariant only applies once the ETH lands.
+    function isPendingEip7002Arrival(uint256 bondId) internal view returns (bool) {
+        uint256 plen = handler.getPendingWithdrawalsLength();
+        for (uint256 i = 0; i < plen; i++) {
+            (uint256 pBondId,,,) = handler.ghostPendingWithdrawals(i);
+            if (pBondId == bondId) return true;
+        }
+        return false;
     }
 
     // ══════════════════════════════════════════════════════════════════════

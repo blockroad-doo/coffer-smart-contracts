@@ -116,7 +116,7 @@ contract CofferHandler is Test {
     function _extractBondIdFromLogs() private returns (uint256 bondId) {
         Vm.Log[] memory entries = vm.getRecordedLogs();
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("BondBought(address,uint256,uint128,uint32)")) {
+            if (entries[i].topics[0] == keccak256("BondBought(address,uint256,uint128,uint32,uint128,uint32)")) {
                 return uint256(entries[i].topics[2]);
             }
         }
@@ -211,7 +211,7 @@ contract CofferHandler is Test {
         (uint128 amountAfter,,,) = coffer.sHolderConditions(bondId);
 
         if (amountAfter == 0) {
-            // Full withdrawal — remove from active
+            // Full withdrawal: remove from active
             ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
             ghostActiveBondIds.pop();
             ghostIsBondActive[bondId] = false;
@@ -220,7 +220,7 @@ contract CofferHandler is Test {
             ghostHasPendingConsensusWithdrawal[bondId] = false;
             ++ghostTotalBondsWithdrawnExecution;
         } else {
-            // Partial withdrawal — update ghost amount, keep active
+            // Partial withdrawal: update ghost amount, keep active
             uint128 withdrawn = amount - amountAfter;
             ghostBondAmount[bondId] -= withdrawn;
         }
@@ -243,10 +243,7 @@ contract CofferHandler is Test {
         // Check maturity
         if (uint256(duration) + uint256(startTimestamp) > block.timestamp) return;
 
-        // Must NOT have enough balance (opposite of execution path)
-        if (address(coffer).balance >= amount) return;
-
-        // Prevent double-submission
+        // Prevent double-submission (mirrors the on-chain consensusWithdrawClosed guard)
         if (ghostHasPendingConsensusWithdrawal[bondId]) return;
 
         // Get EIP-7002 fee
@@ -258,17 +255,34 @@ contract CofferHandler is Test {
         // Check holder can afford the fee
         if (holder.balance < fee) return;
 
+        // Pre-determine which path the call will take. The on-chain function evaluates
+        //   address(this).balance - msg.value > bondMaturityValue + totalConsensusReserved - 1
+        // which simplifies to: pre-call balance >= amount + reservedBefore.
+        // - true  → cover-in-place fallback (no EIP-7002 request, ETH already in contract)
+        // - false → EIP-7002 path (request issued, ETH arrives later via simulated arrival)
+        uint256 preCallBalance = address(coffer).balance;
+        uint128 reservedBefore = coffer.totalConsensusReserved();
+        bool fallbackPath = preCallBalance >= uint256(amount) + uint256(reservedBefore);
+
         vm.prank(holder);
         coffer.holderWithdrawFromConsensus{value: fee}(bondId);
 
-        // Push pending withdrawal
-        ghostPendingWithdrawals.push(
-            PendingWithdrawal({
-                bondId: bondId, amount: amount, arrivalTime: block.timestamp + EXIT_QUEUE_DELAY, holderAddress: holder
-            })
-        );
+        // Both paths set consensusWithdrawClosed on-chain.
         ghostHasPendingConsensusWithdrawal[bondId] = true;
         ++ghostTotalBondsWithdrawnConsensus;
+
+        if (!fallbackPath) {
+            // EIP-7002 path: a consensus request was issued; ETH will arrive later.
+            ghostPendingWithdrawals.push(
+                PendingWithdrawal({
+                    bondId: bondId,
+                    amount: amount,
+                    arrivalTime: block.timestamp + EXIT_QUEUE_DELAY,
+                    holderAddress: holder
+                })
+            );
+        }
+        // Fallback path: the ETH is already in the contract; no arrival queueing needed.
     }
 
     function handlerSimulateEthArrival() external {
@@ -357,7 +371,7 @@ contract CofferHandler is Test {
             vm.prank(validator);
             coffer.validatorWithdrawFromExecution(amt);
         } else {
-            // No bonds — free withdrawal
+            // No bonds: free withdrawal
             uint128 amt = uint128(bound(amount, 1, contractBalance));
 
             vm.prank(validator);

@@ -144,4 +144,5 @@ jobs:
         run: >
           forge coverage
           --no-match-coverage "^test/|^script/"
+          --no-match-test "MarginalRefundBranchGas"
           --report summary
