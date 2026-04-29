@@ -433,7 +433,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
             totalValue += value;
 
             if (holder.consensusWithdrawClosed) {
-                totalConsensusReserved -= holder.bondMaturityValue;
+                totalConsensusReserved -= value;
             }
 
             delete sHolderConditions[bondId];

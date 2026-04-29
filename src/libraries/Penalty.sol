@@ -15,23 +15,23 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 library Penalty {
     /// @dev Snapshots Ethereum consensus spec MIN_SLASHING_PENALTY_QUOTIENT
     ///      (post-Electra value, 4096). Historical forks have changed this parameter.
-    ///      See README "Minor Holder Risk" for fork-risk disclosure.
+    ///      See README "Risk Factors" for fork-risk disclosure.
     uint256 internal constant INITIAL_SLASHING_PENALTY_QUOTIENT = 4096;
 
     /// @dev Snapshots Ethereum consensus spec PROPORTIONAL_SLASHING_MULTIPLIER.
     ///      Historical values: 1 (Phase 0), 2 (Altair), 3 (Bellatrix and later).
-    ///      See README "Minor Holder Risk" for fork-risk disclosure.
+    ///      See README "Risk Factors" for fork-risk disclosure.
     uint256 internal constant PROPORTIONAL_SLASHING_MULTIPLIER = 3;
 
     /// @dev Snapshots Ethereum consensus spec EPOCHS_PER_SLASHINGS_VECTOR
-    ///      (8192 epochs, approximately 36 days). See README "Minor Holder Risk" for fork-risk disclosure.
+    ///      (8192 epochs, approximately 36 days). See README "Risk Factors" for fork-risk disclosure.
     uint256 internal constant SLASHING_PENALTY_DURATION_IN_EPOCH = 8192;
 
     /// @dev Sum of penalty-bearing attestation flag weights from Ethereum consensus spec:
     ///      TIMELY_SOURCE_WEIGHT (14) + TIMELY_TARGET_WEIGHT (26) = 40.
     ///      TIMELY_HEAD is not penalized on miss (per get_flag_index_deltas).
     ///      BASE_REWARD_FACTOR (64) and WEIGHT_DENOMINATOR (64) cancel in closed form.
-    ///      See README "Minor Holder Risk" for fork-risk disclosure.
+    ///      See README "Risk Factors" for fork-risk disclosure.
     uint256 internal constant MISSED_ATTESTATION_FACTOR = 40;
     uint256 internal constant WEI_DECIMALS = 1e18;
     uint256 internal constant GWEI_DECIMALS = 1e9;
@@ -41,7 +41,7 @@ library Penalty {
     /// SLASHING_PENALTY_DURATION_IN_EPOCH window (currently 8192 epochs, roughly 36 days). In a large correlated
     /// slashing event the true consensus-layer penalty saturates at the full effective balance, so the value
     /// returned here is an underestimate and issueSize provisioned against it can sit above the validator's actual
-    /// post-penalty balance. See README "Minor Holder Risk" for correlated-slashing disclosure.
+    /// post-penalty balance. See README "Risk Factors" for correlated-slashing disclosure.
     /// @param balance Represented in wei.
     /// @param safeTotalStake Safe total network stake for penalty calculation
     /// @return Total slashing penalty amount

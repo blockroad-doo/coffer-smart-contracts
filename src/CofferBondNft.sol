@@ -70,6 +70,7 @@ contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
     /// @param _bondId The ID of the bond NFT to burn
     function burnCofferBond(uint256 _bondId) external {
         require(msg.sender == cofferOf[_bondId], OnlyCofferCanBurn());
+        cofferOf[_bondId] = address(0);
         _burn(_bondId);
         emit CofferBondTokenBurned(_bondId);
     }
