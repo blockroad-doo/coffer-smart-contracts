@@ -198,7 +198,7 @@ contract CofferHandler is Test {
         if (amount == 0) return;
 
         // Check maturity
-        // forge-lint: disable-next-line(block-timestamp)
+        // forge-lint: disable-next-line
         if (uint256(duration) + uint256(startTimestamp) > block.timestamp) return;
 
         // Allow both full and partial paths
@@ -242,7 +242,7 @@ contract CofferHandler is Test {
         if (amount == 0) return;
 
         // Check maturity
-        // forge-lint: disable-next-line(block-timestamp)
+        // forge-lint: disable-next-line
         if (uint256(duration) + uint256(startTimestamp) > block.timestamp) return;
 
         // Prevent double-submission (mirrors the on-chain consensusWithdrawClosed guard)
@@ -298,7 +298,7 @@ contract CofferHandler is Test {
             uint256 idx = i - 1;
             PendingWithdrawal memory pw = ghostPendingWithdrawals[idx];
 
-            // forge-lint: disable-next-line(block-timestamp)
+            // forge-lint: disable-next-line
             if (block.timestamp >= pw.arrivalTime) {
                 // Deliver ETH to coffer
                 vm.deal(address(coffer), address(coffer).balance + pw.amount);
