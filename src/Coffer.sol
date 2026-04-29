@@ -613,8 +613,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         require(msg.sender == ICofferBondNft(iCofferBondNftAddress()).ownerOf(_bondId), CallerIsNotHolder());
 
         // Has time passed so holder can withdraw
-        // solhint-disable-next-line gas-strict-inequalities
         // forge-lint: disable-next-line
+        // solhint-disable-next-line gas-strict-inequalities
         require(holder.duration + holder.startTimestamp <= block.timestamp, HoldersTimeHasNotExpiredYet());
 
         uint128 valueToWithdraw;
@@ -688,8 +688,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         require(holder.bondMaturityValue != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
         require(msg.sender == ICofferBondNft(iCofferBondNftAddress()).ownerOf(_bondId), CallerIsNotHolder());
         require(!holder.consensusWithdrawClosed, ConsensusWithdrawAlreadyClosed());
-        // solhint-disable-next-line gas-strict-inequalities
+
         // forge-lint: disable-next-line
+        // solhint-disable-next-line gas-strict-inequalities
         require(holder.duration + holder.startTimestamp <= block.timestamp, HoldersTimeHasNotExpiredYet());
 
         // solhint-disable-next-line gas-strict-inequalities
