@@ -385,12 +385,9 @@ counter and consuming `issueSize` capacity indefinitely.
 
 ## Risk Factors
 
-### safeTotalStake Drift
+### `safeTotalStake` Drift
 
-If the stake of all validators on the network drops below `safeTotalStake`, penalties will be calculated slightly lower than they should be, so buying a bond from that validator will become slightly less safe. The holder is taking an extremely minor risk for a few reasons:
-1. When a validator is penalized, both the holder and the validator lose
-2. Because of the churn limit, if the total stake of the network is dropping, it drops very slowly
-3. Even if the worst things happen, the holder loses a very small amount of ETH.
+If the stake of all validators on the network drops below `safeTotalStake`, penalties will be calculated slightly lower than they should be. This makes buying a bond from that validator slightly less safe. The risk is extremely minor for two reasons. First, when a validator is penalized, both the holder and the validator lose money, so the validator has no incentive to cause such an event. Second, because of the churn limit, the total stake of the network can only drop very slowly.
 
 ### Protocol-Upgrade Risk for Long-Duration Bonds
 
@@ -403,13 +400,12 @@ Penalty calculations in `Penalty.sol` snapshot four consensus-layer parameters (
 1. **Total loss, validator stake depleted**: if the leak reduces the validator's consensus balance to zero or below the sum of outstanding bond obligations plus accrued penalties, there is nothing to recover on the consensus layer. Both validator and holders lose their stake.
 2. **Partial recovery with race**: if some balance remains but is insufficient to cover all outstanding bonds, holders compete with each other and with the validator (via `validatorWithdrawFromExecution`, bounded by `issueSize`) for whatever ETH sits on the execution layer. First callers of `holderWithdrawFromExecution` recover in full; later callers recover partially or not at all.
 3. **Consensus-locked residue**: when `exitAllowed = false` and the partial consensus withdrawal caps at `consensus_balance - 32 ETH` (the active-validator floor), any remainder of `bondMaturityValue` stays on the consensus layer. The single-shot guard on `holderWithdrawFromConsensus` prevents re-triggering, so the holder must wait for the validator to voluntarily initiate a partial withdrawal, to exit the validator, or (for 0x01 credentials) for auto-sweeping of rewards above 32 ETH. Compounding (0x02) validators have no auto-sweep until effective balance exceeds 2048 ETH.
-4. **Combination of outcomes 2 and 3**: under a leak that also leaves the validator in the `exitAllowed = false` unsafe band, a holder may recover some balance on execution (outcome 2) and have the remainder stuck on consensus (outcome 3).
 
 The single-shot guard on `holderWithdrawFromConsensus` is intentional: it prevents a matured holder from repeatedly pulling a compounding validator's rewards down to 32 ETH. The trade-off is the regime above. Sustained non-finalization has never occurred on Ethereum mainnet post-Merge; triggering it requires more than one-third of stake offline from a cross-cutting cause. Holders should factor this regime-change tail risk into their safety evaluation.
 
 ### Correlated Slashing
 
-The `slashing()` function in `Penalty.sol` computes the correlation-penalty term as `balance * balance * PROPORTIONAL_SLASHING_MULTIPLIER / safeTotalStake`. This matches the Ethereum consensus-layer formula **only when this validator is the sole slashed validator within the `SLASHING_PENALTY_DURATION_IN_EPOCH` window** (currently 8192 epochs, roughly 36 days). The true consensus-layer formula is `effective_balance * min(sum(slashings) * 3, total_balance) / total_balance`, which saturates at the full effective balance once `sum(slashings) * 3` reaches `total_balance`. In a large correlated slashing event the realized penalty can approach the validator's full effective balance, several orders of magnitude above the Coffer formula's estimate. At saturation `issueSize` provisioning sits well above the validator's real post-penalty balance, and the Coffer may be unable to honour all outstanding bonds. No on-chain bound is offered for this tail because any finite bounded choice would be arbitrary, and bounding by the full effective balance would set `issueSize = 0` in every deploy and make the protocol unusable. Large-scale correlated slashing has not occurred on post-Merge Ethereum mainnet; the largest correlated events in the public record involve tens of validators, far below the saturation threshold of roughly one-third of total stake. Holders of long-duration bonds should factor this tail risk into their safety evaluation.
+The `slashing()` function in `Penalty.sol` computes the correlation-penalty term as `balance * balance * PROPORTIONAL_SLASHING_MULTIPLIER / safeTotalStake`. This matches the Ethereum consensus-layer formula **only when this validator is the sole slashed validator within the `SLASHING_PENALTY_DURATION_IN_EPOCH` window** (currently 8192 epochs, roughly 36 days). The true consensus-layer formula is `effective_balance * min(sum(slashings) * 3, total_balance) / total_balance`, which saturates at the full effective balance once `sum(slashings) * 3` reaches `total_balance`. In a large correlated slashing event the realized penalty can approach the validator's full effective balance, several orders of magnitude above the Coffer formula's estimate. At saturation `issueSize` provisioning sits well above the validator's real post-penalty balance, and the Coffer may be unable to honour all outstanding bonds. No on-chain bound is offered for this tail because any finite bounded choice would be arbitrary, and bounding by the full effective balance would set `issueSize = 0` in every deploy and make the protocol unusable. Large-scale correlated slashing has not occurred on post-Merge Ethereum mainnet; the largest correlated events in the public record involve tens of validators. Holders of long-duration bonds should factor this tail risk into their safety evaluation.
 
 ---
 
@@ -452,7 +448,7 @@ The `slashing()` function in `Penalty.sol` computes the correlation-penalty term
 
 - **issueSize conservation**: `issueSize + sum(bondMaturityValues) = totalIssuableCapacity` (capacity = cumulative penalty-adjusted deposits + execution-layer receive() deposits minus explicit issueSize decreases)
 - **receive() issueSize top-up**: `receive()` increases `issueSize` by `msg.value`. Beacon chain withdrawals (EIP-4895) credit balance without code execution and do not trigger `receive()`, so all `receive()` invocations are execution-layer transfers with real ETH backing
-- **Parameter monotonicity**: While `outstandingBonds > 0`: issueSize, interestRate, safeTotalStake, maximumDuration can only decrease; exitAllowed can only go false→true
+- **Parameter monotonicity**: While `outstandingBonds > 0`: `issueSize`, `interestRate`, `safeTotalStake`, `maximumDuration` can only decrease; `exitAllowed` can only go `false`→`true`
 - **Validator execution withdrawal bound**: Validator can withdraw from execution up to `issueSize` while preserving `totalConsensusReserved`; unrestricted when `outstandingBonds == 0`
 - **outstandingBonds accuracy**: Equals the number of bonds with `bondMaturityValue > 0`
 - **Bond-NFT bijection**: Each active bond maps 1:1 to a live NFT (mint on buy, burn on full withdrawal/redeem)
