@@ -45,7 +45,7 @@ contract DeployCofferFactory is Script {
         address nftAddress = cofferFactory.I_COFFER_BOND_NFT_ADDRESS();
         console.log("CofferBondNft deployed at:", nftAddress);
         // solhint-disable-next-line gas-small-strings
-        updateEnvVariable("HOODI_COFFER_RECEIVABLE_NFT_ADDRESS", addressToString(nftAddress));
+        updateEnvVariable("HOODI_COFFER_BOND_NFT_ADDRESS", addressToString(nftAddress));
 
         address implAddress = cofferFactory.I_COFFER_IMPLEMENTATION();
         // solhint-disable-next-line gas-small-strings

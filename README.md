@@ -45,7 +45,7 @@
 
 ## Quick Overview
 
-Coffer is a **decentralized and trustless peer-to-pool protocol** that allows validators to issue bonds backed by their stake, enabling ETH holders to earn interest on their ETH securely. A holder receives a fixed rate from the validator and locks in their ETH for an agreed-upon period. At maturity, the holder can claim their bond trustlessly. This enables validators to unlock liquidity from a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted, allowing the holder to transfer their bond to a third party.
+Coffer is a **decentralized and trustless peer-to-pool protocol** that allows validators to issue bonds backed by their stake, enabling ETH holders to earn interest on their ETH securely. A holder receives a fixed rate from the validator and commits to that rate for an agreed-upon period. At maturity, the holder can claim their bond trustlessly. This enables validators to unlock liquidity from a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted, allowing the holder to transfer their bond to a third party.
 
 ---
 
@@ -101,15 +101,21 @@ The remaining parameters (interest rate, durations, minimum value, safe total st
 
 ### Roles
 
-#### **Validators**
-- Considered the owner of the contract
-- Full control over Coffer parameters
+Three roles. The Validator is the owner of a given `Coffer` clone (using `Ownable2Step`; `renounceOwnership` is disabled). The Holder is the current owner of a given bond NFT, with authority scoped to that `bondId`. Anyone else can only call the entrypoints listed below.
 
-#### **Holders**
-Can call the following functions:
-- `buyBond(uint32, uint32) external payable`
-- `holderWithdrawFromExecution(uint256) external`
-- `holderWithdrawFromConsensus(uint256) external payable`
+**Holder** (current owner of `bondId`):
+- `Coffer.holderWithdrawFromExecution(uint256)`
+- `Coffer.holderWithdrawFromConsensus(uint256)`
+- `CofferBondsRedeemedEarly.claim(address payable)` (when there is a pending claim)
+
+**Anyone**:
+- `Coffer.buyBond(uint32, uint32)` (rejects the validator)
+- `Coffer.receive()` (any ETH transfer credits `issueSize`)
+- `CofferFactory.createCoffer(...)` (caller becomes the validator of the new Coffer)
+- `CofferFactory.predictCofferAddress(...)` (view)
+- `CofferBondsRedeemedEarly.deposit(...)` (no access control by design)
+
+**Validator**: every other state-changing function on `Coffer`. Protocol-internal calls between contracts (NFT mint/burn/metadata-update, factory registration) are gated to the issuing/owning contract and are not user-callable.
 
 ---
 
@@ -173,17 +179,17 @@ forge script script/CreateCoffer.s.sol \
   --private-key <VALIDATOR_PRIVATE_KEY>
 ```
 
-> **Note:** `ffi = true` must be set in `foundry.toml` (already configured).
+> **Note:** Both deployment scripts use FFI (`sed`) to write back to `.env`. `ffi` is shipped commented out in `foundry.toml` (line 7) for safety; uncomment `ffi = true` before running either script.
 
 ### Invariant Testing
 
 Invariant tests (also called stateful fuzz tests) explore random sequences of contract calls to verify that critical properties always hold, no matter what order or combination of actions occurs.
 
-There are five invariant suites: `Coffer`, `CofferFactory`, `CofferBondNft`, `CofferBondsRedeemedEarly`, and `Penalty`.
+There are six invariant suites: `Coffer`, `CofferFactory`, `CofferBondNft`, `CofferBondsRedeemedEarly`, `Interest`, and `Penalty`.
 
 #### Enabling invariant tests
 
-By default the `no_match_path` line in `foundry.toml` (line 8) is **commented out**, so invariant tests are included in a normal `forge test` run. To exclude them (e.g. for faster iteration), uncomment that line.
+By default the `no_match_path` line in `[profile.default]` of `foundry.toml` is **active**, which excludes invariant and integration tests from a normal `forge test` run. To include them, either run with an explicit path filter (e.g. `forge test --mp "test/invariant/*"`) or comment that line out.
 
 #### Non-strict vs strict mode
 
@@ -196,13 +202,13 @@ Each suite that includes intentionally-reverting handler functions (invalid inpu
 
 #### Running non-strict mode
 
-The default `[invariant]` section in `foundry.toml` has `fail_on_revert = true`. To run non-strict tests, change it to `false`:
+The default `[invariant]` section in `foundry.toml` already has `fail_on_revert = false`, so non-strict invariants run with no config changes:
 
 ```toml
 [invariant]
 runs = 512
 depth = 64
-fail_on_revert = false  # ← change to false for non-strict
+fail_on_revert = false
 ```
 
 Then run:
@@ -460,10 +466,10 @@ The `slashing()` function in `Penalty.sol` computes the correlation-penalty term
 The solvency property:
 
 ```
-issueSize + sum(bondMaturityValues) <= (balance_consensus + cofferBalance) - maxPenalties
+issueSize + sum(bondMaturityValues) <= (consensusBalance + cofferContractBalance) - maxPenalties
 ```
 
-If it holds with `n` outstanding bonds (`n > 0`), it is preserved when the `(n+1)`th bond is bought. Buying a bond decreases `issueSize` and increases `sum(bondMaturityValues)` by the same maturity value, so the left side is unchanged. Consensus withdrawals go to the coffer contract, meaning `balance_consensus` decreases while `cofferBalance` increases by the same amount, leaving the right side unchanged. When the validator adds funds to consensus, `issueSize` increases only by the penalty-adjusted deposit amount (`deposit - maxPenalties`), so the left side grows no more than the right side, preserving the inequality. 
+If it holds with `n` outstanding bonds (`n > 0`), it is preserved when the `(n+1)`th bond is bought. Buying a bond decreases `issueSize` and increases `sum(bondMaturityValues)` by the same maturity value, so the left side is unchanged. Consensus withdrawals go to the coffer contract, meaning `consensusBalance` decreases while `cofferContractBalance` increases by the same amount, leaving the right side unchanged. When the validator adds funds to consensus, `issueSize` increases only by the penalty-adjusted deposit amount (`deposit - maxPenalties`), so the left side grows no more than the right side, preserving the inequality. 
 
 The base case (`0 → 1`) depends on the validator's initial configuration being correct, which cannot be enforced on-chain (see [Safety Guidelines](#safety-guidelines)). When `outstandingBonds == 0`, the property may not hold. The validator can withdraw freely and modify parameters which is harmless since no bond holders exist to be affected. However, if the solvency property does hold when `outstandingBonds == 0`, front-run protection guarantees it is preserved when the first bond is bought.
 

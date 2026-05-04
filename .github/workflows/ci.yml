@@ -40,17 +40,17 @@ jobs:
           version: stable
           cache: false
 
-      - name: Ensure solc available
-        run: |
-          SOLC_VERSION=$(grep -m1 'pragma solidity' src/Coffer.sol | grep -oP '\d+\.\d+\.\d+')
-          SVM_DIR="${HOME}/.local/share/svm"
-          if [ ! -f "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}" ]; then
-            SOLC_FILE=$(curl -s https://binaries.soliditylang.org/linux-amd64/list.json | jq -r ".releases[\"${SOLC_VERSION}\"]")
-            mkdir -p "${SVM_DIR}/${SOLC_VERSION}"
-            curl -L "https://binaries.soliditylang.org/linux-amd64/${SOLC_FILE}" \
-              -o "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
-            chmod +x "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
-          fi
+      # - name: Ensure solc available
+      #   run: |
+      #     SOLC_VERSION=$(grep -m1 'pragma solidity' src/Coffer.sol | grep -oP '\d+\.\d+\.\d+')
+      #     SVM_DIR="${HOME}/.local/share/svm"
+      #     if [ ! -f "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}" ]; then
+      #       SOLC_FILE=$(curl -s https://binaries.soliditylang.org/linux-amd64/list.json | jq -r ".releases[\"${SOLC_VERSION}\"]")
+      #       mkdir -p "${SVM_DIR}/${SOLC_VERSION}"
+      #       curl -L "https://binaries.soliditylang.org/linux-amd64/${SOLC_FILE}" \
+      #         -o "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
+      #       chmod +x "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
+      #     fi
 
       - name: Build
         run: forge build --sizes --deny warnings
@@ -69,17 +69,17 @@ jobs:
           version: stable
           cache: false
 
-      - name: Ensure solc available
-        run: |
-          SOLC_VERSION=$(grep -m1 'pragma solidity' src/Coffer.sol | grep -oP '\d+\.\d+\.\d+')
-          SVM_DIR="${HOME}/.local/share/svm"
-          if [ ! -f "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}" ]; then
-            SOLC_FILE=$(curl -s https://binaries.soliditylang.org/linux-amd64/list.json | jq -r ".releases[\"${SOLC_VERSION}\"]")
-            mkdir -p "${SVM_DIR}/${SOLC_VERSION}"
-            curl -L "https://binaries.soliditylang.org/linux-amd64/${SOLC_FILE}" \
-              -o "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
-            chmod +x "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
-          fi
+      # - name: Ensure solc available
+      #   run: |
+      #     SOLC_VERSION=$(grep -m1 'pragma solidity' src/Coffer.sol | grep -oP '\d+\.\d+\.\d+')
+      #     SVM_DIR="${HOME}/.local/share/svm"
+      #     if [ ! -f "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}" ]; then
+      #       SOLC_FILE=$(curl -s https://binaries.soliditylang.org/linux-amd64/list.json | jq -r ".releases[\"${SOLC_VERSION}\"]")
+      #       mkdir -p "${SVM_DIR}/${SOLC_VERSION}"
+      #       curl -L "https://binaries.soliditylang.org/linux-amd64/${SOLC_FILE}" \
+      #         -o "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
+      #       chmod +x "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
+      #     fi
 
       - name: Build for Slither
         run: forge build --build-info --skip test script
@@ -105,17 +105,17 @@ jobs:
           version: stable
           cache: false
 
-      - name: Ensure solc available
-        run: |
-          SOLC_VERSION=$(grep -m1 'pragma solidity' src/Coffer.sol | grep -oP '\d+\.\d+\.\d+')
-          SVM_DIR="${HOME}/.local/share/svm"
-          if [ ! -f "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}" ]; then
-            SOLC_FILE=$(curl -s https://binaries.soliditylang.org/linux-amd64/list.json | jq -r ".releases[\"${SOLC_VERSION}\"]")
-            mkdir -p "${SVM_DIR}/${SOLC_VERSION}"
-            curl -L "https://binaries.soliditylang.org/linux-amd64/${SOLC_FILE}" \
-              -o "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
-            chmod +x "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
-          fi
+      # - name: Ensure solc available
+      #   run: |
+      #     SOLC_VERSION=$(grep -m1 'pragma solidity' src/Coffer.sol | grep -oP '\d+\.\d+\.\d+')
+      #     SVM_DIR="${HOME}/.local/share/svm"
+      #     if [ ! -f "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}" ]; then
+      #       SOLC_FILE=$(curl -s https://binaries.soliditylang.org/linux-amd64/list.json | jq -r ".releases[\"${SOLC_VERSION}\"]")
+      #       mkdir -p "${SVM_DIR}/${SOLC_VERSION}"
+      #       curl -L "https://binaries.soliditylang.org/linux-amd64/${SOLC_FILE}" \
+      #         -o "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
+      #       chmod +x "${SVM_DIR}/${SOLC_VERSION}/solc-${SOLC_VERSION}"
+      #     fi
 
       - name: Set weekly fuzz seed
         run: >
