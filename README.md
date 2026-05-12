@@ -109,7 +109,7 @@ Three roles. The Validator is the owner of a given `Coffer` clone (using `Ownabl
 - `CofferBondsRedeemedEarly.claim(address payable)` (when there is a pending claim)
 
 **Anyone**:
-- `Coffer.buyBond(uint32, uint32)` (rejects the validator)
+- `Coffer.buyBond(uint32, uint32) returns (uint256 bondId)` (rejects the validator)
 - `Coffer.receive()` (any ETH transfer credits `issueSize`)
 - `CofferFactory.createCoffer(...)` (caller becomes the validator of the new Coffer)
 - `CofferFactory.predictCofferAddress(...)` (view)

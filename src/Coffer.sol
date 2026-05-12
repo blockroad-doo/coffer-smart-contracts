@@ -353,9 +353,10 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Function in which msg.sender buys a bond
     /// @param _duration Holder defines the duration, which must be within the validator's offered interval
     /// @param _version Version must match the current validator's version to prevent front-runs
+    /// @return bondId The ID of the newly minted bond NFT
     /// @notice Holder sends the bond value as msg.value
     /// @notice Function creates an NFT which gives msg.sender ownership of a bond
-    function buyBond(uint32 _duration, uint32 _version) external payable {
+    function buyBond(uint32 _duration, uint32 _version) external payable returns (uint256 bondId) {
         ValidatorConditions storage vs = sValidatorConditions;
 
         require(vs.version == _version, ValidatorConditionsVersionMismatch());
@@ -379,7 +380,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         ++vs.outstandingBonds;
 
         // Mint NFT representing the bond
-        uint256 bondId = ICofferBondNft(iCofferBondNftAddress()).mintCofferBond(msg.sender);
+        bondId = ICofferBondNft(iCofferBondNftAddress()).mintCofferBond(msg.sender);
 
         // Store coffer conditions using bondId as key
         sHolderConditions[bondId] = HolderConditions({
