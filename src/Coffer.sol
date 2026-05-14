@@ -243,6 +243,12 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     event SafeTotalStakeChanged(uint32 indexed oldSafeTotalStake, uint32 indexed newSafeTotalStake);
     /// @notice Emitted when validator converts to compounding
     event ValidatorConvertedToCompounding();
+    /// @notice Emitted when the validator conditions version increments (anti-frontrun counter)
+    /// @param newVersion The new version number
+    event VersionChanged(uint32 indexed newVersion);
+    /// @notice Emitted when totalConsensusReserved changes
+    /// @param newValue The new total consensus reserved value
+    event TotalConsensusReservedChanged(uint128 indexed newValue);
 
     ///--------------------------
     ///
@@ -357,27 +363,27 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Holder sends the bond value as msg.value
     /// @notice Function creates an NFT which gives msg.sender ownership of a bond
     function buyBond(uint32 _duration, uint32 _version) external payable returns (uint256 bondId) {
-        ValidatorConditions storage vs = sValidatorConditions;
+        ValidatorConditions storage vc = sValidatorConditions;
 
-        require(vs.version == _version, ValidatorConditionsVersionMismatch());
+        require(vc.version == _version, ValidatorConditionsVersionMismatch());
         // solhint-disable-next-line gas-strict-inequalities
-        require(msg.value >= vs.minimumValueToAccept, ValueTooSmallToAccept());
-        require(vs.isActive, ValidatorIsNotActive());
+        require(msg.value >= vc.minimumValueToAccept, ValueTooSmallToAccept());
+        require(vc.isActive, ValidatorIsNotActive());
         require(msg.sender != owner(), HolderCannotBeValidator());
         require(_duration != 0, InvalidDuration());
         // solhint-disable-next-line gas-strict-inequalities
-        require(_duration >= vs.minimumDuration, InvalidDuration());
+        require(_duration >= vc.minimumDuration, InvalidDuration());
         // solhint-disable-next-line gas-strict-inequalities
-        require(_duration <= vs.maximumDuration, InvalidDuration());
+        require(_duration <= vc.maximumDuration, InvalidDuration());
 
-        uint256 bondMaturityValue = msg.value + Interest.calculateInterest(msg.value, _duration, vs.interestRate);
+        uint256 bondMaturityValue = msg.value + Interest.calculateInterest(msg.value, _duration, vc.interestRate);
 
         // solhint-disable-next-line gas-strict-inequalities
-        require(bondMaturityValue <= vs.issueSize, ValidatorDoesntCoverTheValue());
+        require(bondMaturityValue <= vc.issueSize, ValidatorDoesntCoverTheValue());
 
         // forge-lint: disable-next-line(unsafe-typecast) bondMaturityValue ≤ issueSize which is uint128
-        vs.issueSize -= uint128(bondMaturityValue);
-        ++vs.outstandingBonds;
+        vc.issueSize -= uint128(bondMaturityValue);
+        ++vc.outstandingBonds;
 
         // Mint NFT representing the bond
         bondId = ICofferBondNft(iCofferBondNftAddress()).mintCofferBond(msg.sender);
@@ -398,7 +404,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
             uint128(bondMaturityValue),
             _duration,
             uint128(msg.value),
-            vs.interestRate
+            vc.interestRate
         );
 
         Address.sendValue(payable(owner()), msg.value);
@@ -445,6 +451,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
             emit ValidatorsBondRedeem(holders[i], bondId);
         }
 
+        emit TotalConsensusReservedChanged(totalConsensusReserved);
+
         ValidatorConditions storage vc = sValidatorConditions;
         vc.outstandingBonds -= uint32(_bondIds.length);
 
@@ -483,6 +491,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         uint32 oldRate = vc.interestRate;
         vc.interestRate = _rate;
         ++vc.version;
+        emit VersionChanged(vc.version);
         emit InterestRateChanged(oldRate, _rate);
     }
 
@@ -515,6 +524,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         require(_maximumDuration <= MAX_DURATION, InvalidDuration());
 
         ++vc.version;
+        emit VersionChanged(vc.version);
         vc.minimumDuration = _minimumDuration;
         vc.maximumDuration = _maximumDuration;
         emit DurationRangeChanged(_minimumDuration, _maximumDuration);
@@ -551,7 +561,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         uint128 oldIssueSize = vc.issueSize;
         vc.issueSize = _issueSize;
         ++vc.version;
-
+        emit VersionChanged(vc.version);
         emit IssueSizeChanged(oldIssueSize, _issueSize);
     }
 
@@ -565,6 +575,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         vc.exitAllowed = !vc.exitAllowed;
 
         ++vc.version;
+        emit VersionChanged(vc.version);
 
         if (vc.exitAllowed == true) emit CofferAllowsHolderToExit();
         else emit CofferForbidsHolderToExit();
@@ -593,7 +604,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         vc.safeTotalStake = _safeTotalStake;
 
         ++vc.version;
-
+        emit VersionChanged(vc.version);
         emit SafeTotalStakeChanged(oldSafeTotalStake, _safeTotalStake);
     }
 
@@ -630,6 +641,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
             ValidatorConditions storage vc = sValidatorConditions;
             --vc.outstandingBonds;
             totalConsensusReserved -= (holder.consensusWithdrawClosed ? valueToWithdraw : 0);
+            emit TotalConsensusReservedChanged(totalConsensusReserved);
             delete sHolderConditions[_bondId];
             ICofferBondNft(iCofferBondNftAddress()).burnCofferBond(_bondId);
 
@@ -644,6 +656,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
             holder.bondMaturityValue -= valueToWithdraw;
             totalConsensusReserved -= (holder.consensusWithdrawClosed ? valueToWithdraw : 0);
+            emit TotalConsensusReservedChanged(totalConsensusReserved);
 
             emit HolderPartialWithdrawFromExecutionSuccess(
                 msg.sender, _bondId, valueToWithdraw, holder.bondMaturityValue
@@ -700,6 +713,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         if (address(this).balance - msg.value > holder.bondMaturityValue + totalConsensusReserved - 1) {
             holder.consensusWithdrawClosed = true;
             totalConsensusReserved += holder.bondMaturityValue;
+            emit TotalConsensusReservedChanged(totalConsensusReserved);
             emit HolderWithdrawFromConsensusClosed(msg.sender, _bondId, holder.bondMaturityValue, false);
             return;
         }
@@ -726,6 +740,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         bool isFullExit = (valueToWithdrawInGwei == 0);
         holder.consensusWithdrawClosed = true;
         totalConsensusReserved += holder.bondMaturityValue;
+        emit TotalConsensusReservedChanged(totalConsensusReserved);
 
         emit HolderWithdrawFromConsensusClosed(msg.sender, _bondId, holder.bondMaturityValue, isFullExit);
 
@@ -754,7 +769,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         }
 
         ++vc.version;
-
+        emit VersionChanged(vc.version);
         emit ValidatorWithdrawFromExecution(_amount);
 
         Address.sendValue(payable(msg.sender), _amount);
