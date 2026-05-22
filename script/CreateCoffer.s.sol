@@ -50,9 +50,9 @@ contract CreateCoffer is Script {
         console.log("CofferBondsRedeemedEarly at:", bondsRedeemedEarlyAddress);
 
         // Update .env file with the new Coffer address
-        console.log("\nUpdating .env file...");
-        updateEnvVariable("HOODI_COFFER_ADDRESS", addressToString(cofferAddress));
-        console.log("COFFER_ADDRESS saved to .env");
+        //console.log("\nUpdating .env file...");
+        //updateEnvVariable("HOODI_COFFER_ADDRESS", addressToString(cofferAddress));
+        //console.log("COFFER_ADDRESS saved to .env");
     }
 
     /// @notice Loads env parameters, broadcasts the createCoffer tx, and returns the new Coffer address
@@ -68,7 +68,7 @@ contract CreateCoffer is Script {
         uint32 minimumDuration = uint32(vm.envUint("MIN_DURATION"));
         uint32 maximumDuration = uint32(vm.envUint("MAX_DURATION"));
         uint128 minimumAmountToAccept = uint128(vm.envUint("MINIMUM_VALUE_TO_ACCEPT"));
-        uint32 safeTotalStake = uint32(vm.envUint("SAFE_TOTAL_STAKE"));
+        uint16 issueSizeBufferBps = uint16(vm.envUint("ISSUE_SIZE_BUFFER_BPS"));
         bool exitAllowed = vm.envBool("ALLOW_EXIT");
         uint128 startingBalance = uint128(vm.envUint("STARTING_BALANCE"));
 
@@ -82,7 +82,7 @@ contract CreateCoffer is Script {
             minimumDuration,
             maximumDuration,
             minimumAmountToAccept,
-            safeTotalStake,
+            issueSizeBufferBps,
             exitAllowed,
             startingBalance
         );

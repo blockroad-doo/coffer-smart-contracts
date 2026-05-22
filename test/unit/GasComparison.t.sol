@@ -22,7 +22,7 @@ contract GasComparisonTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             true
         );
 
@@ -41,7 +41,7 @@ contract GasComparisonTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             false
         );
         uint256 gasUsed = gasBefore - gasleft();
@@ -72,12 +72,12 @@ contract GasComparisonTest is BaseTest {
         emit log_named_uint("changeInterestRate", gasUsed);
     }
 
-    function test_GAS_changeSafeTotalStake() public {
+    function test_GAS_changeIssueSizeBufferBps() public {
         vm.prank(validator);
         uint256 gasBefore = gasleft();
-        coffer.changeSafeTotalStake(defaultSafeTotalStake - 1);
+        coffer.changeIssueSizeBufferBps(defaultIssueSizeBufferBps + 1);
         uint256 gasUsed = gasBefore - gasleft();
-        emit log_named_uint("changeSafeTotalStake", gasUsed);
+        emit log_named_uint("changeIssueSizeBufferBps", gasUsed);
     }
 
     function test_GAS_changeCofferActivity() public {

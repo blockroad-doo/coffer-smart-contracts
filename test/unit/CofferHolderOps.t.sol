@@ -167,7 +167,7 @@ contract CofferHolderOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             true
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
@@ -285,7 +285,7 @@ contract CofferHolderOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             false
         );
 
@@ -406,7 +406,7 @@ contract CofferHolderOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             true
         );
 
@@ -607,7 +607,7 @@ contract CofferHolderOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             true
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
@@ -929,7 +929,7 @@ contract CofferHolderOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             true
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
@@ -958,7 +958,7 @@ contract CofferHolderOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             true
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));

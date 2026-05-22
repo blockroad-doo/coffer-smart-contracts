@@ -128,7 +128,7 @@ contract CofferBondNftTokenUriTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             defaultExitAllowed
         );
 

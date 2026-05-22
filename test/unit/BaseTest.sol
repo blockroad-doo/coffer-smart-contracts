@@ -7,7 +7,6 @@ import {CofferFactory} from "../../src/CofferFactory.sol";
 import {CofferBondNft} from "../../src/CofferBondNft.sol";
 import {CofferBondsRedeemedEarly} from "../../src/CofferBondsRedeemedEarly.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
-import {Penalty} from "../../src/libraries/Penalty.sol";
 import {EIP7002Mock, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, SYSTEM_ADDRESS} from "../mock/EIP7002Mock.sol";
 import {EIP7251Mock, CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS} from "../mock/EIP7251Mock.sol";
 
@@ -95,7 +94,7 @@ abstract contract BaseTest is Test {
     uint32 public defaultMinDuration = ONE_MONTH;
     uint32 public defaultMaxDuration = ONE_YEAR;
     uint128 public defaultMinimumAmount = 1 ether;
-    uint32 public defaultSafeTotalStake = 20_000_000; // 20M ETH as default total stake
+    uint16 public defaultIssueSizeBufferBps = 250; // 2.5% (1% = 100, denominator = 10000)
     bool public defaultExitAllowed = false;
     uint128 public defaultStartingBalance = 32 ether;
 
@@ -136,7 +135,7 @@ abstract contract BaseTest is Test {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             defaultExitAllowed,
             defaultStartingBalance
         );
@@ -150,7 +149,7 @@ abstract contract BaseTest is Test {
         uint32 minDuration,
         uint32 maxDuration,
         uint128 minimumAmount,
-        uint32 safeTotalStake,
+        uint16 issueSizeBufferBps,
         bool exitAllowed
     ) public returns (address) {
         return createCoffer(
@@ -161,7 +160,7 @@ abstract contract BaseTest is Test {
             minDuration,
             maxDuration,
             minimumAmount,
-            safeTotalStake,
+            issueSizeBufferBps,
             exitAllowed,
             defaultStartingBalance
         );
@@ -175,7 +174,7 @@ abstract contract BaseTest is Test {
         uint32 minDuration,
         uint32 maxDuration,
         uint128 minimumAmount,
-        uint32 safeTotalStake,
+        uint16 issueSizeBufferBps,
         bool exitAllowed,
         uint128 startingBalance
     ) public returns (address) {
@@ -188,7 +187,7 @@ abstract contract BaseTest is Test {
             minDuration,
             maxDuration,
             minimumAmount,
-            safeTotalStake,
+            issueSizeBufferBps,
             exitAllowed,
             startingBalance
         );
@@ -281,7 +280,7 @@ abstract contract BaseTest is Test {
             uint128 minimumValueToAccept,
             uint32 version,
             uint32 outstandingBonds,
-            uint32 safeTotalStake,
+            uint16 issueSizeBufferBps,
             bool isActive,
             bool exitAllowed
         ) = targetCoffer.sValidatorConditions();
@@ -314,16 +313,13 @@ abstract contract BaseTest is Test {
     // HELPER FUNCTIONS - PENALTY CALCULATION
     // ========================================
 
-    function calculateExpectedIssueSize(uint256 startingBalance, uint256 safeTotalStake, uint256 maxDuration)
+    function calculateExpectedIssueSize(uint256 startingBalance, uint256 issueSizeBufferBps)
         public
         pure
         returns (uint256)
     {
-        uint256 slashingPenalty = Penalty.slashing(startingBalance, safeTotalStake);
-        // Convert duration in seconds to epochs (384 seconds per epoch)
-        uint256 epochs = maxDuration / 384;
-        uint256 attestationPenalty = Penalty.missingAttestations(startingBalance, safeTotalStake, epochs);
-        return startingBalance - (slashingPenalty + attestationPenalty);
+        uint256 denominator = 10000;
+        return startingBalance * (denominator - issueSizeBufferBps) / denominator;
     }
 
     // ========================================
@@ -509,9 +505,9 @@ interface CofferEvents {
     event CofferForbidsHolderToExit();
     event InterestRateChanged(uint32 indexed oldRate, uint32 indexed newRate);
     event DurationRangeChanged(uint32 indexed minimumDuration, uint32 indexed maximumDuration);
-    event IssueSizeChanged(uint128 indexed oldIssueSize, uint128 indexed newIssueSize);
+    event IssueSizeChanged(uint128 indexed newIssueSize);
     event MinimumValueChanged(uint128 indexed newMinimum);
-    event SafeTotalStakeChanged(uint32 indexed oldSafeTotalStake, uint32 indexed newSafeTotalStake);
+    event IssueSizeBufferBpsChanged(uint16 indexed oldBuffer, uint16 indexed newBuffer);
     event ValidatorConvertedToCompounding();
 }
 

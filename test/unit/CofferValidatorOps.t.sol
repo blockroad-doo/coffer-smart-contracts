@@ -12,7 +12,6 @@ import {
 import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
-import {Penalty} from "../../src/libraries/Penalty.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 
@@ -577,7 +576,7 @@ contract CofferValidatorOpsTest is BaseTest {
         uint128 newAmt = 5 ether;
 
         vm.expectEmit(false, false, false, true);
-        emit CofferEvents.IssueSizeChanged(0, newAmt);
+        emit CofferEvents.IssueSizeChanged(newAmt);
 
         vm.prank(validator);
         coffer.changeIssueSize(newAmt);
@@ -688,58 +687,52 @@ contract CofferValidatorOpsTest is BaseTest {
     }
 
     // ========================================
-    // changeSafeTotalStake
+    // changeIssueSizeBufferBps
     // ========================================
 
-    function test_ChangeSafeTotalStake_UpdatesAndEmitsEvent() public {
-        uint32 newStake = 25_000_000;
+    function test_ChangeIssueSizeBufferBps_UpdatesAndEmitsEvent() public {
+        uint16 newBuffer = 300;
 
         vm.expectEmit(false, false, false, true);
-        emit CofferEvents.SafeTotalStakeChanged(defaultSafeTotalStake, newStake);
+        emit CofferEvents.IssueSizeBufferBpsChanged(defaultIssueSizeBufferBps, newBuffer);
 
         vm.prank(validator);
-        coffer.changeSafeTotalStake(newStake);
+        coffer.changeIssueSizeBufferBps(newBuffer);
 
-        (,,,,,,, uint32 stake,,) = coffer.sValidatorConditions();
-        assertEq(stake, newStake);
+        (,,,,,,, uint16 buffer,,) = coffer.sValidatorConditions();
+        assertEq(buffer, newBuffer);
     }
 
-    function test_ChangeSafeTotalStake_VersionIncrements() public {
+    function test_ChangeIssueSizeBufferBps_VersionIncrements() public {
         vm.prank(validator);
-        coffer.changeSafeTotalStake(25_000_000);
+        coffer.changeIssueSizeBufferBps(300);
 
         (,,,,, uint32 version,,,,) = coffer.sValidatorConditions();
         assertEq(version, 2);
     }
 
-    function test_ChangeSafeTotalStake_RevertsIfIncreaseWithOutstandingBonds() public {
+    function test_ChangeIssueSizeBufferBps_RevertsIfDecreaseWithOutstandingBonds() public {
         _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist.selector);
-        coffer.changeSafeTotalStake(25_000_000); // increase from 20_000_000
+        vm.expectRevert(Coffer.ValidatorCannotDecreaseIssueSizeBufferWhileOutstandingBondExist.selector);
+        coffer.changeIssueSizeBufferBps(200); // decrease from 250
     }
 
-    function test_ChangeSafeTotalStake_RevertsIfZero() public {
+    function test_ChangeIssueSizeBufferBps_RevertsIfExceedsDenominator() public {
         vm.prank(validator);
-        vm.expectRevert(Coffer.InvalidSafeTotalStake.selector);
-        coffer.changeSafeTotalStake(0);
+        vm.expectRevert(Coffer.InvalidIssueSizeBufferBps.selector);
+        coffer.changeIssueSizeBufferBps(10001); // BUFFER_DENOMINATOR + 1
     }
 
-    function test_ChangeSafeTotalStake_RevertsIfAboveMax() public {
-        vm.prank(validator);
-        vm.expectRevert(Coffer.InvalidSafeTotalStake.selector);
-        coffer.changeSafeTotalStake(300_000_001);
-    }
-
-    function test_ChangeSafeTotalStake_RevertsIfNotOwner() public {
+    function test_ChangeIssueSizeBufferBps_RevertsIfNotOwner() public {
         vm.prank(holder1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, holder1));
-        coffer.changeSafeTotalStake(25_000_000);
+        coffer.changeIssueSizeBufferBps(300);
     }
 
     // ========================================
-    // changeIssueSize / changeSafeTotalStake: decrease with bonds
+    // changeIssueSize / changeIssueSizeBufferBps: buffer-change with bonds
     // ========================================
 
     function test_ChangeIssueSize_DecreaseWithBonds_Success() public {
@@ -765,24 +758,24 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.changeIssueSize(currentIssueSize);
     }
 
-    function test_ChangeSafeTotalStake_DecreaseWithBonds_Success() public {
+    function test_ChangeIssueSizeBufferBps_IncreaseWithBonds_Success() public {
         _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
 
-        // Decrease is allowed with outstanding bonds
+        // Increase is allowed with outstanding bonds (more conservative)
         vm.prank(validator);
-        coffer.changeSafeTotalStake(15_000_000); // decrease from 20_000_000
+        coffer.changeIssueSizeBufferBps(300); // increase from 250
 
-        (,,,,,,, uint32 stake,,) = coffer.sValidatorConditions();
-        assertEq(stake, 15_000_000);
+        (,,,,,,, uint16 buffer,,) = coffer.sValidatorConditions();
+        assertEq(buffer, 300);
     }
 
-    function test_ChangeSafeTotalStake_SameValueWithBonds_Reverts() public {
+    function test_ChangeIssueSizeBufferBps_SameValueWithBonds_Reverts() public {
         _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
 
-        // Same value counts as >= so should revert
+        // Same value counts as not > so should revert
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist.selector);
-        coffer.changeSafeTotalStake(defaultSafeTotalStake);
+        vm.expectRevert(Coffer.ValidatorCannotDecreaseIssueSizeBufferWhileOutstandingBondExist.selector);
+        coffer.changeIssueSizeBufferBps(defaultIssueSizeBufferBps);
     }
 
     // ========================================
@@ -952,7 +945,7 @@ contract CofferValidatorOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             false
         );
 
@@ -1071,7 +1064,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
         (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
 
-        uint256 expectedIncrease = Penalty.addMaximumPenalty(1 ether, defaultSafeTotalStake, defaultMaxDuration / 384);
+        uint256 expectedIncrease = calculateExpectedIssueSize(1 ether, defaultIssueSizeBufferBps);
         assertEq(issueSizeAfter, issueSizeBefore + expectedIncrease);
     }
 

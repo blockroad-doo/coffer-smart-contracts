@@ -92,7 +92,7 @@ contract CofferFactoryHoodi is Test {
             30 days,
             365 days,
             1 ether,
-            20_000_000,
+            250,
             true,
             32 ether
         );

@@ -3,7 +3,6 @@ pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {CofferFactory} from "../../../src/CofferFactory.sol";
-import {Penalty} from "../../../src/libraries/Penalty.sol";
 
 contract CofferFactoryHandler is Test {
     CofferFactory public factory;
@@ -11,7 +10,7 @@ contract CofferFactoryHandler is Test {
 
     uint256 private constant MAX_RATE = 1e8;
     uint256 private constant MAX_DURATION = 157_68_00_000; // 50 years
-    uint256 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
+    uint256 private constant BUFFER_DENOMINATOR = 10000;
 
     // Ghost state
     address[] public ghostDeployedCoffers;
@@ -34,7 +33,7 @@ contract CofferFactoryHandler is Test {
         uint32 minDur,
         uint32 maxDur,
         uint128 minAmount,
-        uint32 safeTotalStake,
+        uint16 issueSizeBufferBps,
         bool exitAllowed,
         uint128 startingBalance
     ) external {
@@ -47,15 +46,14 @@ contract CofferFactoryHandler is Test {
         minDur = uint32(bound(uint256(minDur), 1, MAX_DURATION));
         maxDur = uint32(bound(uint256(maxDur), minDur, MAX_DURATION));
 
-        // Clamp safeTotalStake
-        safeTotalStake = uint32(bound(uint256(safeTotalStake), 1, 300_000_000));
+        // Clamp issueSizeBufferBps
+        issueSizeBufferBps = uint16(bound(uint256(issueSizeBufferBps), 0, BUFFER_DENOMINATOR));
 
         // Clamp startingBalance to EIP-7251 range
         startingBalance = uint128(bound(uint256(startingBalance), 32 ether, 2048 ether));
 
         // Compute maxMinAmount
-        uint256 maxMinAmount =
-            Penalty.addMaximumPenalty(startingBalance, safeTotalStake, maxDur / NUMBER_OF_SECONDS_IN_EPOCH);
+        uint256 maxMinAmount = uint256(startingBalance) * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFER_DENOMINATOR;
         if (maxMinAmount == 0) return;
 
         // Clamp minAmount
@@ -65,7 +63,7 @@ contract CofferFactoryHandler is Test {
         address predicted = factory.predictCofferAddress(actor, pk1, pk2);
         vm.prank(actor);
         try factory.createCoffer(
-            pk1, pk2, rate, minDur, maxDur, minAmount, safeTotalStake, exitAllowed, startingBalance
+            pk1, pk2, rate, minDur, maxDur, minAmount, issueSizeBufferBps, exitAllowed, startingBalance
         ) {
             ghostDeployedCoffers.push(predicted);
             ++ghostDeploymentCount;
@@ -82,14 +80,16 @@ contract CofferFactoryHandler is Test {
         uint32 minDur,
         uint32 maxDur,
         uint128 minAmount,
-        uint32 safeTotalStake,
+        uint16 issueSizeBufferBps,
         bool exitAllowed,
         uint128 startingBalance
     ) external {
         address actor = actors[actorSeed % actors.length];
         // Pass raw unclamped inputs: expected to revert
         vm.prank(actor);
-        factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, safeTotalStake, exitAllowed, startingBalance);
+        factory.createCoffer(
+            pk1, pk2, rate, minDur, maxDur, minAmount, issueSizeBufferBps, exitAllowed, startingBalance
+        );
         // Ghost state NOT updated
     }
 

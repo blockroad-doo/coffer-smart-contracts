@@ -3,7 +3,6 @@ pragma solidity 0.8.34;
 
 import {BaseTest} from "./BaseTest.sol";
 import {Coffer} from "../../src/Coffer.sol";
-import {Penalty} from "../../src/libraries/Penalty.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
@@ -57,7 +56,7 @@ contract CofferMainOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             false,
             largeStartingBalance
         );
@@ -65,8 +64,8 @@ contract CofferMainOpsTest is BaseTest {
 
         (uint128 issueSize,,,,,,,,,) = noExitCoffer.sValidatorConditions();
 
-        uint256 base = Penalty.addMaximumPenalty(largeStartingBalance, defaultSafeTotalStake, defaultMaxDuration / 384);
-        // exitAllowed = false reserves an extra 32 ether headroom on top of maxPenalty.
+        uint256 base = calculateExpectedIssueSize(largeStartingBalance, defaultIssueSizeBufferBps);
+        // exitAllowed = false reserves an extra 32 ether headroom.
         assertGt(base, 32 ether);
         assertEq(issueSize, base - 32 ether);
     }
@@ -80,7 +79,7 @@ contract CofferMainOpsTest is BaseTest {
             uint128 minimumValueToAccept,
             uint32 version,
             uint32 outstandingBonds,
-            uint32 safeTotalStake,
+            uint16 issueSizeBufferBps,
             bool isActive,
             bool exitAllowed
         ) = coffer.sValidatorConditions();
@@ -92,7 +91,7 @@ contract CofferMainOpsTest is BaseTest {
         assertEq(minimumValueToAccept, defaultMinimumAmount);
         assertEq(version, 1);
         assertEq(outstandingBonds, 0);
-        assertEq(safeTotalStake, defaultSafeTotalStake);
+        assertEq(issueSizeBufferBps, defaultIssueSizeBufferBps);
         assertTrue(isActive);
         assertFalse(exitAllowed);
     }
@@ -110,15 +109,14 @@ contract CofferMainOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             true
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
 
         (uint128 issueSize,,,,,,,,,) = exitCoffer.sValidatorConditions();
 
-        uint256 expected =
-            Penalty.addMaximumPenalty(defaultStartingBalance, defaultSafeTotalStake, defaultMaxDuration / 384);
+        uint256 expected = calculateExpectedIssueSize(defaultStartingBalance, defaultIssueSizeBufferBps);
         assertEq(issueSize, expected);
     }
 
@@ -131,7 +129,7 @@ contract CofferMainOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             true
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
@@ -149,7 +147,7 @@ contract CofferMainOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultSafeTotalStake,
+            defaultIssueSizeBufferBps,
             true
         );
         Coffer exitCoffer = Coffer(payable(exitCofferAddr));
@@ -162,13 +160,12 @@ contract CofferMainOpsTest is BaseTest {
             uint128 minimumValueToAccept,
             uint32 version,
             uint32 outstandingBonds,
-            uint32 safeTotalStake,
+            uint16 issueSizeBufferBps,
             bool isActive,
             bool exitAllowed
         ) = exitCoffer.sValidatorConditions();
 
-        uint256 expectedAvailable =
-            Penalty.addMaximumPenalty(defaultStartingBalance, defaultSafeTotalStake, defaultMaxDuration / 384);
+        uint256 expectedAvailable = calculateExpectedIssueSize(defaultStartingBalance, defaultIssueSizeBufferBps);
 
         assertEq(issueSize, expectedAvailable);
         assertEq(interestRate, defaultInterestRate);
@@ -177,7 +174,7 @@ contract CofferMainOpsTest is BaseTest {
         assertEq(minimumValueToAccept, defaultMinimumAmount);
         assertEq(version, 1);
         assertEq(outstandingBonds, 0);
-        assertEq(safeTotalStake, defaultSafeTotalStake);
+        assertEq(issueSizeBufferBps, defaultIssueSizeBufferBps);
         assertTrue(isActive);
         assertTrue(exitAllowed);
     }
@@ -295,12 +292,12 @@ contract CofferMainOpsTest is BaseTest {
         coffer.changeExitAllowed(); // tries true -> false, should revert
     }
 
-    function test_ChangeSafeTotalStake_RevertsWhenIncreasedWithBondsExist() public {
+    function test_ChangeIssueSizeBufferBps_RevertsWhenDecreasedWithBondsExist() public {
         _setupBondForModifierTests();
 
         vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist.selector);
-        coffer.changeSafeTotalStake(30_000_000);
+        vm.expectRevert(Coffer.ValidatorCannotDecreaseIssueSizeBufferWhileOutstandingBondExist.selector);
+        coffer.changeIssueSizeBufferBps(200); // decrease from 250
     }
 
     function test_ValidatorWithdrawFromExecution_BoundedByIssueSizeWhenBondsExist() public {
@@ -351,7 +348,7 @@ contract CofferMainOpsTest is BaseTest {
                 defaultMinDuration,
                 defaultMaxDuration,
                 defaultMinimumAmount,
-                defaultSafeTotalStake,
+                defaultIssueSizeBufferBps,
                 false,
                 defaultStartingBalance
             );

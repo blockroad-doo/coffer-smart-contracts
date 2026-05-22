@@ -21,25 +21,21 @@
   - [Fuzz Testing](#fuzz-testing)
 - [Validator Considerations](#validator-considerations)
   - [Setup Steps](#setup-steps)
-  - [Safety Guidelines](#safety-guidelines)
-    - [Configuration Requirements](#configuration-requirements)
-    - [Undercollateralized Scenarios](#undercollateralized-scenarios)
-    - [Collateralized Without Maximum-Duration Penalties Applied](#collateralized-without-maximum-duration-penalties-applied)
-    - [Collateralized Against Understated Penalties](#collateralized-against-understated-penalties)
-    - [Fully Collateralized Scenarios](#fully-collateralized-scenarios)
+  - [Evaluating a Coffer](#evaluating-a-coffer)
+    - [Before You Buy](#before-you-buy)
+  - [Issuance Buffer](#issuance-buffer)
+    - [Exit Mechanics](#exit-mechanics)
   - [Redeeming Bonds Early](#redeeming-bonds-early)
 - [Risk Factors](#risk-factors)
-  - [`safeTotalStake` Drift](#safetotalstake-drift)
-  - [Protocol-Upgrade Risk for Long-Duration Bonds](#protocol-upgrade-risk-for-long-duration-bonds)
-  - [Inactivity-Leak Regime](#inactivity-leak-regime)
-  - [Correlated Slashing](#correlated-slashing)
+  - [Extreme Consensus-Layer Events](#extreme-consensus-layer-events)
+    - [Non-Finalization (Inactivity Leak)](#non-finalization-inactivity-leak)
+    - [Correlated Slashing](#correlated-slashing)
 - [Restrictions](#restrictions)
   - [Changing Offer Parameters](#changing-offer-parameters)
   - [Granting Full Exit to Holders](#granting-full-exit-to-holders)
 - [Invariants](#invariants)
   - [Contract Invariants](#contract-invariants-enforced-by-code)
-  - [Cross-Layer Safety Invariant](#cross-layer-safety-invariant-not-enforceable-on-chain)
-  - [Known Approximation](#known-approximation)
+  - [Cross-Layer Invariant](#cross-layer-invariant-not-enforceable-on-chain)
 
 ---
 
@@ -71,7 +67,6 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 | Library | Purpose |
 |---------|---------|
 | **`Interest.sol`** | Pure function for calculating interest given amount, duration, and interest rate |
-| **`Penalty.sol`** | Pure function for calculating penalties for slashing and missing attestations |
 
 ### Interfaces
 
@@ -97,7 +92,7 @@ Each Coffer is deployed as a minimal proxy clone using Solady's `LibClone`. The 
 
 These values are read via `extcodecopy` in assembly, costing ~6 gas versus 2,100 for a cold `SLOAD`. Because the clone's bytecode is deployed once and never changes, CWIA args cannot be altered by anyone: not the validator, not the factory, not an upgrade.
 
-The remaining parameters (interest rate, durations, minimum value, safe total stake, exit allowed, validator address) are set via `initialize()` and stored in regular storage. These are the parameters validators can later modify, subject to the [restrictions](#changing-offer-parameters) documented below.
+The remaining parameters (interest rate, durations, minimum value, issue size buffer, exit allowed, validator address) are set via `initialize()` and stored in regular storage. These are the parameters validators can later modify, subject to the [restrictions](#changing-offer-parameters) documented below.
 
 ### Roles
 
@@ -142,7 +137,7 @@ INTEREST_RATE=2000000
 MIN_DURATION=2592000
 MAX_DURATION=31536000
 MINIMUM_VALUE_TO_ACCEPT=100000000000000000
-SAFE_TOTAL_STAKE=42000000
+ISSUE_SIZE_BUFFER_BPS=250
 ALLOW_EXIT=true
 ```
 
@@ -185,7 +180,7 @@ forge script script/CreateCoffer.s.sol \
 
 Invariant tests (also called stateful fuzz tests) explore random sequences of contract calls to verify that critical properties always hold, no matter what order or combination of actions occurs.
 
-There are six invariant suites: `Coffer`, `CofferFactory`, `CofferBondNft`, `CofferBondsRedeemedEarly`, `Interest`, and `Penalty`.
+There are five invariant suites: `Coffer`, `CofferFactory`, `CofferBondNft`, `CofferBondsRedeemedEarly`, and `Interest`.
 
 #### Enabling invariant tests
 
@@ -259,7 +254,6 @@ Located in `test/unit/`, covering all contracts and libraries individually:
 | `CofferBondNftTokenUri.t.sol` | On-chain token URI metadata |
 | `CofferBondsRedeemedEarlyTest.t.sol` | Pull-based claim and deposit |
 | `Interest.t.sol` | Interest calculation edge cases |
-| `Penalty.t.sol` | Penalty calculations for slashing and attestations |
 | `EIP7002Mock.t.sol` | EIP-7002 mock contract behavior |
 | `EIP7251Mock.t.sol` | EIP-7251 mock contract behavior |
 | `GasComparison.t.sol` | Gas usage benchmarks |
@@ -273,9 +267,7 @@ forge test --mp "test/unit/*"
 
 ### Fuzz Testing
 
-Foundry fuzz tests are configured with `runs = 1024` in `foundry.toml`. Functions
-that accept bounded numeric inputs (durations, amounts, rates) are automatically
-fuzzed with random values when run via `forge test`. No separate config is needed.
+Foundry fuzz tests are configured with `runs = 1024` in `foundry.toml`. Functions that accept bounded numeric inputs (durations, amounts, rates) are automatically fuzzed with random values when run via `forge test`. No separate config is needed.
 
 ```
 forge test --mp "test/unit/*"
@@ -308,110 +300,76 @@ For validators already created with `0x00` credentials:
 - [ ] **Step 4:** Perform one-time `BLSToExecutionChange` to transform `0x00` → `0x01` with the Coffer contract as the withdrawal credential
 - [ ] **Step 5:** Call Coffer function `convertToCompounding()` to convert from `0x01` → `0x02`
 
-### Safety Guidelines
+### Evaluating a Coffer
 
-There are scenarios in which a bad actor could create malicious Coffer contracts. The most obvious example is setting `issueSize` greater than the consensus balance of the validator on the beacon chain. Before buying a bond, certain conditions must be thoroughly checked on both the execution and consensus layers for that bond to be safe and repayable at maturity. Below are the configuration prerequisites the holder must verify, followed by various scenarios and their collateralization levels:
+Before buying, verify the conditions below on the execution and consensus layers, and evaluate the risk factors that follow.
 
-#### Configuration Requirements
+#### Before You Buy
 
-> [!CAUTION]
-> **Mismatched consensus public key and withdrawal credentials**
->
-> EIP-7002 authenticates a withdrawal request against the 20-byte execution address embedded in the validator's credentials. Any mismatch between that address and the Coffer's address makes the validator's stake inaccessible to the Coffer. The check applies to every credential type:
->
-> - `0x02` / `0x01`: the 20-byte address embedded in the credentials must equal the Coffer's address.
-> - `0x00`: no withdrawal address is committed on-chain yet, so buying a bond requires trusting the eventual `BLSToExecutionChange` will target this Coffer (cross-reference *Unfinished setup of validator*).
->
-> The holder must verify this on the execution and consensus layers before any interaction, regardless of which credential type the validator used.
+**Withdrawal credentials do not match the Coffer address**
 
-> [!CAUTION]
-> **Unfinished setup of validator**
->
-> The validator should set up `0x02` withdrawal credentials so that all Coffer functions can execute properly.
+EIP-7002 authenticates a withdrawal request against the 20-byte execution address embedded in the validator's credentials. Any mismatch between that address and the Coffer's address makes the validator's stake inaccessible to the Coffer. The check applies to every credential type:
 
-#### Undercollateralized Scenarios
+- `0x02` / `0x01`: the 20-byte address embedded in the credentials must equal the Coffer's address.
+- `0x00`: no withdrawal address is committed on-chain yet, so buying a bond requires trusting the eventual `BLSToExecutionChange` will target this Coffer (cross-reference *Validator credentials are not 0x02*).
 
-> [!CAUTION]
-> **`issueSize` in Coffer contract is too big**
->
-> A validator can set `issueSize` to be greater than consensus balance minus possible penalties that could happen before **minimum** duration has passed. Slashing and inactivity leak penalties should be considered.
+The holder must verify this on the execution and consensus layers before any interaction, regardless of which credential type the validator used.
 
-> [!CAUTION]
-> **`exitAllowed` should be true if validator `consensus balance - issueSize - maxPenalties` is less than 32 ETH**
->
-> If the validator's `consensus balance - issueSize - maxPenalties` is less than 32 ETH, partial withdrawals cannot bring enough ETH to the Coffer contract (the beacon chain limits partial withdrawals to maintain a 32 ETH minimum for compounding validators). In this scenario, the holder's only way to claim a matured bond is a full validator exit. If `exitAllowed` is `false`, the holder cannot trigger an exit and must wait for the validator to voluntarily deposit enough ETH or for the validator to earn enough ETH through network issuance, which can take much longer than the bond duration.
+**Validator credentials are not 0x02**
 
-#### Collateralized Without Maximum-Duration Penalties Applied
+`convertToCompounding()` and EIP-7002 withdrawal requests require the validator to have 0x02 (compounding) withdrawal credentials. If the validator's credentials are still 0x00 or 0x01, these functions cannot execute; the bond cannot be satisfied as designed until credentials are upgraded to 0x02. The holder must verify credential type on the consensus layer.
 
-> [!WARNING]
-> **`issueSize` in Coffer contract is sometimes enough**
->
-> A validator can have an `issueSize` that is greater than the consensus balance minus possible penalties that could happen before **maximum** duration has passed, but is less than the consensus balance minus possible penalties that could happen before **minimum** duration has passed. Such a validator is considered partially collateralized. The holder can choose if they are willing to take the risk and buy a bond from the validator.
+#### Issuance Buffer
 
-#### Collateralized Against Understated Penalties
+`issueSizeBufferBps` scales down the validator's issuable capacity:
 
-> [!WARNING]
-> **`safeTotalStake` should be less than network total stake**
->
-> If `safeTotalStake` is set higher than the actual network total stake, the penalty calculations in the `Penalty` library will **underestimate** real penalties. This happens because both `correlationPenalty` and `missingAttestations` divide by `safeTotalStake`, and a larger denominator produces a smaller penalty estimate. As a result, the `issueSize` (which subtracts estimated penalties from the consensus balance) will be larger than it should be, meaning the validator may not have enough balance to cover all outstanding bonds if it gets high penalties. Validators should set `safeTotalStake` to a value slightly **below** the real network total stake to ensure penalties are conservatively estimated.
+```
+issueSize = consensusBalance * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFER_DENOMINATOR
+```
 
-#### Fully Collateralized Scenarios
+where 1% = 100 and BUFFER_DENOMINATOR = 10000 (basis points).
 
-> [!TIP]
-> **`issueSize` in Coffer contract covers all penalties**
->
-> A validator should have an `issueSize` less than the consensus balance minus possible penalties that could happen before **maximum** duration has passed. When this validator issues its first bond, `issueSize` cannot be increased until all bonds are repaid, preserving collateralization for existing holders.
+The buffer creates headroom between what the validator issues and what they hold on the consensus layer. A higher buffer means a smaller issueSize.
 
-> [!TIP]
-> **`exitAllowed` is properly configured**
->
-> If the validator's `consensus balance - issueSize - maxPenalties < 32 ETH`, `exitAllowed` must be set to `true`. Partial withdrawals cannot bring enough ETH to the Coffer contract because the beacon chain enforces a 32 ETH minimum for compounding validators. Without exit capability, the holder cannot trigger a full validator exit and must depend on the validator voluntarily depositing ETH or earning enough through network issuance, which can take much longer than the bond duration.
+The validator sets the buffer. The holder evaluates whether the chosen value, combined with the amount of ETH already issued, is adequate for the bond's duration given events the validator may face: missing attestations, going offline, being slashed, or the network entering a non-finalizing period.
 
-> [!TIP]
-> **`safeTotalStake` is at or below actual network stake**
->
-> Since both `correlationPenalty` and `missingAttestations` in the `Penalty` library divide by `safeTotalStake`, a value that is too high will underestimate penalties, making the `issueSize` appear safer than it actually is. A conservative (slightly below actual) value ensures penalty estimates are accurate or slightly overestimated, protecting bond holders.
+#### Exit Mechanics
+
+The beacon chain caps partial withdrawals at the 32 ETH active-validator floor.
+
+When `consensusBalance + executionBalance - issueSize` is less than 32 ETH at the time of evaluation, partial withdrawals cannot fully fund the bond, so recovery requires a full exit. If `exitAllowed` is `false`, the holder cannot initiate that exit and depends on the validator voluntarily depositing ETH.
+
+When `consensusBalance + executionBalance - issueSize` is 32 ETH or more at the time of evaluation, `exitAllowed` can be `false` and the holder can still recover via partial withdrawals as long as the balance remains above 32 ETH. Note: consensus balance is not static. Slashing, inactivity leaks, or missed attestations can reduce it below 32 ETH after evaluation, at which point recovery would require a full exit.
 
 ### Redeeming Bonds Early
 
-A validator can redeem outstanding bonds before maturity by calling `redeemBondsEarly`. This is
-particularly important when the validator needs `outstandingBonds == 0` to change bond parameters
-such as interest rate, issue size, exit permissions, or safe total stake.
+A validator can redeem outstanding bonds before maturity by calling `redeemBondsEarly`. This is particularly important when the validator needs `outstandingBonds == 0` to change bond parameters such as interest rate, issue size, exit permissions, or issue size buffer.
 
-When bonds are redeemed early, the maturity values are sent to the `CofferBondsRedeemedEarly`
-contract rather than directly to each bond holder. Holders then claim their funds individually
-by calling `claim()` on that contract.
+When bonds are redeemed early, the maturity values are sent to the `CofferBondsRedeemedEarly` contract rather than directly to each bond holder. Holders then claim their funds individually by calling `claim()` on that contract.
 
-This pull-based pattern prevents a griefing attack where a bond NFT is transferred to a contract
-that rejects ETH (non-payable or reverting `receive()`). Without this pattern, such a transfer
-would permanently block the validator from redeeming that bond, locking the `outstandingBonds`
-counter and consuming `issueSize` capacity indefinitely.
+This pull-based pattern prevents a griefing attack where a bond NFT is transferred to a contract that rejects ETH (non-payable or reverting `receive()`). Without this pattern, such a transfer would permanently block the validator from redeeming that bond, locking the `outstandingBonds` counter and consuming `issueSize` capacity indefinitely.
 
 ---
 
 ## Risk Factors
 
-### `safeTotalStake` Drift
+### Extreme Consensus-Layer Events
 
-If the stake of all validators on the network drops below `safeTotalStake`, penalties will be calculated slightly lower than they should be. This makes buying a bond from that validator slightly less safe. The risk is extremely minor for two reasons. First, when a validator is penalized, both the holder and the validator lose money, so the validator has no incentive to cause such an event. Second, because of the churn limit, the total stake of the network can only drop very slowly.
+Some risks are beyond what any buffer can cover. These are network-wide events where all validators, all holders, and all participants are exposed. Holders should be aware of them when evaluating a Coffer.
 
-### Protocol-Upgrade Risk for Long-Duration Bonds
+#### Non-Finalization (Inactivity Leak)
 
-Penalty calculations in `Penalty.sol` snapshot four consensus-layer parameters (`INITIAL_SLASHING_PENALTY_QUOTIENT`, `PROPORTIONAL_SLASHING_MULTIPLIER`, `SLASHING_PENALTY_DURATION_IN_EPOCH`, `MISSED_ATTESTATION_FACTOR`) at the time of deployment. Ethereum executes roughly one to two hard forks per year and has historically adjusted these values (`PROPORTIONAL_SLASHING_MULTIPLIER`, `INITIAL_SLASHING_PENALTY_QUOTIENT`). Because Coffer contracts are non-upgradeable, values baked in at deployment persist regardless of future consensus-layer changes. If a fork **increases** penalty strength, the on-chain calculation underestimates the real worst-case and `issueSize` provisioning may be insufficient to cover a validator's actual post-penalty balance, exposing holders to partial recovery. If a fork **decreases** penalty strength, the on-chain calculation overestimates, which disadvantages the validator (reduced `issueSize` headroom) but keeps holders fully covered. The risk is asymmetric (holder loses or validator inconvenienced) and grows with bond duration. Holders should size bond duration against their tolerance for this tail risk.
+The inactivity leak activates when the chain stops finalizing (requires more than one-third of stake offline from a cross-cutting cause). Penalties in this regime grow quadratically over time. A flat percentage buffer cannot track this growth, so in a sustained leak the validator's balance may fall below what is needed to cover outstanding bonds. Holders of bonds that span such a period may face:
 
-### Inactivity-Leak Regime
+1. **Total loss, validator stake depleted**: if the leak reduces the validator's consensus balance to zero or below outstanding bond obligations, there is nothing to recover.
+2. **Partial recovery with race**: if some balance remains but is insufficient, holders compete for the execution-layer balance via `holderWithdrawFromExecution`.
+3. **Consensus-locked residue**: when `exitAllowed = false`, partial withdrawals are capped at `consensus balance - 32 ETH`. Remaining bond value stays on the consensus layer until the validator voluntarily initiates a withdrawal or exits.
 
-`Penalty.sol` models finalizing-chain attestation penalties correctly but does not model the inactivity-leak regime. In a sustained non-finalization period, `get_inactivity_penalty_deltas` accumulates a per-validator inactivity score that grows by +4 per missed epoch, so the cumulative penalty over a leak is quadratic in epochs rather than linear. The Coffer formula is linear, so under a sustained leak the `issueSize` provisioning may sit above the validator's actual post-leak balance. Holders of bonds that span such a period may face one or more of:
+#### Correlated Slashing
 
-1. **Total loss, validator stake depleted**: if the leak reduces the validator's consensus balance to zero or below the sum of outstanding bond obligations plus accrued penalties, there is nothing to recover on the consensus layer. Both validator and holders lose their stake.
-2. **Partial recovery with race**: if some balance remains but is insufficient to cover all outstanding bonds, holders compete with each other and with the validator (via `validatorWithdrawFromExecution`, bounded by `issueSize`) for whatever ETH sits on the execution layer. First callers of `holderWithdrawFromExecution` recover in full; later callers recover partially or not at all.
-3. **Consensus-locked residue**: when `exitAllowed = false` and the partial consensus withdrawal caps at `consensus_balance - 32 ETH` (the active-validator floor), any remainder of `bondMaturityValue` stays on the consensus layer. The single-shot guard on `holderWithdrawFromConsensus` prevents re-triggering, so the holder must wait for the validator to voluntarily initiate a partial withdrawal, to exit the validator, or (for 0x01 credentials) for auto-sweeping of rewards above 32 ETH. Compounding (0x02) validators have no auto-sweep until effective balance exceeds 2048 ETH.
+In a correlated slashing event the consensus-layer penalty scales with the total amount slashed within the same window. If it occurs, the Coffer may be unable to honour all outstanding bonds. Large-scale correlated slashing has not occurred on Ethereum mainnet. The largest events involve tens of validators.
 
-The single-shot guard on `holderWithdrawFromConsensus` is intentional: it prevents a matured holder from repeatedly pulling a compounding validator's rewards down to 32 ETH. The trade-off is the regime above. Sustained non-finalization has never occurred on Ethereum mainnet post-Merge; triggering it requires more than one-third of stake offline from a cross-cutting cause. Holders should factor this regime-change tail risk into their safety evaluation.
-
-### Correlated Slashing
-
-The `slashing()` function in `Penalty.sol` computes the correlation-penalty term as `balance * balance * PROPORTIONAL_SLASHING_MULTIPLIER / safeTotalStake`. This matches the Ethereum consensus-layer formula **only when this validator is the sole slashed validator within the `SLASHING_PENALTY_DURATION_IN_EPOCH` window** (currently 8192 epochs, roughly 36 days). The true consensus-layer formula is `effective_balance * min(sum(slashings) * 3, total_balance) / total_balance`, which saturates at the full effective balance once `sum(slashings) * 3` reaches `total_balance`. In a large correlated slashing event the realized penalty can approach the validator's full effective balance, several orders of magnitude above the Coffer formula's estimate. At saturation `issueSize` provisioning sits well above the validator's real post-penalty balance, and the Coffer may be unable to honour all outstanding bonds. No on-chain bound is offered for this tail because any finite bounded choice would be arbitrary, and bounding by the full effective balance would set `issueSize = 0` in every deploy and make the protocol unusable. Large-scale correlated slashing has not occurred on post-Merge Ethereum mainnet; the largest correlated events in the public record involve tens of validators. Holders of long-duration bonds should factor this tail risk into their safety evaluation.
+The Coffer protocol does not attempt to model or bound these events on-chain. Both are catastrophic for the entire network: validators lose stake, holders lose bond coverage, and all participants are exposed together. Holders of long-duration bonds should be aware that such events, however unlikely, are not covered by any on-chain mechanism.
 
 ---
 
@@ -419,11 +377,9 @@ The `slashing()` function in `Penalty.sol` computes the correlation-penalty term
 
 ### Changing Offer Parameters
 
-> [!IMPORTANT]
-> Validators cannot **CHANGE** `exitAllowed` to `false` in the Coffer contract, and they cannot **INCREASE** `issueSize`, `interestRate`, `safeTotalStake`, or `maximumDuration` while there are unmatured bonds. This would give the validator the ability to manipulate the amounts the Coffer contract handles, benefiting themselves at the expense of holders.
+Validators cannot **CHANGE** `exitAllowed` to `false` in the Coffer contract, and they cannot **INCREASE** `issueSize` or `interestRate`, **INCREASE** `maximumDuration`, or **DECREASE** `issueSizeBufferBps` while there are unmatured bonds. This would give the validator the ability to manipulate the amounts the Coffer contract handles, benefiting themselves at the expense of holders.
 
-> [!NOTE]
-> Decreasing `issueSize`, `interestRate`, `safeTotalStake`, and `maximumDuration` as well as turning `exitAllowed` from `false → true`, can only make the contract safer for the holder.
+Decreasing `issueSize`, `interestRate`, and `maximumDuration`, increasing `issueSizeBufferBps`, as well as turning `exitAllowed` from `false → true`, can only make the contract safer for the holder.
 
 
 ### Granting Full Exit to Holders
@@ -433,8 +389,7 @@ The `slashing()` function in `Penalty.sol` computes the correlation-penalty term
 - Makes sense if validator's stake yields 2.5%
 - Problem: Validator cannot earn 5 ETH in 1 year
 
-> [!NOTE]
-> A holder must have the ability to fully exit the validator to repay the bond and receive the principal with earned interest as expected. Therefore, the validator is expected to allow full exits; otherwise, the bond wouldn't be repayable until the validator stakes enough ETH on the consensus layer, which could be a much longer period than the holder accepted.
+A holder must have the ability to fully exit the validator to repay the bond and receive the principal with earned interest as expected. Therefore, the validator is expected to allow full exits; otherwise, the bond wouldn't be repayable until the validator stakes enough ETH on the consensus layer, which could be a much longer period than the holder accepted.
 
 **Key Points:**
 - A validator that allows full exits can prevent a holder from initiating exit by depositing the required ETH amount
@@ -443,8 +398,7 @@ The `slashing()` function in `Penalty.sol` computes the correlation-penalty term
 - Validators with larger stakes (consensus balance exceeds the issue size by at least 32 ETH) can make full exits forbidden
 - In restricted scenarios, holders can only initiate partial withdrawals with the amount of ETH needed to fulfill bond conditions at maturity
 
-> [!NOTE]
-> A simple solution for the validator is to initiate a partial withdrawal so that the Coffer contract balance increases up to the holder's bond value. Or, if the validator has enough ETH outside the validator, they can send it to the Coffer contract to top up the balance for the holder. That will prevent the holder from initiating a full exit.
+A simple solution for the validator is to initiate a partial withdrawal so that the Coffer contract balance increases up to the holder's bond value. Or, if the validator has enough ETH outside the validator, they can send it to the Coffer contract to top up the balance for the holder. That will prevent the holder from initiating a full exit.
 
 ---
 
@@ -452,30 +406,26 @@ The `slashing()` function in `Penalty.sol` computes the correlation-penalty term
 
 ### Contract Invariants (enforced by code)
 
-- **issueSize conservation**: `issueSize + sum(bondMaturityValues) = totalIssuableCapacity` (capacity = cumulative penalty-adjusted deposits + execution-layer receive() deposits minus explicit issueSize decreases)
+- **issueSize conservation**: `issueSize + sum(bondMaturityValues) = totalIssuableCapacity` (capacity = cumulative buffer-adjusted deposits + execution-layer receive() deposits minus explicit issueSize decreases)
 - **receive() issueSize top-up**: `receive()` increases `issueSize` by `msg.value`. Beacon chain withdrawals (EIP-4895) credit balance without code execution and do not trigger `receive()`, so all `receive()` invocations are execution-layer transfers with real ETH backing
-- **Parameter monotonicity**: While `outstandingBonds > 0`: `issueSize`, `interestRate`, `safeTotalStake`, `maximumDuration` can only decrease; `exitAllowed` can only go `false`→`true`
+- **Parameter monotonicity**: While `outstandingBonds > 0`: `issueSize`, `interestRate`, `maximumDuration` can only decrease; `issueSizeBufferBps` can only increase; `exitAllowed` can only go `false`→`true`
 - **Validator execution withdrawal bound**: Validator can withdraw from execution up to `issueSize` while preserving `totalConsensusReserved`; unrestricted when `outstandingBonds == 0`
 - **outstandingBonds accuracy**: Equals the number of bonds with `bondMaturityValue > 0`
 - **Bond-NFT bijection**: Each active bond maps 1:1 to a live NFT (mint on buy, burn on full withdrawal/redeem)
 - **Version monotonicity**: `version` strictly increases on any parameter change that affects holder safety
 - **bondMaturityValue >= principal**: Interest is always non-negative
 
-### Cross-Layer Safety Invariant (not enforceable on-chain)
+### Cross-Layer Invariant (not enforceable on-chain)
 
 The solvency property:
 
 ```
-issueSize + sum(bondMaturityValues) <= (consensusBalance + cofferContractBalance) - maxPenalties
+issueSize + sum(bondMaturityValues) <= (consensusBalance + cofferContractBalance)
 ```
 
-If it holds with `n` outstanding bonds (`n > 0`), it is preserved when the `(n+1)`th bond is bought. Buying a bond decreases `issueSize` and increases `sum(bondMaturityValues)` by the same maturity value, so the left side is unchanged. Consensus withdrawals go to the coffer contract, meaning `consensusBalance` decreases while `cofferContractBalance` increases by the same amount, leaving the right side unchanged. When the validator adds funds to consensus, `issueSize` increases only by the penalty-adjusted deposit amount (`deposit - maxPenalties`), so the left side grows no more than the right side, preserving the inequality. 
+If it holds with `n` outstanding bonds (`n > 0`), it is preserved when the `(n+1)`th bond is bought. Buying a bond decreases `issueSize` and increases `sum(bondMaturityValues)` by the same maturity value, so the left side is unchanged. Consensus withdrawals go to the coffer contract, meaning `consensusBalance` decreases while `cofferContractBalance` increases by the same amount, leaving the right side unchanged. When the validator adds funds to consensus, `issueSize` increases only by the buffer-adjusted deposit amount (`deposit * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFER_DENOMINATOR`), so the left side grows no more than the right side, preserving the inequality.
 
-The base case (`0 → 1`) depends on the validator's initial configuration being correct, which cannot be enforced on-chain (see [Safety Guidelines](#safety-guidelines)). When `outstandingBonds == 0`, the property may not hold. The validator can withdraw freely and modify parameters which is harmless since no bond holders exist to be affected. However, if the solvency property does hold when `outstandingBonds == 0`, front-run protection guarantees it is preserved when the first bond is bought.
-
-### Known Approximation
-
-`validatorAddFundsToConsensus` computes issueSize additively per deposit: `issueSize += addMaximumPenalty(deposit)`. Due to the quadratic correlation penalty (`balance² * 3 / (safeTotalStake * 1e18)`), the sum of individual penalty-adjusted amounts is slightly larger than the true combined penalty-adjusted amount. This means issueSize may be marginally overestimated. The overestimate is negligible for typical validator sizes.
+The base case (`0 → 1`) depends on the validator's initial configuration being correct, which cannot be enforced on-chain (see [Evaluating a Coffer](#evaluating-a-coffer)). When `outstandingBonds == 0`, the property may not hold. The validator can withdraw freely and modify parameters which is harmless since no bond holders exist to be affected. However, if the solvency property does hold when `outstandingBonds == 0`, front-run protection guarantees it is preserved when the first bond is bought.
 
 ---
 

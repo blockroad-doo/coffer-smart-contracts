@@ -4,7 +4,6 @@ pragma solidity 0.8.34;
 import {Coffer} from "./Coffer.sol";
 import {CofferBondNft} from "./CofferBondNft.sol";
 import {CofferBondsRedeemedEarly} from "./CofferBondsRedeemedEarly.sol";
-import {Penalty} from "./libraries/Penalty.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
 
 /**
@@ -18,7 +17,7 @@ import {LibClone} from "solady/utils/LibClone.sol";
 contract CofferFactory {
     error InvalidDuration();
     error InvalidInterestRate();
-    error InvalidSafeTotalStake();
+    error InvalidIssueSizeBufferBps();
     error InvalidMinimumValueToAccept();
     error InvalidStartingBalance();
 
@@ -26,9 +25,7 @@ contract CofferFactory {
     uint256 private constant MIN_STARTING_BALANCE = 32 ether;
     uint256 private constant MAX_STARTING_BALANCE = 2048 ether; // EIP-7251 MaxEB
     uint256 private constant MAX_DURATION = 1_576_800_000; // 50 years
-    // Total ETH staked amount that shouldn't be reached in 100 years
-    uint256 private constant MAX_SAFE_TOTAL_STAKE = 300_000_000;
-    uint256 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
+    uint256 private constant BUFFER_DENOMINATOR = 10000; // basis points: 1% = 100
 
     /// @notice Address of the shared CofferBondNft contract
     address public immutable I_COFFER_BOND_NFT_ADDRESS;
@@ -61,7 +58,10 @@ contract CofferFactory {
     /// @param _minimumDuration Minimum bond duration in seconds
     /// @param _maximumDuration Maximum bond duration in seconds
     /// @param _minimumValueToAccept Minimum value a holder must deposit
-    /// @param _safeTotalStake Safe total network stake for penalty calculation
+    /// @param _issueSizeBufferBps Conservatism buffer: the validator's consensus balance is scaled down by
+    /// (BUFFER_DENOMINATOR - _issueSizeBufferBps) / BUFFER_DENOMINATOR to derive issueSize. 1% = 100.
+    /// A higher value means more conservative provisioning (smaller issueSize). Holders must assess whether
+    /// the chosen buffer is adequate for the bond durations offered.
     /// @param _exitAllowed Whether holders can initiate validator exits
     /// @param _startingBalance Validator's starting consensus balance (32–2048 ETH per EIP-7251)
     /// @return The address of the newly deployed Coffer contract
@@ -72,7 +72,7 @@ contract CofferFactory {
         uint32 _minimumDuration,
         uint32 _maximumDuration,
         uint128 _minimumValueToAccept,
-        uint32 _safeTotalStake,
+        uint16 _issueSizeBufferBps,
         bool _exitAllowed,
         uint128 _startingBalance
     ) external returns (address) {
@@ -84,20 +84,15 @@ contract CofferFactory {
         require(_interestRate != 0, InvalidInterestRate());
         // solhint-disable-next-line gas-strict-inequalities
         require(_interestRate <= MAX_RATE, InvalidInterestRate());
-        require(_safeTotalStake != 0, InvalidSafeTotalStake());
         // solhint-disable-next-line gas-strict-inequalities
-        require(_safeTotalStake <= MAX_SAFE_TOTAL_STAKE, InvalidSafeTotalStake());
+        require(_issueSizeBufferBps <= BUFFER_DENOMINATOR, InvalidIssueSizeBufferBps());
         // solhint-disable-next-line gas-strict-inequalities
         require(_startingBalance >= MIN_STARTING_BALANCE, InvalidStartingBalance());
         // solhint-disable-next-line gas-strict-inequalities
         require(_startingBalance <= MAX_STARTING_BALANCE, InvalidStartingBalance());
 
-        // Validator cannot set the minimum value to accept to more than the maximum it could accept
-        uint256 maxMinimumValueToAccept = Penalty.addMaximumPenalty(
-            _startingBalance,
-            _safeTotalStake,
-            (_maximumDuration + NUMBER_OF_SECONDS_IN_EPOCH - 1) / NUMBER_OF_SECONDS_IN_EPOCH
-        );
+        uint256 maxMinimumValueToAccept =
+            uint256(_startingBalance) * (BUFFER_DENOMINATOR - _issueSizeBufferBps) / BUFFER_DENOMINATOR;
 
         require(_minimumValueToAccept != 0, InvalidMinimumValueToAccept());
         // solhint-disable-next-line gas-strict-inequalities
@@ -116,7 +111,7 @@ contract CofferFactory {
                 _minimumDuration,
                 _maximumDuration,
                 _minimumValueToAccept,
-                _safeTotalStake,
+                _issueSizeBufferBps,
                 _exitAllowed,
                 _startingBalance
             );

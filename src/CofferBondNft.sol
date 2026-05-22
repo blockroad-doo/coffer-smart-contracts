@@ -38,6 +38,9 @@ contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
     /// @notice Emitted when a bond NFT is burned
     /// @param bondId The ID of the burned bond
     event CofferBondTokenBurned(uint256 indexed bondId);
+    /// @notice Emitted when a new Coffer is registered
+    /// @param coffer The address of the registered Coffer
+    event CofferRegistered(address indexed coffer);
 
     /// @notice Initializes the bond NFT with the factory that will register authorized Coffers
     /// @param _factory The address of the CofferFactory deploying this contract
@@ -51,6 +54,7 @@ contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
     function registerCoffer(address _coffer) external {
         require(msg.sender == I_FACTORY, OnlyFactory());
         isRegisteredCoffer[_coffer] = true;
+        emit CofferRegistered(_coffer);
     }
 
     /// @notice Mints a bond NFT and records msg.sender as the issuing Coffer contract

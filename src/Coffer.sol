@@ -8,7 +8,6 @@ import {ICofferBondNft} from "./interfaces/ICofferBondNft.sol";
 import {ICofferBondsRedeemedEarly} from "./interfaces/ICofferBondsRedeemedEarly.sol";
 import {IDepositContract} from "./interfaces/IDepositContract.sol";
 import {Interest} from "./libraries/Interest.sol";
-import {Penalty} from "./libraries/Penalty.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 /**
@@ -26,14 +25,14 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     error ValueTooSmallToAccept();
     error InvalidDuration();
     error InvalidRate();
-    error InvalidSafeTotalStake();
+    error InvalidIssueSizeBufferBps();
 
     error ValidatorIsNotActive();
     error ValidatorDoesntCoverTheValue();
     error ValidatorCannotIncreaseInterestRateWhileOutstandingBondExist();
     error ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist();
     error ValidatorCannotForbidExitsWhileOutstandingBondExists();
-    error ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist();
+    error ValidatorCannotDecreaseIssueSizeBufferWhileOutstandingBondExist();
     error ValidatorCannotIncreaseMaximumDurationWhileOutstandingBondExist();
     error ValidatorDepositValueNotMultipleOfGwei();
     error ValidatorConditionsVersionMismatch();
@@ -62,24 +61,22 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     }
 
     /// @param issueSize - After finishing Coffer setup, this parameter has value close to consensus + execution
-    /// balance minus potential max penalties. Validator can change this parameter to control holder certainty of
-    /// return, but it has to be less than consensus + execution balance minus penalty costs for bonds to be safe.
-    /// This value represents how much the validator can use to issue bonds. When a holder buys a bond, it is
-    /// decreased by the bond value with interest.
-    /// @param version - Safety measure for holders. Prevents malicious validator from frontrunning attacks when
-    /// holder buys a bond.
-    /// @param safeTotalStake - Represents the safe total stake on the network used to calculate potential penalties.
-    /// A larger difference (real total stake - safeTotalStake) is safer but issueSize is less. Validator should set
-    /// it close to but slightly lower than the real total stake. Can always be increased when no unmatured bonds
-    /// exist and decreased anytime.
+    /// balance minus a conservatism buffer (issueSizeBufferBps). Validator can change this parameter to control
+    /// holder certainty of return. This value represents how much the validator can use to issue bonds. When a
+    /// holder buys a bond, it is decreased by the bond value with interest.
+    /// @param version - Prevents malicious validator from frontrunning attacks when holder buys a bond.
+    /// @param issueSizeBufferBps - Conservatism buffer set by the validator. issueSize is derived from consensus
+    /// balance as balance * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFER_DENOMINATOR. 1% = 100.
+    /// Holders must assess whether the chosen buffer is adequate. A higher value is more conservative (smaller
+    /// issueSize). Can always be increased and can be decreased only when no unmatured bonds exist.
     /// @param outstandingBonds - Counter for bonds not redeemed yet. Those bonds may or may not have matured.
     /// @param isActive - Represents if validator is willing to issue a bond or not. Can switch on/off at own will.
-    /// @param exitAllowed - If (consensus balance - issueSize - maxPenalties < 32 ETH), the holder may be unable to
-    /// claim a matured bond from the execution layer because partial consensus withdrawals are capped at the 32 ETH
+    /// @param exitAllowed - If (consensus balance - issueSize < 32 ETH), the holder may be unable to claim a
+    /// matured bond from the execution layer because partial consensus withdrawals are capped at the 32 ETH
     /// active-validator floor; the only path to recovery is a full validator exit. In that regime a validator
     /// without exitAllowed == true is undercollateralized from the holder's perspective. When (consensus balance -
-    /// issueSize - maxPenalties >= 32 ETH), exitAllowed can be false and the validator is fully collateralized.
-    /// See README "Safety Guidelines".
+    /// issueSize >= 32 ETH), exitAllowed can be false and the validator is fully collateralized.
+    /// See README "Exit Mechanics".
 
     struct ValidatorConditions {
         uint128 issueSize;
@@ -89,7 +86,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         uint128 minimumValueToAccept;
         uint32 version;
         uint32 outstandingBonds;
-        uint32 safeTotalStake;
+        uint16 issueSizeBufferBps;
         bool isActive;
         bool exitAllowed;
     }
@@ -102,10 +99,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Address of the consolidation contract
     address private constant CONSOLIDATION_CONTRACT = 0x0000BBdDc7CE488642fb579F8B00f3a590007251;
 
-    uint256 private constant NUMBER_OF_SECONDS_IN_EPOCH = 384;
+    uint256 private constant BUFFER_DENOMINATOR = 10000; // basis points: 1% = 100
     uint256 private constant MAX_DURATION = 1_576_800_000; // 50 years
-    // Total ETH staked amount that shouldn't be reached in 100 years
-    uint256 private constant MAX_SAFE_TOTAL_STAKE = 300_000_000;
 
     /// @notice 100% interest rate is the maximum allowed, it can have
     /// up to 8 decimal places, e.g. 10% is represented as 1e7
@@ -116,42 +111,6 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// immutable args are appended after that in the clone's deployed bytecode.
     /// During delegatecall, address(this) is the clone, so extcodecopy reads the clone's code.
     uint256 private constant _ARGS_OFFSET = 0x2d;
-
-    /// @notice Address of the shared CofferBondNft contract (CWIA arg at offset 0)
-    /// @return result The CofferBondNft contract address
-    function iCofferBondNftAddress() public view returns (address result) {
-        assembly {
-            extcodecopy(address(), 12, _ARGS_OFFSET, 20)
-            result := mload(0)
-        }
-    }
-
-    /// @notice Address of the shared CofferBondsRedeemedEarly contract (CWIA arg at offset 20)
-    /// @return result The CofferBondsRedeemedEarly contract address
-    function iCofferBondsRedeemedEarly() public view returns (address result) {
-        assembly {
-            extcodecopy(address(), 12, add(_ARGS_OFFSET, 20), 20)
-            result := mload(0)
-        }
-    }
-
-    /// @notice First 32 bytes of the validator BLS signing public key (CWIA arg at offset 40)
-    /// @return result The first 32 bytes of the BLS public key
-    function iPublicKeyPart1() public view returns (bytes32 result) {
-        assembly {
-            extcodecopy(address(), 0, add(_ARGS_OFFSET, 40), 32)
-            result := mload(0)
-        }
-    }
-
-    /// @notice Last 16 bytes of the validator BLS signing public key (CWIA arg at offset 72)
-    /// @return result The last 16 bytes of the BLS public key
-    function iPublicKeyPart2() public view returns (bytes16 result) {
-        assembly {
-            extcodecopy(address(), 0, add(_ARGS_OFFSET, 72), 16)
-            result := mload(0)
-        }
-    }
 
     /// @notice Current validator conditions for bond issuance
     ValidatorConditions public sValidatorConditions;
@@ -231,16 +190,15 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @param maximumDuration The new maximum duration
     event DurationRangeChanged(uint32 indexed minimumDuration, uint32 indexed maximumDuration);
     /// @notice Emitted when issue size changes
-    /// @param oldIssueSize The previous issue size
     /// @param newIssueSize The new issue size
-    event IssueSizeChanged(uint128 indexed oldIssueSize, uint128 indexed newIssueSize);
+    event IssueSizeChanged(uint128 indexed newIssueSize);
     /// @notice Emitted when minimum accepted value changes
     /// @param newMinimum The new minimum value
     event MinimumValueChanged(uint128 indexed newMinimum);
-    /// @notice Emitted when safe total stake changes
-    /// @param oldSafeTotalStake The previous safe total stake
-    /// @param newSafeTotalStake The new safe total stake
-    event SafeTotalStakeChanged(uint32 indexed oldSafeTotalStake, uint32 indexed newSafeTotalStake);
+    /// @notice Emitted when issue size buffer changes
+    /// @param oldBuffer The previous buffer
+    /// @param newBuffer The new buffer
+    event IssueSizeBufferBpsChanged(uint16 indexed oldBuffer, uint16 indexed newBuffer);
     /// @notice Emitted when validator converts to compounding
     event ValidatorConvertedToCompounding();
     /// @notice Emitted when the validator conditions version increments (anti-frontrun counter)
@@ -267,6 +225,42 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         revert RenounceOwnershipDisabled();
     }
 
+    /// @notice Address of the shared CofferBondNft contract (CWIA arg at offset 0)
+    /// @return result The CofferBondNft contract address
+    function iCofferBondNftAddress() public view returns (address result) {
+        assembly {
+            extcodecopy(address(), 12, _ARGS_OFFSET, 20)
+            result := mload(0)
+        }
+    }
+
+    /// @notice Address of the shared CofferBondsRedeemedEarly contract (CWIA arg at offset 20)
+    /// @return result The CofferBondsRedeemedEarly contract address
+    function iCofferBondsRedeemedEarly() public view returns (address result) {
+        assembly {
+            extcodecopy(address(), 12, add(_ARGS_OFFSET, 20), 20)
+            result := mload(0)
+        }
+    }
+
+    /// @notice First 32 bytes of the validator BLS signing public key (CWIA arg at offset 40)
+    /// @return result The first 32 bytes of the BLS public key
+    function iPublicKeyPart1() public view returns (bytes32 result) {
+        assembly {
+            extcodecopy(address(), 0, add(_ARGS_OFFSET, 40), 32)
+            result := mload(0)
+        }
+    }
+
+    /// @notice Last 16 bytes of the validator BLS signing public key (CWIA arg at offset 72)
+    /// @return result The last 16 bytes of the BLS public key
+    function iPublicKeyPart2() public view returns (bytes16 result) {
+        assembly {
+            extcodecopy(address(), 0, add(_ARGS_OFFSET, 72), 16)
+            result := mload(0)
+        }
+    }
+
     /// @notice Initializes a CWIA clone with validator parameters
     /// @dev Called once by CofferFactory after cloning. The 4 "immutable" values (NFT address, early redemption
     /// address, public key parts) are read from CWIA args appended to this clone's bytecode, not passed here.
@@ -275,25 +269,21 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @param _minimumDuration Minimum bond duration in seconds
     /// @param _maximumDuration Maximum bond duration in seconds
     /// @param _minimumValueToAccept Minimum value a holder must deposit
-    /// @param _safeTotalStake Safe total network stake for penalty calculation
+    /// @param _issueSizeBufferBps Conservatism buffer for deriving issueSize from starting balance.
+    /// 1% = 100. A higher value means more conservative provisioning (smaller issueSize). The protocol does
+    /// not model consensus-layer penalties on-chain.
     /// @param _exitAllowed Whether holders can initiate validator exits
     /// @param _startingBalance Validator's starting consensus balance (32–2048 ETH per EIP-7251)
-    /// @notice issueSize is computed in both branches to avoid the silent zero-default that would otherwise force
-    /// the validator to call changeIssueSize before any bond can be bought. With _exitAllowed = true the value is
-    /// addMaximumPenalty(_startingBalance, ...). With _exitAllowed = false an additional 32 ether is subtracted
-    /// (saturating at 0) so that consensus balance - issueSize >= maxPenalty + 32 ether, automatically satisfying
-    /// the README's "consensus balance - issueSize - maxPenalties < 32 ETH must imply exitAllowed = true"
-    /// collateralization rule. The penalty is computed on the full _startingBalance because consensus-layer
-    /// slashing applies to the entire effective balance, not only the portion above the 32 ETH activation floor.
-    /// 32 ETH validators with exitAllowed = false deterministically receive issueSize = 0 (the clamp), which
-    /// preserves today's behavior for that case.
+    /// @notice issueSize is computed as _startingBalance scaled by the buffer in both branches.
+    /// With _exitAllowed = false an additional 32 ether is subtracted (saturating at 0) so that consensus balance -
+    /// issueSize >= 32 ether, automatically satisfying the README's consensus-floor collateralization rule.
     function initialize(
         address _owner,
         uint32 _interestRate,
         uint32 _minimumDuration,
         uint32 _maximumDuration,
         uint128 _minimumValueToAccept,
-        uint32 _safeTotalStake,
+        uint16 _issueSizeBufferBps,
         bool _exitAllowed,
         uint128 _startingBalance
     ) external initializer {
@@ -307,25 +297,18 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
             minimumValueToAccept: _minimumValueToAccept,
             version: 1,
             outstandingBonds: 0,
-            safeTotalStake: _safeTotalStake,
+            issueSizeBufferBps: _issueSizeBufferBps,
             isActive: true,
             exitAllowed: _exitAllowed
         });
 
-        // forge-lint: disable-next-line(unsafe-typecast)
-        // penalty always fits uint128 because of value,
-        // safe total stake and duration limits in CofferFactory
-        sValidatorConditions.issueSize = uint128(
-            Penalty.addMaximumPenalty(
-                _startingBalance,
-                _safeTotalStake,
-                (_maximumDuration + NUMBER_OF_SECONDS_IN_EPOCH - 1) / NUMBER_OF_SECONDS_IN_EPOCH
-            )
-        );
+        sValidatorConditions.issueSize =
+        // forge-lint: disable-next-line(unsafe-typecast) buffer-scaled balance (<= _startingBalance) fits uint128
+        uint128(uint256(_startingBalance) * (BUFFER_DENOMINATOR - _issueSizeBufferBps) / BUFFER_DENOMINATOR);
 
         if (!_exitAllowed) {
-            // exitAllowed = false: keep consensus balance - issueSize >= maxPenalty + 32 ether
-            // so the README's 32 ETH consensus-floor collateralization rule holds without manual tuning.
+            // exitAllowed = false: keep consensus balance - issueSize >= 32 ether so the README's
+            // 32 ETH consensus-floor collateralization rule holds without manual tuning.
             // Clamp at 0 for validators at or near MIN_STARTING_BALANCE (32 ether).
             sValidatorConditions.issueSize =
                 sValidatorConditions.issueSize > 32 ether ? sValidatorConditions.issueSize - 32 ether : 0;
@@ -345,9 +328,13 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// inherent property of every ETH-accepting Ethereum address, including the validator's own 0x01 or 0x02
     /// withdrawal credential, and is not a Coffer-specific weakness.
     /// @dev Anyone can send ETH but only validator/holders benefit from it
+    // solhint-disable-next-line no-complex-fallback, use-natspec
     receive() external payable {
         // forge-lint: disable-next-line(unsafe-typecast) msg.value < total ETH supply, fits uint128
-        sValidatorConditions.issueSize += uint128(msg.value);
+        ValidatorConditions storage vc = sValidatorConditions;
+        vc.issueSize += uint128(msg.value);
+
+        emit IssueSizeChanged(vc.issueSize);
     }
 
     ///--------------------------
@@ -383,6 +370,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
         // forge-lint: disable-next-line(unsafe-typecast) bondMaturityValue ≤ issueSize which is uint128
         vc.issueSize -= uint128(bondMaturityValue);
+
         ++vc.outstandingBonds;
 
         // Mint NFT representing the bond
@@ -397,6 +385,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
             consensusWithdrawClosed: false
         });
 
+        emit IssueSizeChanged(vc.issueSize);
         emit BondBought(
             msg.sender,
             bondId,
@@ -497,14 +486,14 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
     /// @notice Validator can change the duration period without affecting previous bonds since the duration is
     /// defined when a bond is bought
-    /// @notice Increasing maximumDuration is blocked while outstanding bonds exist to prevent issueSize
-    /// undercollateralization. Version is incremented on change.
+    /// @notice Increasing maximumDuration is blocked while outstanding bonds exist because a longer maximum
+    /// duration widens the window for consensus-layer events (penalties, leaks) that the issueSizeBufferBps
+    /// conservatism parameter was provisioned against, which could undercollateralize existing bonds.
+    /// Version is incremented on change.
     /// @notice The asymmetry between minimumDuration (no guard) and maximumDuration (guarded while outstanding bonds
-    /// exist) is intentional. maximumDuration feeds addMaximumPenalty, so raising it would retroactively widen the
-    /// worst-case penalty window that issueSize was provisioned against, which could undercollateralize existing
-    /// bonds. minimumDuration is read only inside buyBond at purchase, and each bond freezes its own duration in
-    /// HolderConditions, so post-purchase changes cannot affect outstanding bonds. A raised minimumDuration only
-    /// tightens the range for future purchases.
+    /// exist) is intentional. minimumDuration is read only inside buyBond at purchase, and each bond freezes its own
+    /// duration in HolderConditions, so post-purchase changes cannot affect outstanding bonds. A raised
+    /// minimumDuration only tightens the range for future purchases.
     /// @param _minimumDuration The new minimum duration in seconds
     /// @param _maximumDuration The new maximum duration in seconds
     function changeMinimumAndMaximumDuration(uint32 _minimumDuration, uint32 _maximumDuration) external onlyOwner {
@@ -541,8 +530,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     }
 
     /// @notice This function is called by the validator to change the issueSize
-    /// @notice Validator should consider not increasing it too much. Must satisfy: consensus balance >= issueSize +
-    /// possible penalties
+    /// @notice Validator should consider the conservatism buffer when setting issueSize. Must satisfy:
+    /// consensus balance * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFER_DENOMINATOR >= issueSize
+    /// for bonds to be considered collateralized.
     /// @notice Version of validator conditions must be updated to avoid the validator front-running the holder
     /// @notice Validator must repay all outstanding bonds in order to increase issueSize
     /// @param _issueSize The new issue size
@@ -558,11 +548,10 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         // solhint-disable-next-line gas-strict-inequalities
         require(_issueSize >= vc.minimumValueToAccept, ValueTooSmallToAccept());
 
-        uint128 oldIssueSize = vc.issueSize;
         vc.issueSize = _issueSize;
         ++vc.version;
         emit VersionChanged(vc.version);
-        emit IssueSizeChanged(oldIssueSize, _issueSize);
+        emit IssueSizeChanged(vc.issueSize);
     }
 
     /// @notice This function is called by the validator to allow or forbid exits for the holder
@@ -581,38 +570,36 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         else emit CofferForbidsHolderToExit();
     }
 
-    /// @notice This function is called by the validator to update
-    /// the safe total stake
+    /// @notice This function is called by the validator to update the issue size buffer
     /// @notice Version of validator conditions must be updated to avoid the validator front-running the holder
-    /// @notice Validator can decrease safeTotalStake at will
-    /// @notice Validator must repay all outstanding bonds in order to increase safeTotalStake
-    /// @param _safeTotalStake The new safe total stake value
-    function changeSafeTotalStake(uint32 _safeTotalStake) external onlyOwner {
+    /// @notice Validator can increase the buffer at will (more conservative)
+    /// @notice Validator must repay all outstanding bonds in order to decrease the buffer
+    /// @param _issueSizeBufferBps The new issue size buffer. 1% = 100
+    function changeIssueSizeBufferBps(uint16 _issueSizeBufferBps) external onlyOwner {
         ValidatorConditions storage vc = sValidatorConditions;
 
         // solhint-disable-next-line gas-strict-inequalities
         require(
-            _safeTotalStake < vc.safeTotalStake || vc.outstandingBonds == 0,
-            ValidatorCannotIncreaseSafeTotalStakeWhileOutstandingBondExist()
+            _issueSizeBufferBps > vc.issueSizeBufferBps || vc.outstandingBonds == 0,
+            ValidatorCannotDecreaseIssueSizeBufferWhileOutstandingBondExist()
         );
 
-        require(_safeTotalStake != 0, InvalidSafeTotalStake());
         // solhint-disable-next-line gas-strict-inequalities
-        require(_safeTotalStake <= MAX_SAFE_TOTAL_STAKE, InvalidSafeTotalStake());
+        require(_issueSizeBufferBps <= BUFFER_DENOMINATOR, InvalidIssueSizeBufferBps());
 
-        uint32 oldSafeTotalStake = vc.safeTotalStake;
-        vc.safeTotalStake = _safeTotalStake;
+        uint16 oldBuffer = vc.issueSizeBufferBps;
+        vc.issueSizeBufferBps = _issueSizeBufferBps;
 
         ++vc.version;
         emit VersionChanged(vc.version);
-        emit SafeTotalStakeChanged(oldSafeTotalStake, _safeTotalStake);
+        emit IssueSizeBufferBpsChanged(oldBuffer, _issueSizeBufferBps);
     }
 
     /// @notice Holder withdraws matured bond from execution layer
     /// @notice Should be called when the contract has enough balance to cover the holder's bond value
     /// @notice Validator or holder can trigger a consensus withdrawal to fill up the contract with ETH
     /// @notice If the validator allows holder exits, it can issue bonds for almost all the consensus amount even if
-    /// it drops below 32. Penalties should be considered only while defining issueSize.
+    /// it drops below 32. The issueSizeBufferBps conservatism parameter should be considered when defining issueSize.
     /// @notice If the validator does not allow holder exits, the holder can withdraw from consensus only the owed
     /// value after maturity
     /// @notice The BondNft owner can withdraw using their bondId
@@ -770,6 +757,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
         ++vc.version;
         emit VersionChanged(vc.version);
+        emit IssueSizeChanged(vc.issueSize);
         emit ValidatorWithdrawFromExecution(_amount);
 
         Address.sendValue(payable(msg.sender), _amount);
@@ -817,7 +805,6 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
     /// @notice Validator can add funds at will
     /// @param _depositDataRoot Validator must create the deposit data root off-chain using JavaScript with the
-    /// ChainSafe/ssz library, the validator public signing key, and the intended amount.
     function validatorAddFundsToConsensus(bytes32 _depositDataRoot) external payable onlyOwner {
         // solhint-disable-next-line gas-strict-inequalities
         require(msg.value >= 1 ether, ValidatorDepositValueTooLow());
@@ -832,15 +819,10 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
         ValidatorConditions storage vc = sValidatorConditions;
 
-        // forge-lint: disable-next-line(unsafe-typecast) penalty on msg.value (≤ validator balance) fits uint128
-        vc.issueSize += uint128(
-            Penalty.addMaximumPenalty(
-                msg.value,
-                vc.safeTotalStake,
-                (vc.maximumDuration + NUMBER_OF_SECONDS_IN_EPOCH - 1) / NUMBER_OF_SECONDS_IN_EPOCH
-            )
-        );
+        // forge-lint: disable-next-line(unsafe-typecast) buffer-scaled msg.value (<= msg.value) fits uint128
+        vc.issueSize += uint128(msg.value * (BUFFER_DENOMINATOR - vc.issueSizeBufferBps) / BUFFER_DENOMINATOR);
 
+        emit IssueSizeChanged(vc.issueSize);
         // forge-lint: disable-next-line(unsafe-typecast) msg.value checked ≥ 1 ether and is gwei-aligned, fits uint128
         emit ValidatorFundsAdded(uint128(msg.value));
     }
