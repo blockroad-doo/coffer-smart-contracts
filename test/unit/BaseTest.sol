@@ -6,6 +6,7 @@ import {Coffer} from "../../src/Coffer.sol";
 import {CofferFactory} from "../../src/CofferFactory.sol";
 import {CofferBondNft} from "../../src/CofferBondNft.sol";
 import {CofferBondsRedeemedEarly} from "../../src/CofferBondsRedeemedEarly.sol";
+import {FeeCurve} from "../../src/FeeCurve.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
 import {EIP7002Mock, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, SYSTEM_ADDRESS} from "../mock/EIP7002Mock.sol";
 import {EIP7251Mock, CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS} from "../mock/EIP7251Mock.sol";
@@ -77,6 +78,7 @@ abstract contract BaseTest is Test {
     CofferBondNft public bondNft;
     CofferBondsRedeemedEarly public bondsRedeemedEarly;
     Coffer public coffer;
+    FeeCurve public feeCurve;
     EIP7002Mock public withdrawalMock;
     EIP7251Mock public consolidationMock;
 
@@ -86,6 +88,7 @@ abstract contract BaseTest is Test {
     address public holder2 = makeAddr("holder2");
     address public holder3 = makeAddr("holder3");
     address public unauthorizedUser = makeAddr("unauthorized");
+    address public feeRecipient = makeAddr("feeRecipient");
 
     // Valid test parameters
     bytes32 public validPublicKeyPart1 = bytes32(uint256(1));
@@ -108,12 +111,13 @@ abstract contract BaseTest is Test {
         deployEip7251Mock();
         deployDepositContractMock();
 
-        // Deploy factory (which deploys the shared NFT)
-        factory = new CofferFactory();
+        // Deploy factory (which deploys the shared NFT, FeeCurve, and Coffer implementation)
+        factory = new CofferFactory(feeRecipient);
 
-        // Get the NFT address from factory
+        // Get the NFT address and other deployed addresses from factory
         bondNft = CofferBondNft(factory.I_COFFER_BOND_NFT_ADDRESS());
         bondsRedeemedEarly = CofferBondsRedeemedEarly(factory.I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS());
+        feeCurve = FeeCurve(factory.I_FEE_CURVE_ADDRESS());
 
         // Fund test accounts
         vm.deal(validator, 1000 ether);
@@ -485,6 +489,7 @@ interface CofferEvents {
         uint128 principal,
         uint32 interestRate
     );
+    event BondFeePaid(uint256 indexed bondId, address indexed feeRecipient, uint128 indexed feeAmount, uint256 feeBps);
     event HolderWithdrawFromExecutionSuccess(address indexed holderAddress, uint256 indexed bondId);
     event HolderPartialWithdrawFromExecutionSuccess(
         address indexed holderAddress,

@@ -4,6 +4,7 @@ pragma solidity 0.8.34;
 import {Test, Vm} from "forge-std/Test.sol";
 import {Coffer} from "../../../src/Coffer.sol";
 import {CofferBondNft} from "../../../src/CofferBondNft.sol";
+import {FeeCurve} from "../../../src/FeeCurve.sol";
 import {Interest} from "../../../src/libraries/Interest.sol";
 
 contract CofferHandler is Test {
@@ -16,6 +17,7 @@ contract CofferHandler is Test {
     uint256 constant MAX_RATE = 1e8;
     uint256 constant GWEI_RATE = 1e9;
     uint256 constant SECONDS_IN_YEAR = 31_536_000;
+    uint256 constant BUFFER_DENOMINATOR = 10000;
 
     address private constant WITHDRAWAL_CONTRACT = 0x00000961Ef480Eb55e80D19ad83579A64c007002;
 
@@ -30,6 +32,7 @@ contract CofferHandler is Test {
     // ── Contracts ──────────────────────────────────────────────────────────
     Coffer public coffer;
     CofferBondNft public bondNft;
+    FeeCurve public feeCurve;
 
     // ── Actors ─────────────────────────────────────────────────────────────
     address public validator;
@@ -64,9 +67,10 @@ contract CofferHandler is Test {
     uint256 public callsSendEthToCoffer;
 
     // ── Constructor ────────────────────────────────────────────────────────
-    constructor(Coffer _coffer, CofferBondNft _bondNft) {
+    constructor(Coffer _coffer, CofferBondNft _bondNft, FeeCurve _feeCurve) {
         coffer = _coffer;
         bondNft = _bondNft;
+        feeCurve = _feeCurve;
         validator = _coffer.owner();
 
         holders.push(makeAddr("cofferHolder0"));
@@ -164,9 +168,14 @@ contract CofferHandler is Test {
         if (upperBound < p.minimumValueToAccept) return;
         uint128 amt = uint128(bound(amount, p.minimumValueToAccept, upperBound));
 
-        // Verify amountWithInterest fits
-        uint128 amountWithInterest = uint128(amt + Interest.calculateInterest(amt, dur, p.interestRate));
-        if (amountWithInterest > p.issueSize) return;
+        // Compute bondMaturityValue exactly as Coffer.buyBond does: principal + interest - fee.
+        // The protocol fee (FeeCurve, 100-990 bps of interest) is borne by the holder.
+        uint256 interest = Interest.calculateInterest(amt, dur, p.interestRate);
+        (uint256 feeBps,) = feeCurve.getFee();
+        uint256 fee = (interest * feeBps) / BUFFER_DENOMINATOR;
+        if (fee >= amt + 1) return; // mirror require(fee < msg.value + 1)
+        uint256 bondMaturityValue = amt + interest - fee;
+        if (bondMaturityValue > p.issueSize) return;
 
         // Buy the bond
         vm.recordLogs();
@@ -179,7 +188,9 @@ contract CofferHandler is Test {
         ghostActiveBondIds.push(bondId);
         ghostIsBondActive[bondId] = true;
         ghostBondHolder[bondId] = holder;
-        ghostBondAmount[bondId] = amountWithInterest;
+        // casting to 'uint128' is safe because bondMaturityValue stays within consensus limits
+        // forge-lint: disable-next-line(unsafe-typecast)
+        ghostBondAmount[bondId] = uint128(bondMaturityValue);
         ++ghostTotalBondsBought;
     }
 

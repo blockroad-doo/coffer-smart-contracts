@@ -27,9 +27,11 @@ contract DeployCofferFactory is Script {
     /// @notice Deploys CofferFactory and updates .env with deployed addresses
     /// @return The deployed CofferFactory instance
     function run() external returns (CofferFactory) {
+        address feeRecipient = vm.envAddress("FEE_RECIPIENT");
+
         vm.startBroadcast();
 
-        CofferFactory cofferFactory = new CofferFactory();
+        CofferFactory cofferFactory = new CofferFactory(feeRecipient);
 
         vm.stopBroadcast();
 
@@ -58,6 +60,12 @@ contract DeployCofferFactory is Script {
         console.log("CofferBondsRedeemedEarly deployed at:", bondsRedeemedEarlyAddress);
         // solhint-disable-next-line gas-small-strings
         updateEnvVariable("HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS", addressToString(bondsRedeemedEarlyAddress));
+
+        address feeCurveAddress = cofferFactory.I_FEE_CURVE_ADDRESS();
+        // solhint-disable-next-line gas-small-strings
+        console.log("FeeCurve deployed at:", feeCurveAddress);
+        // solhint-disable-next-line gas-small-strings
+        updateEnvVariable("HOODI_FEE_CURVE_ADDRESS", addressToString(feeCurveAddress));
 
         return cofferFactory;
     }

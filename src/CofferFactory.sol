@@ -4,6 +4,7 @@ pragma solidity 0.8.34;
 import {Coffer} from "./Coffer.sol";
 import {CofferBondNft} from "./CofferBondNft.sol";
 import {CofferBondsRedeemedEarly} from "./CofferBondsRedeemedEarly.sol";
+import {FeeCurve} from "./FeeCurve.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
 
 /**
@@ -22,8 +23,6 @@ contract CofferFactory {
     error InvalidStartingBalance();
 
     uint256 private constant MAX_RATE = 1e8; // Represents 100% interest rate, so 1e6 is 1%
-    uint256 private constant MIN_STARTING_BALANCE = 32 ether;
-    uint256 private constant MAX_STARTING_BALANCE = 2048 ether; // EIP-7251 MaxEB
     uint256 private constant MAX_DURATION = 1_576_800_000; // 50 years
     uint256 private constant BUFFER_DENOMINATOR = 10000; // basis points: 1% = 100
 
@@ -33,6 +32,8 @@ contract CofferFactory {
     address public immutable I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS;
     /// @notice Address of the Coffer implementation contract (used for CWIA cloning)
     address public immutable I_COFFER_IMPLEMENTATION;
+    /// @notice Address of the shared FeeCurve contract
+    address public immutable I_FEE_CURVE_ADDRESS;
 
     /// @notice Emitted when a new Coffer contract is created
     /// @param owner The address of the validator who created the Coffer
@@ -40,12 +41,18 @@ contract CofferFactory {
     event CofferIssued(address indexed owner, address indexed cofferAddress);
 
     /// @notice Deploys shared contracts and the Coffer implementation for CWIA cloning
-    constructor() {
+    /// @param _feeRecipient Initial protocol fee recipient address
+    constructor(address _feeRecipient) {
         CofferBondNft iCofferBondNft = new CofferBondNft(address(this));
         I_COFFER_BOND_NFT_ADDRESS = address(iCofferBondNft);
+
         CofferBondsRedeemedEarly iBondsRedeemedEarly = new CofferBondsRedeemedEarly();
         I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS = address(iBondsRedeemedEarly);
-        I_COFFER_IMPLEMENTATION = address(new Coffer());
+
+        FeeCurve feeCurve = new FeeCurve(msg.sender, _feeRecipient);
+        I_FEE_CURVE_ADDRESS = address(feeCurve);
+
+        I_COFFER_IMPLEMENTATION = address(new Coffer(address(feeCurve)));
     }
 
     // solhint-disable function-max-lines
@@ -63,7 +70,7 @@ contract CofferFactory {
     /// A higher value means more conservative provisioning (smaller issueSize). Holders must assess whether
     /// the chosen buffer is adequate for the bond durations offered.
     /// @param _exitAllowed Whether holders can initiate validator exits
-    /// @param _startingBalance Validator's starting consensus balance (32–2048 ETH per EIP-7251)
+    /// @param _startingBalance Validator's starting balance used to seed the initial issueSize
     /// @return The address of the newly deployed Coffer contract
     function createCoffer(
         bytes32 _publicKeyPart1,
@@ -86,10 +93,7 @@ contract CofferFactory {
         require(_interestRate <= MAX_RATE, InvalidInterestRate());
         // solhint-disable-next-line gas-strict-inequalities
         require(_issueSizeBufferBps <= BUFFER_DENOMINATOR, InvalidIssueSizeBufferBps());
-        // solhint-disable-next-line gas-strict-inequalities
-        require(_startingBalance >= MIN_STARTING_BALANCE, InvalidStartingBalance());
-        // solhint-disable-next-line gas-strict-inequalities
-        require(_startingBalance <= MAX_STARTING_BALANCE, InvalidStartingBalance());
+        require(_startingBalance != 0, InvalidStartingBalance());
 
         uint256 maxMinimumValueToAccept =
             uint256(_startingBalance) * (BUFFER_DENOMINATOR - _issueSizeBufferBps) / BUFFER_DENOMINATOR;

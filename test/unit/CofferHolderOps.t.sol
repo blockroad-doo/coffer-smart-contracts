@@ -34,9 +34,19 @@ contract CofferHolderOpsTest is BaseTest {
         version = 2;
     }
 
-    /// @dev Compute expected amountWithInterest for a bond
+    /// @dev Compute expected amountWithInterest for a bond (net of protocol fee)
     function _expectedAmountWithInterest(uint128 amount, uint32 duration) internal view returns (uint256) {
-        return amount + Interest.calculateInterest(amount, duration, defaultInterestRate);
+        uint256 interest = Interest.calculateInterest(amount, duration, defaultInterestRate);
+        (uint256 feeBps,) = feeCurve.getFee();
+        uint256 fee = (interest * feeBps) / 10000;
+        return amount + interest - fee;
+    }
+
+    /// @dev Compute the fee for a given amount and duration
+    function _expectedFee(uint128 amount, uint32 duration) internal view returns (uint256) {
+        uint256 interest = Interest.calculateInterest(amount, duration, defaultInterestRate);
+        (uint256 feeBps,) = feeCurve.getFee();
+        return (interest * feeBps) / 10000;
     }
 
     // ========================================
@@ -63,6 +73,12 @@ contract CofferHolderOpsTest is BaseTest {
         uint32 version = _enableBonding(10 ether);
 
         uint256 amtWithInterest = _expectedAmountWithInterest(1 ether, ONE_MONTH);
+        uint256 fee = _expectedFee(1 ether, ONE_MONTH);
+        (uint256 feeBps,) = feeCurve.getFee();
+
+        vm.expectEmit(true, true, false, true);
+        // forge-lint: disable-next-line(unsafe-typecast) test value from _expectedFee fits uint128
+        emit CofferEvents.BondFeePaid(1, feeRecipient, uint128(fee), feeBps);
 
         vm.expectEmit(true, true, true, true);
         // forge-lint: disable-next-line(unsafe-typecast) test value from _expectedAmountWithInterest fits uint128
@@ -97,10 +113,13 @@ contract CofferHolderOpsTest is BaseTest {
         uint32 version = _enableBonding(10 ether);
 
         uint256 valBalBefore = validator.balance;
+        uint256 recipientBalBefore = feeRecipient.balance;
+        uint256 fee = _expectedFee(1 ether, ONE_MONTH);
 
         buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        assertEq(validator.balance, valBalBefore + 1 ether);
+        assertEq(validator.balance, valBalBefore + 1 ether - fee);
+        assertEq(feeRecipient.balance, recipientBalBefore + fee);
     }
 
     function test_BuyBond_MultipleHolders() public {
@@ -141,12 +160,12 @@ contract CofferHolderOpsTest is BaseTest {
     function test_BuyBond_ExactAvailableAmount() public {
         uint32 version = _enableBonding(2 ether);
 
-        // We need to buy an amount whose amountWithInterest exactly equals available
+        // We need to buy an amount whose amountWithInterest (net of fee) exactly equals available.
         // Since interest > 0, we can't buy exactly 2 ether. Buy a smaller amount
-        // that when adding interest fits.
-        uint256 interest = Interest.calculateInterest(1 ether, ONE_MONTH, defaultInterestRate);
+        // that when adding interest minus fee fits.
+        uint256 expectedNet = _expectedAmountWithInterest(1 ether, ONE_MONTH);
         // forge-lint: disable-next-line(unsafe-typecast) 1 ether + small interest fits uint128
-        uint128 totalNeeded = uint128(1 ether + interest);
+        uint128 totalNeeded = uint128(expectedNet);
 
         // Set available to exactly what's needed
         vm.prank(validator);
@@ -185,8 +204,8 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 bondId = buyBond(cofferAddr, holder1, 2 ether, SIX_MONTHS, version);
 
         (uint128 storedAmount,,,) = coffer.sHolderConditions(bondId);
-        uint256 expectedInterest = Interest.calculateInterest(2 ether, SIX_MONTHS, defaultInterestRate);
-        assertEq(storedAmount, 2 ether + expectedInterest);
+        uint256 expectedNet = _expectedAmountWithInterest(2 ether, SIX_MONTHS);
+        assertEq(storedAmount, expectedNet);
     }
 
     // ========================================
@@ -296,6 +315,31 @@ contract CofferHolderOpsTest is BaseTest {
         vm.prank(holder1);
         vm.expectRevert(Errors.FailedCall.selector);
         Coffer(payable(rejectorCofferAddr)).buyBond{value: 1 ether}(ONE_MONTH, 2);
+    }
+
+    function test_BuyBond_RevertsIfFeeExceedsPrincipal() public {
+        // Warp to day 365 so feeBps = 432 (4.32%), then with 100% rate × 50yr duration
+        // interest = 1 ETH × 50 = 50 ETH, fee = 50 ETH × 432 / 10000 = 2.16 ETH > 1 ETH
+        vm.warp(block.timestamp + 365 days);
+
+        address extremeCofferAddr = createCoffer(
+            validator,
+            bytes32(uint256(99)),
+            bytes16(uint128(98)),
+            uint32(1e8), // 100% rate
+            1, // minDuration = 1 second
+            uint32(1_576_800_000), // maxDuration = 50 years (MAX_DURATION)
+            defaultMinimumAmount,
+            defaultIssueSizeBufferBps,
+            true // exitAllowed so issueSize is computed
+        );
+        Coffer extremeCoffer = Coffer(payable(extremeCofferAddr));
+
+        (,,,,, uint32 version,,,,) = extremeCoffer.sValidatorConditions();
+
+        vm.prank(holder1);
+        vm.expectRevert(Coffer.FeeExceedsPrincipal.selector);
+        extremeCoffer.buyBond{value: 1 ether}(1_576_800_000, version);
     }
 
     // ========================================

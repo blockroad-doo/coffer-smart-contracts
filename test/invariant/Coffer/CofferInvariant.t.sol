@@ -22,7 +22,7 @@ contract CofferInvariantTest is BaseTest {
         // Fund validator for redeemBondsEarly top-ups + consensus deposits
         vm.deal(validator, 10_000 ether);
 
-        handler = new CofferHandler(coffer, bondNft);
+        handler = new CofferHandler(coffer, bondNft, feeCurve);
         targetContract(address(handler));
     }
 

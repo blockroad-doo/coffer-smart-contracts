@@ -35,7 +35,7 @@ contract CofferValidatorOpsTest is BaseTest {
     // HELPERS
     // ========================================
 
-    /// @dev Creates coffer, sets available amount, buys a bond, returns (bondId, amountWithInterest)
+    /// @dev Creates coffer, sets available amount, buys a bond, returns (bondId, amountWithInterestAfterFee)
     function _setupSingleBond(uint128 available, uint128 bondAmount, uint32 duration)
         internal
         returns (uint256 bondId, uint128 amountWithInterest)
@@ -46,8 +46,10 @@ contract CofferValidatorOpsTest is BaseTest {
         bondId = buyBond(cofferAddr, holder1, bondAmount, duration, 2);
 
         uint256 interest = Interest.calculateInterest(bondAmount, duration, defaultInterestRate);
-        // forge-lint: disable-next-line(unsafe-typecast) bondAmount + interest from test constants fits uint128
-        amountWithInterest = uint128(bondAmount + interest);
+        (uint256 feeBps,) = feeCurve.getFee();
+        uint256 fee = (interest * feeBps) / 10000;
+        // forge-lint: disable-next-line(unsafe-typecast) bondAmount + interest - fee from test constants fits uint128
+        amountWithInterest = uint128(bondAmount + interest - fee);
     }
 
     // ========================================
@@ -887,10 +889,9 @@ contract CofferValidatorOpsTest is BaseTest {
         }
     }
 
-    function test_ValidatorWithdrawFromExecution_NoBonds_WorksWithZeroIssueSize() public {
-        // Default coffer with exitAllowed=false starts with issueSize=0
-        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
-        assertEq(issueSize, 0);
+    function test_ValidatorWithdrawFromExecution_NoBonds_WithdrawsContractBalance() public {
+        // With no outstanding bonds, the validator can withdraw the full contract balance
+        // regardless of issueSize.
 
         // Fund contract and withdraw: no bonds, so no issueSize check
         vm.deal(cofferAddr, 5 ether);

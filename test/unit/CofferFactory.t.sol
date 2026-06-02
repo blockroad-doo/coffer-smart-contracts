@@ -229,12 +229,12 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            false // exitAllowed = false → availableAmount = 0
+            false // exitAllowed
         );
 
         _assertValidatorConditions(
             cofferAddr,
-            0, // availableAmount
+            uint128(calculateExpectedIssueSize(DEFAULT_STARTING_BALANCE, defaultIssueSizeBufferBps)), // availableAmount
             defaultInterestRate,
             defaultMinDuration,
             defaultMaxDuration,
@@ -268,7 +268,7 @@ contract CofferFactoryTest is BaseTest {
         assertTrue(expectedAvailable > 0, "Expected issue size should be positive for these params");
     }
 
-    function test_CreateCoffer_Success_ExitNotAllowed_ZeroAvailableAmount() public {
+    function test_CreateCoffer_Success_ExitNotAllowed_IssueSizeNotReduced() public {
         address cofferAddr = _createCofferAndGetAddress(
             validator,
             validPublicKeyPart1,
@@ -281,9 +281,11 @@ contract CofferFactoryTest is BaseTest {
             false
         );
 
+        uint256 expectedAvailable = calculateExpectedIssueSize(DEFAULT_STARTING_BALANCE, defaultIssueSizeBufferBps);
+
         Coffer c = Coffer(payable(cofferAddr));
         (uint128 issueSize,,,,,,,,,) = c.sValidatorConditions();
-        assertEq(issueSize, 0, "Issue size should be 0 when exitAllowed is false");
+        assertEq(issueSize, expectedAvailable, "exitAllowed=false no longer reduces issueSize (32 ETH floor removed)");
     }
 
     function test_CreateCoffer_Success_MultipleCoffers() public {
@@ -631,7 +633,7 @@ contract CofferFactoryTest is BaseTest {
     // STARTING BALANCE TESTS
     // ========================================
 
-    function test_CreateCoffer_Revert_StartingBalanceTooLow() public {
+    function test_CreateCoffer_Revert_StartingBalanceZero() public {
         vm.prank(validator);
         vm.expectRevert(CofferFactory.InvalidStartingBalance.selector);
         factory.createCoffer(
@@ -643,14 +645,14 @@ contract CofferFactoryTest is BaseTest {
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
             defaultExitAllowed,
-            31 ether // below 32 ETH minimum
+            0 // zero starting balance is rejected
         );
     }
 
-    function test_CreateCoffer_Revert_StartingBalanceTooHigh() public {
-        vm.prank(validator);
-        vm.expectRevert(CofferFactory.InvalidStartingBalance.selector);
-        factory.createCoffer(
+    function test_CreateCoffer_Success_StartingBalanceAboveOldMax() public {
+        uint128 largeBalance = 5000 ether; // above the former 2048 ETH cap, now allowed
+        address cofferAddr = _createCofferAndGetAddress(
+            validator,
             validPublicKeyPart1,
             validPublicKeyPart2,
             defaultInterestRate,
@@ -658,9 +660,14 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
-            2049 ether // above 2048 ETH maximum
+            true,
+            largeBalance
         );
+
+        uint256 expected = calculateExpectedIssueSize(largeBalance, defaultIssueSizeBufferBps);
+        Coffer c = Coffer(payable(cofferAddr));
+        (uint128 issueSize,,,,,,,,,) = c.sValidatorConditions();
+        assertEq(issueSize, expected, "issueSize scales with starting balance above the former 2048 ETH cap");
     }
 
     function test_CreateCoffer_Success_CustomStartingBalance() public {

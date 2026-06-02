@@ -8,7 +8,7 @@ contract VerifyExitAllowedTest is BaseTest {
     uint256 constant BUFFER_DENOMINATOR = 10000;
 
     // ========================================
-    // V-3 / CS-17: exitAllowed toggle does not recalculate issueSize 32 ETH floor
+    // V-3 / CS-17: exitAllowed has no effect on init issueSize; toggling never recalculates it
     // ========================================
 
     function test_CS17_ExitAllowedTrueToFalse_IssueSizeUnchanged() public {
@@ -40,13 +40,13 @@ contract VerifyExitAllowedTest is BaseTest {
         assertFalse(exitAllowedAfter, "exitAllowed should be false after toggle");
         assertEq(issueSizeAfter, issueSizeBefore, "BUG: issueSize unchanged after true->false toggle");
 
-        assertLt(startingBalance - issueSizeAfter, 32 ether, "BUG: consensusFloor < 32 ETH when exitAllowed=false");
+        assertLt(startingBalance - issueSizeAfter, 32 ether, "no 32 ETH floor is reserved when exitAllowed is false");
 
         uint256 consensusFloor = startingBalance - issueSizeAfter;
-        assertEq(consensusFloor, 0, "consensus floor is 0 - no headroom for holders");
+        assertEq(consensusFloor, 0, "no floor reserved: issueSize stays at full balance (buffer = 0)");
     }
 
-    function test_CS17_ExitAllowedFalseToTrue_IssueSizeRemainsDeducted() public {
+    function test_CS17_ExitAllowedFalse_NoFloorDeduction() public {
         uint128 startingBalance = 100 ether;
         address cofferAddr = createCoffer(
             validator,
@@ -64,7 +64,7 @@ contract VerifyExitAllowedTest is BaseTest {
 
         (uint128 issueSizeBefore,,,,,,,,,) = c.sValidatorConditions();
         (,,,,,,,,, bool exitAllowedBefore) = c.sValidatorConditions();
-        assertEq(issueSizeBefore, 100 ether - 32 ether, "init: issueSize should have 32 ETH floor deduction");
+        assertEq(issueSizeBefore, 100 ether, "init: issueSize is full starting balance (no 32 ETH floor deduction)");
         assertFalse(exitAllowedBefore);
 
         vm.prank(validator);
@@ -73,12 +73,8 @@ contract VerifyExitAllowedTest is BaseTest {
         (uint128 issueSizeAfter,,,,,,,,,) = c.sValidatorConditions();
         (,,,,,,,,, bool exitAllowedAfter) = c.sValidatorConditions();
         assertTrue(exitAllowedAfter, "exitAllowed should be true after toggle");
-        assertEq(
-            issueSizeAfter,
-            issueSizeBefore,
-            "issueSize unchanged on false->true toggle (overcollateralization, not exploitable)"
-        );
-        assertEq(issueSizeAfter, 68 ether, "still has 32 ETH deduction from init");
+        assertEq(issueSizeAfter, issueSizeBefore, "issueSize unchanged on false->true toggle");
+        assertEq(issueSizeAfter, 100 ether, "issueSize remains full starting balance");
     }
 
     function test_CS17_ExitAllowedToggle_MultipleFlips_IssueSizeNeverCorrects() public {
@@ -148,7 +144,9 @@ contract VerifyExitAllowedTest is BaseTest {
         (,,,,,,,,, bool exitAllowedAfter) = c.sValidatorConditions();
         assertFalse(exitAllowedAfter);
         assertEq(issueSizeAfter, issueSizeBefore, "fuzz: issueSize unchanged after toggle");
-        assertLt(startingBalance - issueSizeAfter, 32 ether, "fuzz: invariant violated for all fuzzed balances");
+        assertLt(
+            startingBalance - issueSizeAfter, 32 ether, "fuzz: no 32 ETH floor reserved regardless of starting balance"
+        );
     }
 
     // ========================================

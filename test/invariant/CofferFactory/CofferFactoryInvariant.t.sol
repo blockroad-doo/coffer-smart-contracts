@@ -17,8 +17,8 @@ contract CofferFactoryInvariantTest is BaseTest {
         deployEip7251Mock();
         deployDepositContractMock();
 
-        // Deploy factory (which deploys the shared NFT)
-        factory = new CofferFactory();
+        // Deploy factory (which deploys the shared NFT, FeeCurve, and Coffer implementation)
+        factory = new CofferFactory(feeRecipient);
         bondNft = CofferBondNft(factory.I_COFFER_BOND_NFT_ADDRESS());
         storedNftAddress = address(bondNft);
 

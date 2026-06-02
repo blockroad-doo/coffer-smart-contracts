@@ -41,12 +41,12 @@ contract CofferMainOpsTest is BaseTest {
         assertEq(coffer.iPublicKeyPart2(), validPublicKeyPart2);
     }
 
-    function test_Constructor_ExitNotAllowed_AvailableAmountIsZero() public view {
+    function test_Constructor_ExitNotAllowed_IssueSizeNotReduced() public view {
         (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
-        assertEq(issueSize, 0);
+        assertEq(issueSize, calculateExpectedIssueSize(defaultStartingBalance, defaultIssueSizeBufferBps));
     }
 
-    function test_Constructor_ExitNotAllowed_LargeBalance_IssueSizeMinusThirtyTwoEther() public {
+    function test_Constructor_ExitNotAllowed_LargeBalance_IssueSizeNotReduced() public {
         uint128 largeStartingBalance = 256 ether;
         address noExitCofferAddr = createCoffer(
             validator,
@@ -65,9 +65,8 @@ contract CofferMainOpsTest is BaseTest {
         (uint128 issueSize,,,,,,,,,) = noExitCoffer.sValidatorConditions();
 
         uint256 base = calculateExpectedIssueSize(largeStartingBalance, defaultIssueSizeBufferBps);
-        // exitAllowed = false reserves an extra 32 ether headroom.
-        assertGt(base, 32 ether);
-        assertEq(issueSize, base - 32 ether);
+        // exitAllowed no longer affects the initial issueSize (the 32 ETH floor deduction was removed).
+        assertEq(issueSize, base);
     }
 
     function test_Constructor_ExitNotAllowed_SetsAllValidatorConditions() public view {
@@ -84,7 +83,7 @@ contract CofferMainOpsTest is BaseTest {
             bool exitAllowed
         ) = coffer.sValidatorConditions();
 
-        assertEq(issueSize, 0);
+        assertEq(issueSize, calculateExpectedIssueSize(defaultStartingBalance, defaultIssueSizeBufferBps));
         assertEq(interestRate, defaultInterestRate);
         assertEq(minimumDuration, defaultMinDuration);
         assertEq(maximumDuration, defaultMaxDuration);
@@ -94,6 +93,11 @@ contract CofferMainOpsTest is BaseTest {
         assertEq(issueSizeBufferBps, defaultIssueSizeBufferBps);
         assertTrue(isActive);
         assertFalse(exitAllowed);
+    }
+
+    function test_Constructor_RevertsZeroFeeCurve() public {
+        vm.expectRevert(Coffer.ZeroAddressFeeCurve.selector);
+        new Coffer(address(0));
     }
 
     // ========================================
