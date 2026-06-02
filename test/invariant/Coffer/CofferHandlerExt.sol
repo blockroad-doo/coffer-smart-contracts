@@ -465,8 +465,8 @@ contract CofferHandlerExt is Test {
         );
 
         // casting to 'uint128' is safe because result stays within consensus limits
-        // forge-lint: disable-next-line(unsafe-typecast)
         uint128 issueSizeIncrement =
+            // forge-lint: disable-next-line(unsafe-typecast)
             uint128(uint256(amt) * (BUFFER_DENOMINATOR - uint256(vc.issueSizeBufferBps)) / BUFFER_DENOMINATOR);
 
         vm.prank(validator);
