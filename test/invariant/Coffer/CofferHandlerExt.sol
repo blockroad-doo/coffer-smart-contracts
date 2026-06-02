@@ -17,7 +17,7 @@ contract CofferHandlerExt is Test {
 
     address private constant WITHDRAWAL_CONTRACT = 0x00000961Ef480Eb55e80D19ad83579A64c007002;
 
-    uint256 constant EXIT_QUEUE_ETH = 500_000 ether;
+    uint256 constant EXIT_QUEUE_ETH = 500_500 ether;
     uint256 constant ETH_PER_EPOCH = 256 ether;
     uint16 constant SECONDS_PER_EPOCH = 384;
     uint256 constant EXIT_QUEUE_DELAY = (EXIT_QUEUE_ETH * SECONDS_PER_EPOCH) / ETH_PER_EPOCH;
@@ -466,8 +466,8 @@ contract CofferHandlerExt is Test {
 
         // casting to 'uint128' is safe because result stays within consensus limits
         uint128 issueSizeIncrement =
-            // forge-lint: disable-next-line(unsafe-typecast)
-            uint128(uint256(amt) * (BUFFER_DENOMINATOR - uint256(vc.issueSizeBufferBps)) / BUFFER_DENOMINATOR);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint128(uint256(amt) * (BUFFER_DENOMINATOR - uint256(vc.issueSizeBufferBps)) / BUFFER_DENOMINATOR);
 
         vm.prank(validator);
         coffer.validatorAddFundsToConsensus{value: amt}(depositDataRoot);
