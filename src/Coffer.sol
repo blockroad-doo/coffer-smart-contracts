@@ -728,6 +728,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         require(!holder.consensusWithdrawClosed, ConsensusWithdrawAlreadyClosed());
 
         // solhint-disable gas-strict-inequalities
+        // forge-lint: disable-next-line
         require(holder.duration + holder.startTimestamp <= block.timestamp, HoldersTimeHasNotExpiredYet());
 
         // solhint-disable-next-line gas-strict-inequalities
@@ -758,7 +759,6 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         require(readOk, WithdrawalContractCallFailed());
         // forge-lint: disable-next-line(unsafe-typecast) fee data is always 32 bytes
         uint256 fee = uint256(bytes32(feeData));
-
         require(fee <= msg.value, InsufficientFee());
 
         // EIP-7002: 48-byte BLS public key + 8-byte withdrawal amount = 56 bytes
