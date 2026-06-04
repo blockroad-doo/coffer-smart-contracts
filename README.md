@@ -45,7 +45,7 @@
 
 ## Quick Overview
 
-Coffer is a **decentralized and trustless peer-to-pool protocol** that allows validators to issue bonds backed by their stake, enabling ETH holders to earn interest on their ETH securely. A holder receives a fixed rate from the validator and commits to that rate for an agreed-upon period. At maturity, the holder can claim their bond trustlessly. This enables validators to unlock liquidity from a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted, allowing the holder to transfer their bond to a third party. Each bond purchase pays a small, time-based protocol fee deducted from the bond's interest (see [Protocol Fees](#protocol-fees)).
+Coffer is a **decentralized and trustless peer-to-peer protocol** that allows validators to issue bonds backed by their stake, enabling ETH holders to earn interest on their ETH securely. A holder receives a fixed rate from the validator and commits to that rate for an agreed-upon period. At maturity, the holder can claim their bond trustlessly. This enables validators to unlock liquidity from a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted, allowing the holder to transfer their bond to a third party. Each bond purchase pays a small, time-based protocol fee deducted from the bond's interest (see [Protocol Fees](#protocol-fees)).
 
 ---
 
@@ -117,6 +117,8 @@ Four roles. The Protocol Admin owns the shared `FeeCurve` (set to the deployer o
 - `CofferFactory.createCoffer(...)` (caller becomes the validator of the new Coffer)
 - `CofferFactory.predictCofferAddress(...)` (view)
 - `CofferBondsRedeemedEarly.deposit(...)` (no access control by design)
+- `FeeCurve.claim()` (permissionless poke, sends pooled protocol fees to the current fee recipient)
+- `FeeCurve.collectFee()` (no access control, called by Coffer clones during `buyBond` to deposit the fee)
 
 **Protocol Admin** (owner of the shared `FeeCurve`, set to the deployer of `CofferFactory`):
 - `FeeCurve.setFeeRecipient(address)` (redirects where future bond fees are sent; the fee amounts themselves are immutable)
@@ -161,6 +163,8 @@ STARTING_BALANCE=32000000000000000000
 `DeployCofferFactory` **auto-updates** `.env` via FFI (`sed`): `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_BOND_NFT_ADDRESS`, `HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS`, `HOODI_COFFER_IMPLEMENTATION_ADDRESS`, and `HOODI_FEE_CURVE_ADDRESS` are written automatically after it runs. `CreateCoffer` logs the new Coffer address but its `.env` writeback is currently commented out, so `HOODI_COFFER_ADDRESS` must be set manually.
 
 **Hoodi** is the recommended testnet because validators operate there identically to mainnet. The same EIP-7002 withdrawal and EIP-7251 consolidation request contracts are active, making it the closest environment for end-to-end testing.
+
+> **Deployment requirement: EIP-7002/7251 predeploys must be live.** Coffer must only be deployed on chains where the EIP-7002 withdrawal and EIP-7251 consolidation predeploys exist: Ethereum **mainnet** (post-Pectra) and **Hoodi**. On a chain without them, a `staticcall` to the (codeless) predeploy returns empty data, which is read as a zero fee, so a consensus-withdrawal request silently no-ops while still marking the bond `consensusWithdrawClosed` as true. Verify non-empty code at the three system-contract addresses before deploying or buying. (This is an accepted, documented deployment constraint of this mainnet/Hoodi-only protocol.)
 
 ### Deployment Scripts
 
@@ -308,7 +312,7 @@ CofferFactory uses CREATE2 deterministic deployment, so the Coffer address can b
 
 - [ ] **Step 1:** Create BLS signing keys
 - [ ] **Step 2:** Call `CofferFactory.predictCofferAddress(yourAddress, pubKeyPart1, pubKeyPart2)` to compute the Coffer contract address
-- [ ] **Step 3:** Make a deposit between `MIN_ACTIVATION_BALANCE` and `MAX_EFFECTIVE_BALANCE` (consensus-layer parameters, currently 32–2048 ETH) using `0x02` withdrawal credentials pointing to the predicted Coffer address
+- [ ] **Step 3:** Make a deposit between `MIN_ACTIVATION_BALANCE` and `MAX_EFFECTIVE_BALANCE` (consensus-layer parameters, currently 32-2048 ETH) using `0x02` withdrawal credentials pointing to the predicted Coffer address
 - [ ] **Step 4:** Create Coffer contract through `CofferFactory.createCoffer(...)` with matching `_startingBalance` (deploys at the predicted address)
 
 #### Validators with 0x00 (or 0x01) withdrawal credentials
@@ -391,7 +395,7 @@ Some risks are beyond what any buffer can cover. These are network-wide events w
 The inactivity leak activates when the chain stops finalizing (requires more than one-third of stake offline from a cross-cutting cause). Penalties in this regime grow quadratically over time. A flat percentage buffer cannot track this growth, so in a sustained leak the validator's balance may fall below what is needed to cover outstanding bonds. Holders of bonds that span such a period may face:
 
 1. **Total loss, validator stake depleted**: if the leak reduces the validator's consensus balance to zero or below outstanding bond obligations, there is nothing to recover.
-2. **Partial recovery with race**: if some balance remains but is insufficient, holders compete for the execution-layer balance via `holderWithdrawFromExecution`.
+2. **Partial recovery with race**: if some balance remains but is insufficient, holders compete for the execution-layer balance via `holderWithdrawFromExecution`. This race also applies across already-consensus-closed bonds: a bond closed via an EIP-7002 request (its ETH in transit) may claim a cover-in-place bond's present ETH first, with the cover-in-place holder made whole once the in-transit ETH lands. The protocol stays solvent across this first-come-first-served reordering - contract balance plus in-transit consensus ETH always covers the total reserved - so it is harmless in the normal regime; only the undercollateralized / `exitAllowed = false` cases above can turn the reordering into a shortfall.
 3. **Consensus-locked residue**: when `exitAllowed = false`, partial withdrawals are capped at `consensus balance - MIN_ACTIVATION_BALANCE` (the consensus-layer activation floor, currently 32 ETH). Remaining bond value stays on the consensus layer until the validator voluntarily initiates a withdrawal or exits.
 
 #### Correlated Slashing
@@ -433,7 +437,7 @@ A simple solution for the validator is to initiate a partial withdrawal so that 
 
 ## Protocol Fees
 
-Every bond purchase pays a protocol fee. The fee is taken from the bond's **interest**, never from the principal, so the holder bears it: the maturity value the holder receives at the end is `principal + interest - fee`. At purchase time the fee is sent to the protocol fee recipient and the validator receives the principal minus the fee.
+Every bond purchase pays a protocol fee. The fee is taken from the bond's **interest**, never from the principal, so the holder bears it: the maturity value the holder receives at the end is `principal + interest - fee`. At purchase time the fee is deposited into the shared `FeeCurve` contract, where it pools in `sAccruedFees`, and the validator receives the principal minus the fee. The fee recipient, or anyone acting as a permissionless poke, later withdraws the pooled fees by calling `FeeCurve.claim()`.
 
 The fee schedule lives in a single shared `FeeCurve` contract (`src/FeeCurve.sol`), deployed once by `CofferFactory` and referenced by every Coffer clone through the implementation-level immutable `FEE_CURVE`.
 
@@ -454,22 +458,28 @@ In `Coffer.buyBond`, after the interest is computed:
 ```
 (feeBps, feeRecipient) = FeeCurve.getFee()   // feeBps sampled from the curve at "now"
 fee = interest * feeBps / 10000
-require(fee < principal)                       // reverts with FeeExceedsPrincipal otherwise
+require(fee <= principal)                       // reverts with FeeExceedsPrincipal otherwise
 bondMaturityValue = principal + interest - fee
+FeeCurve.collectFee{value: fee}()              // fee pooled in FeeCurve, recipient pulls via claim()
+send(validator, principal - fee)
 ```
 
 - `feeBps` is at most 990 (9.9% of interest), so net interest is always positive and `bondMaturityValue` is always greater than `principal`.
-- The `FeeExceedsPrincipal` guard only binds in extreme configurations where the computed fee would reach the principal (a very high interest rate combined with a very long duration).
-- During `buyBond` the fee is forwarded to `feeRecipient` and `principal - fee` is forwarded to the validator. `issueSize` is decremented by the net `bondMaturityValue`.
+- The `FeeExceedsPrincipal` guard only binds in extreme configurations where the computed fee would exceed the principal (a very high interest rate combined with a very long duration).
+- During `buyBond` the fee is deposited into the shared `FeeCurve` via `collectFee()`, where it pools for later `claim()` by the recipient, and `principal - fee` is forwarded to the validator. `issueSize` is decremented by the net `bondMaturityValue`.
 
 ### Immutability and Administration
 
 The curve (the fee amounts) is **immutable**: the breakpoints live in code with no setter. The only mutable parameter is the fee **recipient**, changeable by the `FeeCurve` owner (the protocol admin) via `setFeeRecipient(address)`. A holder can therefore rely on the fee for a given purchase date being fixed and publicly verifiable in advance.
 
+The fee depends only on the calendar **date** (days since `FeeCurve` deployment), not on the individual transaction. A `buyBond` signed on one UTC day but included on the next therefore realizes that next day's fee - at most ~1.08 bps of interest higher (the steepest segment of the curve, days 0-90; zero after the day-3650 plateau). Because the fee is taken from interest (never principal) and is paid to the protocol - not the validator - this is a bounded, no-loss-of-principal timing nuance, not a value a validator or proposer can manipulate for gain. Holders who want exact terms across a day boundary should price against the next breakpoint's value.
+
 ### Fee-Related Events
 
 - `BondFeePaid(uint256 indexed bondId, address indexed feeRecipient, uint128 indexed feeAmount, uint256 feeBps)`: emitted by `Coffer.buyBond` when a non-zero fee is charged.
 - `FeeRecipientChanged(address indexed oldRecipient, address indexed newRecipient)`: emitted by `FeeCurve.setFeeRecipient`.
+- `FeeCollected(uint256 indexed amount)`: emitted by `FeeCurve.collectFee` when a Coffer deposits a fee into the shared pool.
+- `FeesClaimed(address indexed to, uint256 indexed amount)`: emitted by `FeeCurve.claim` when pooled fees are sent to the recipient.
 
 ---
 
@@ -483,8 +493,8 @@ The curve (the fee amounts) is **immutable**: the breakpoints live in code with 
 - **Validator execution withdrawal bound**: Validator can withdraw from execution up to `issueSize` while preserving `totalConsensusReserved`; unrestricted when `outstandingBonds == 0`
 - **outstandingBonds accuracy**: Equals the number of bonds with `bondMaturityValue > 0`
 - **Bond-NFT bijection**: Each active bond maps 1:1 to a live NFT (mint on buy, burn on full withdrawal/redeem)
-- **Version monotonicity**: `version` strictly increases on any parameter change that affects holder safety
-- **bondMaturityValue >= principal**: `bondMaturityValue = principal + interest - fee`. The protocol fee is capped at 9.9% of the *interest* (never the principal), so net interest stays non-negative and the maturity value never drops below the principal; `buyBond` reverts with `FeeExceedsPrincipal` in the extreme case where the computed fee would reach the principal
+- **Version monotonicity**: `version` strictly increases on any parameter change that affects holder safety, and on `validatorWithdrawFromExecution`
+- **bondMaturityValue >= principal**: `bondMaturityValue = principal + interest - fee`. The protocol fee is capped at 9.9% of the *interest* (never the principal), so net interest stays non-negative and the maturity value never drops below the principal; `buyBond` reverts with `FeeExceedsPrincipal` in the extreme case where the computed fee would exceed the principal
 
 ### Cross-Layer Invariant (not enforceable on-chain)
 

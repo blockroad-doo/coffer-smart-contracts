@@ -727,6 +727,22 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.changeIssueSizeBufferBps(10001); // BUFFER_DENOMINATOR + 1
     }
 
+    function test_ChangeIssueSizeBufferBps_RevertsIfEqualsDenominator() public {
+        // F-10: buffer == BUFFER_DENOMINATOR (100%) is now rejected; valid range is 0..9999.
+        vm.prank(validator);
+        vm.expectRevert(Coffer.InvalidIssueSizeBufferBps.selector);
+        coffer.changeIssueSizeBufferBps(10000); // == BUFFER_DENOMINATOR
+    }
+
+    function test_ChangeIssueSizeBufferBps_MaxValid_9999_Succeeds() public {
+        // F-10: 9999 (BUFFER_DENOMINATOR - 1) is the maximum valid buffer and must still work.
+        vm.prank(validator);
+        coffer.changeIssueSizeBufferBps(9999);
+
+        (,,,,,,, uint16 buffer,,) = coffer.sValidatorConditions();
+        assertEq(buffer, 9999, "buffer stored as 9999");
+    }
+
     function test_ChangeIssueSizeBufferBps_RevertsIfNotOwner() public {
         vm.prank(holder1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, holder1));

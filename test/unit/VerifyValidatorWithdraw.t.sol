@@ -14,7 +14,7 @@ contract VerifyValidatorWithdrawTest is BaseTest {
     }
 
     // ========================================
-    // V-1: CS-12 — ValidatorWithdrawFromExecution undercollateralizes
+    // V-1: CS-12 - ValidatorWithdrawFromExecution undercollateralizes
     //      non-consensus-closed bond holders
     // ========================================
 
@@ -60,7 +60,7 @@ contract VerifyValidatorWithdrawTest is BaseTest {
         vm.prank(validator);
         coffer.validatorWithdrawFromExecution(drainAmount);
 
-        // 7. Contract balance is now 0 — non-consensus-closed holder stranded
+        // 7. Contract balance is now 0 - non-consensus-closed holder stranded
         assertEq(cofferAddr.balance, 0, "contract drained to zero");
 
         // 8. Holder tries to withdraw from execution → REVERTS
@@ -69,18 +69,18 @@ contract VerifyValidatorWithdrawTest is BaseTest {
         vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
         coffer.holderWithdrawFromExecution(bondId);
 
-        // 9. Bond is still active with full value — holder is undercollateralized
+        // 9. Bond is still active with full value - holder is undercollateralized
         (uint128 remaining,,,) = coffer.sHolderConditions(bondId);
         assertEq(remaining, bondMaturityValue, "bond still active, holder stranded");
 
-        // 10. outstandingBonds unchanged — validator can't increase issueSize
+        // 10. outstandingBonds unchanged - validator can't increase issueSize
         //     (monotonicity guard blocks increase while bonds exist)
         (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 1, "bond still outstanding");
     }
 
     /// @dev PoC: Even partial drain leaves holder undercollateralized.
-    /// Validator leaves only 1 wei in contract — holder gets partial withdrawal
+    /// Validator leaves only 1 wei in contract - holder gets partial withdrawal
     /// of 1 wei instead of full bondMaturityValue.
     function test_V1_PartialDrainLeavesHolderUndercollateralized() public {
         // Setup: buy bond with large issueSize
@@ -147,7 +147,7 @@ contract VerifyValidatorWithdrawTest is BaseTest {
         // Fund contract with bondMaturityValue
         vm.deal(cofferAddr, bondMaturityValue);
 
-        // Validator tries to drain — REVERTS because balance(amt) < amt + reserved
+        // Validator tries to drain - REVERTS because balance(amt) < amt + reserved
         if (issueSize > 0) {
             vm.prank(validator);
             vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
@@ -162,15 +162,15 @@ contract VerifyValidatorWithdrawTest is BaseTest {
     }
 
     // ========================================
-    // V-2: BLIND-C-3 — Compromised key enables compound consensus exit
-    //      + execution drain — "multiple rounds" claim verification
+    // V-2: BLIND-C-3 - Compromised key enables compound consensus exit
+    //      + execution drain - "multiple rounds" claim verification
     // ========================================
 
     /// @dev Test V-2 "multiple rounds" claim: each call to
     /// validatorWithdrawFromExecution decreases issueSize by _amount.
     /// A subsequent call with the same _amount reverts because
     /// new issueSize < _amount. The claim of "draining stale issueSize
-    /// in multiple rounds" is FALSE — it's a single-round depletion.
+    /// in multiple rounds" is FALSE - it's a single-round depletion.
     function test_V2_MultipleRoundsClaim_RejectsSubsequentDrain() public {
         vm.prank(validator);
         coffer.changeIssueSize(100 ether);

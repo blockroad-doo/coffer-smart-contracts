@@ -165,45 +165,36 @@ contract CofferInvariantTest is BaseTest {
         }
     }
 
-    /// @dev Front-run griefing fix invariant. After every handler call, the contract balance
-    /// must cover the sum of bondMaturityValue for every bond with consensusWithdrawClosed
-    /// set. validatorWithdrawFromExecution's gate `balance >= amount + totalConsensusReserved`
-    /// enforces this property: after the cover-in-place fallback bumps totalConsensusReserved,
-    /// the validator cannot drain principal that has been logically reserved for a holder.
-    function invariant_validatorCannotDrainConsensusReservedFunds() public view {
+    /// @dev Reserve-solvency invariant (F-02 corrected). Every consensus-closed bond's bondMaturityValue
+    /// must be backed by ETH that is either already in the contract OR in transit from the consensus layer
+    /// (an EIP-7002 request the handler will credit on arrival). A closed bond doing an execution withdrawal
+    /// uses reserved=0 (Coffer.sol:653), so an in-transit bond may claim a cover-in-place bond's present ETH
+    /// first (FCFS); that bond's own beacon ETH then backs the remainder, so `balance + inTransit >= reserved`
+    /// still holds. (The previous version asserted `balance >= sumLocked` excluding pending bonds, which is
+    /// reachably false once a pending bond settles against present balance - see VerifyConsensusReserveCrossDrain.)
+    function invariant_reserveBackedByBalanceOrInTransit() public view {
         uint256 sumLocked = 0;
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,, bool flag) = coffer.sHolderConditions(bondId);
-            if (flag) {
-                // Only count bonds whose ETH is logically present in the contract:
-                // either the cover-in-place fallback fired (already there) or the
-                // EIP-7002 path's simulated arrival has delivered the ETH.
-                bool ethInContract = !isPendingEip7002Arrival(bondId);
-                if (ethInContract) {
-                    sumLocked += uint256(amount);
-                }
+            (uint128 amount,,, bool closed) = coffer.sHolderConditions(bondId);
+            if (closed) {
+                sumLocked += uint256(amount);
             }
         }
-        assertGe(
-            address(coffer).balance,
-            sumLocked,
-            "Validator must not drain balance below sum of consensusWithdrawClosed bondMaturityValues"
-        );
-    }
-
-    /// @dev True iff the bond is currently waiting on simulated EIP-7002 ETH arrival.
-    /// For these bonds, the consensusWithdrawClosed flag is set on-chain but the ETH
-    /// has not yet arrived from the consensus layer, so the "balance covers reserved"
-    /// invariant only applies once the ETH lands.
-    function isPendingEip7002Arrival(uint256 bondId) internal view returns (bool) {
+        // In-transit beacon ETH already requested via EIP-7002 but not yet credited (includes requests for
+        // bonds already settled from execution against present balance - the F-02 FCFS case).
+        uint256 inTransit = 0;
         uint256 plen = handler.getPendingWithdrawalsLength();
-        for (uint256 i = 0; i < plen; i++) {
-            (uint256 pBondId,,,) = handler.ghostPendingWithdrawals(i);
-            if (pBondId == bondId) return true;
+        for (uint256 j = 0; j < plen; j++) {
+            (, uint128 amt,,) = handler.ghostPendingWithdrawals(j);
+            inTransit += uint256(amt);
         }
-        return false;
+        assertGe(
+            address(coffer).balance + inTransit,
+            sumLocked,
+            "reserved must be backed by present balance OR in-transit beacon ETH"
+        );
     }
 
     // ══════════════════════════════════════════════════════════════════════

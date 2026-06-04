@@ -48,6 +48,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     error ContractBalanceLessThanValue();
 
     error WithdrawalContractCallFailed();
+    error WithdrawalAmountExceedsUint64Gwei();
     error ConsolidationContractCallFailed();
     error InsufficientFee();
     error FeeExceedsPrincipal();
@@ -418,7 +419,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         );
 
         if (fee > 0) {
-            Address.sendValue(payable(feeRecipient), fee);
+            // Pull pattern: deposit the fee into the trusted shared FeeCurve (cannot revert), so a
+            // hostile/non-payable feeRecipient can never brick buyBond. Recipient withdraws via claim().
+            IFeeCurve(FEE_CURVE).collectFee{value: fee}();
         }
         Address.sendValue(payable(owner()), msg.value - fee);
     }
@@ -617,7 +620,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         );
 
         // solhint-disable-next-line gas-strict-inequalities
-        require(_issueSizeBufferBps <= BUFFER_DENOMINATOR, InvalidIssueSizeBufferBps());
+        require(_issueSizeBufferBps < BUFFER_DENOMINATOR, InvalidIssueSizeBufferBps());
 
         uint16 oldBuffer = vc.issueSizeBufferBps;
         vc.issueSizeBufferBps = _issueSizeBufferBps;
@@ -725,9 +728,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         require(!holder.consensusWithdrawClosed, ConsensusWithdrawAlreadyClosed());
 
         // solhint-disable gas-strict-inequalities
-        // forge-lint: disable-next-line
         require(holder.duration + holder.startTimestamp <= block.timestamp, HoldersTimeHasNotExpiredYet());
-        // solhint-enable gas-strict-inequalities
 
         // solhint-disable-next-line gas-strict-inequalities
         if (address(this).balance - msg.value > holder.bondMaturityValue + totalConsensusReserved - 1) {
@@ -741,7 +742,15 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         uint64 valueToWithdrawInGwei = 0;
         // If the contract allows exits, 0 should be sent in data; if not, the value should be converted to gwei
         if (!sValidatorConditions.exitAllowed) {
-            // forge-lint: disable-next-line(unsafe-typecast) holder.bondMaturityValue < 2048 ETH, fits uint64
+            // The EIP-7002 amount field is a uint64 gwei value. Guard the post-division quotient against
+            // truncation, independent of any consensus parameter (e.g. MAX_EFFECTIVE_BALANCE, which can change
+            // across forks).
+            require(
+                // solhint-disable-next-line gas-strict-inequalities
+                holder.bondMaturityValue <= uint256(type(uint64).max) * GWEI_RATE,
+                WithdrawalAmountExceedsUint64Gwei()
+            );
+            // forge-lint: disable-next-line(unsafe-typecast) guarded: ceil(bondMaturityValue / GWEI_RATE) fits uint64
             valueToWithdrawInGwei = uint64((holder.bondMaturityValue + GWEI_RATE - 1) / GWEI_RATE);
         }
 
@@ -750,18 +759,14 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         // forge-lint: disable-next-line(unsafe-typecast) fee data is always 32 bytes
         uint256 fee = uint256(bytes32(feeData));
 
-        // Check that the fee is not too high.
-        // solhint-disable-next-line gas-strict-inequalities
         require(fee <= msg.value, InsufficientFee());
 
         // EIP-7002: 48-byte BLS public key + 8-byte withdrawal amount = 56 bytes
         bytes memory data = abi.encodePacked(iPublicKeyPart1(), iPublicKeyPart2(), valueToWithdrawInGwei);
-
         bool isFullExit = (valueToWithdrawInGwei == 0);
         holder.consensusWithdrawClosed = true;
         totalConsensusReserved += holder.bondMaturityValue;
         emit TotalConsensusReservedChanged(totalConsensusReserved);
-
         emit HolderWithdrawFromConsensusClosed(msg.sender, _bondId, holder.bondMaturityValue, isFullExit);
 
         (bool writeOk,) = WITHDRAWAL_CONTRACT.call{value: fee}(data);

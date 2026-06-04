@@ -15,7 +15,7 @@ contract InterestTest is BaseTest {
     // ========================================
 
     // Realistic maximum values as per requirements
-    uint256 constant MAX_BOND_AMOUNT = 2048 ether; // 2048 million ETH max
+    uint256 constant MAX_BOND_AMOUNT = type(uint128).max; // full uint128 range (bond values are uint128)
     uint256 constant MAX_BOND_DURATION = 1_576_800_000; // 50 years max
     uint256 constant MAX_INTEREST_RATE = 1e8; // 100% max
 
@@ -272,16 +272,16 @@ contract InterestTest is BaseTest {
     // ========================================
 
     function test_CalculateInterest_MaxEverything() public {
-        // Maximum realistic values: 1M ETH, 50 years, 100% rate
+        // Maximum representable inputs: uint128-max amount (bond values are uint128), 50-year max duration, 100% rate
         uint256 amount = MAX_BOND_AMOUNT;
         uint256 duration = MAX_BOND_DURATION;
         uint256 rate = MAX_INTEREST_RATE;
 
         uint256 interest = Interest.calculateInterest(amount, duration, rate);
 
-        // 1,000,000 ETH * 100% * 50 years = 50,000,000 ETH
-        uint256 expectedInterest = 102_400 ether;
-        assertEq(interest, expectedInterest, "Maximum realistic scenario calculation incorrect");
+        // interest = amount * rate * duration / (MAX_RATE * SECONDS_IN_YEAR); at max rate/duration that is 50x principal.
+        uint256 expectedInterest = (amount * rate * duration) / (uint256(RATE_DIVISOR) * SECONDS_IN_YEAR);
+        assertEq(interest, expectedInterest, "Maximum scenario calculation incorrect");
 
         // Ensure no overflow occurred
         assertTrue(interest > amount, "Interest should be greater than principal");

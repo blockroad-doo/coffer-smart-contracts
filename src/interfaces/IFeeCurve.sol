@@ -11,4 +11,7 @@ interface IFeeCurve {
     /// @return bps Current fee in basis points (1% = 100 bps)
     /// @return recipient Current fee recipient address
     function getFee() external view returns (uint256 bps, address recipient);
+
+    /// @notice Collect a protocol fee (pull pattern); called by Coffer.buyBond with the fee as msg.value
+    function collectFee() external payable;
 }

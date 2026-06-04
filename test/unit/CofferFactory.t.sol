@@ -436,6 +436,43 @@ contract CofferFactoryTest is BaseTest {
         );
     }
 
+    function test_CreateCoffer_Revert_IssueSizeBufferEqualsDenominator() public {
+        // F-10: buffer == BUFFER_DENOMINATOR (100%) is now rejected; valid range is 0..9999.
+        vm.prank(validator);
+        vm.expectRevert(CofferFactory.InvalidIssueSizeBufferBps.selector);
+        factory.createCoffer(
+            validPublicKeyPart1,
+            validPublicKeyPart2,
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            10000, // == BUFFER_DENOMINATOR
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
+        );
+    }
+
+    function test_CreateCoffer_IssueSizeBufferMaxValid_9999_Succeeds() public {
+        // F-10: 9999 (BUFFER_DENOMINATOR - 1) is the maximum valid buffer and must still work.
+        // minimumAmount = 1 keeps it within maxMinimumAmount (startingBalance * 1 / 10000) at a 99.99% buffer.
+        vm.prank(validator);
+        address clone = factory.createCoffer(
+            bytes32(uint256(0x9999)),
+            bytes16(uint128(0x9999)),
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            1,
+            9999,
+            defaultExitAllowed,
+            DEFAULT_STARTING_BALANCE
+        );
+        assertTrue(clone != address(0), "createCoffer should succeed at buffer 9999");
+        (,,,,,,, uint16 buffer,,) = Coffer(payable(clone)).sValidatorConditions();
+        assertEq(buffer, 9999, "buffer stored as 9999");
+    }
+
     function test_CreateCoffer_Revert_MinAmountExceedsMax() public {
         uint256 maxAllowed = _maxMinimumAmount(DEFAULT_STARTING_BALANCE, defaultIssueSizeBufferBps);
         // Ensure maxAllowed is positive so the +1 actually exceeds it

@@ -114,12 +114,22 @@ contract CofferHolderOpsTest is BaseTest {
 
         uint256 valBalBefore = validator.balance;
         uint256 recipientBalBefore = feeRecipient.balance;
+        uint256 accruedBefore = feeCurve.sAccruedFees();
         uint256 fee = _expectedFee(1 ether, ONE_MONTH);
 
         buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
+        // Validator receives msg.value - fee immediately (unchanged).
         assertEq(validator.balance, valBalBefore + 1 ether - fee);
-        assertEq(feeRecipient.balance, recipientBalBefore + fee);
+        // Pull pattern: the fee is collected into the shared FeeCurve, NOT pushed to the recipient here.
+        assertEq(feeRecipient.balance, recipientBalBefore, "fee must not be pushed to recipient during buyBond");
+        assertEq(feeCurve.sAccruedFees(), accruedBefore + fee, "fee accrued in FeeCurve");
+
+        // The recipient pulls accrued fees via claim().
+        uint256 accruedNow = feeCurve.sAccruedFees();
+        feeCurve.claim();
+        assertEq(feeRecipient.balance, recipientBalBefore + accruedNow, "recipient paid after claim");
+        assertEq(feeCurve.sAccruedFees(), 0, "accrued fees zeroed after claim");
     }
 
     function test_BuyBond_MultipleHolders() public {

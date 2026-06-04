@@ -561,10 +561,10 @@ contract CofferHandlerExt is Test {
         Vc memory vc = _readVc();
         uint16 newBps;
         if (vc.outstandingBonds == 0) {
-            newBps = uint16(bound(bps, 0, BUFFER_DENOMINATOR));
+            newBps = uint16(bound(bps, 0, BUFFER_DENOMINATOR - 1));
         } else {
-            if (vc.issueSizeBufferBps >= BUFFER_DENOMINATOR) return;
-            newBps = uint16(bound(bps, vc.issueSizeBufferBps + 1, BUFFER_DENOMINATOR));
+            if (vc.issueSizeBufferBps >= BUFFER_DENOMINATOR - 1) return;
+            newBps = uint16(bound(bps, vc.issueSizeBufferBps + 1, BUFFER_DENOMINATOR - 1));
         }
         vm.prank(validator);
         coffer.changeIssueSizeBufferBps(newBps);

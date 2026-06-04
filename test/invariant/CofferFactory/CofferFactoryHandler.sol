@@ -47,10 +47,11 @@ contract CofferFactoryHandler is Test {
         maxDur = uint32(bound(uint256(maxDur), minDur, MAX_DURATION));
 
         // Clamp issueSizeBufferBps
-        issueSizeBufferBps = uint16(bound(uint256(issueSizeBufferBps), 0, BUFFER_DENOMINATOR));
+        issueSizeBufferBps = uint16(bound(uint256(issueSizeBufferBps), 0, BUFFER_DENOMINATOR - 1));
 
-        // Clamp startingBalance to EIP-7251 range
-        startingBalance = uint128(bound(uint256(startingBalance), 32 ether, 2048 ether));
+        // Clamp startingBalance across the full uint128 range (not an artificial 2048 ETH cap) to exercise
+        // large issueSize / bond values; this suite only deploys Coffers (no consensus withdrawals).
+        startingBalance = uint128(bound(uint256(startingBalance), 32 ether, type(uint128).max));
 
         // Compute maxMinAmount
         uint256 maxMinAmount = uint256(startingBalance) * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFER_DENOMINATOR;

@@ -119,7 +119,7 @@ contract VerifyExitAllowedTest is BaseTest {
     }
 
     function testFuzz_CS17_RangeOfBalances(uint128 startingBalance) public {
-        startingBalance = uint128(bound(startingBalance, 33 ether, 2048 ether));
+        startingBalance = uint128(bound(startingBalance, 33 ether, type(uint128).max));
 
         address cofferAddr = createCoffer(
             validator,

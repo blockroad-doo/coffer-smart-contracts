@@ -12,7 +12,7 @@ contract InterestInvariantTest is Test {
     uint256 constant SECONDS_IN_YEAR = 31_536_000;
 
     // Realistic input bounds
-    uint256 constant MAX_AMOUNT = 2048 ether;
+    uint256 constant MAX_AMOUNT = type(uint128).max; // full uint128 range (bond amounts are uint128), not an artificial 2048 ETH cap
     uint256 constant MAX_DURATION = 1_576_800_000; // 50 years
 
     // ========================================

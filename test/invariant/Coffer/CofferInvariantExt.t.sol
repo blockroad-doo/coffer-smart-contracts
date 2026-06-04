@@ -142,7 +142,7 @@ contract CofferInvariantExtTest is BaseTest {
         // it only inside changeIssueSize; changeMinimumValueToAccept has no upper bound vs issueSize,
         // and buyBond freely shrinks issueSize. issueSize < minimumValueToAccept is a harmless,
         // validator-self-correctable state (it only pauses new issuance), so it is not asserted here.
-        assertLe(issueSizeBufferBps, 10000, "issueSizeBufferBps <= BUFFER_DENOMINATOR");
+        assertLt(issueSizeBufferBps, 10000, "issueSizeBufferBps < BUFFER_DENOMINATOR");
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -348,28 +348,32 @@ contract CofferInvariantExtTest is BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // INVARIANT 18: VALIDATOR CANNOT DRAIN CONSENSUS-RESERVED FUNDS
-    // Balance must cover sum of bondMaturityValue for consensus-closed bonds
+    // INVARIANT 18: RESERVE BACKED BY BALANCE OR IN-TRANSIT BEACON ETH (F-02 corrected)
+    // Every consensus-closed bond's value is backed by present balance OR in-transit EIP-7002 ETH
     // ══════════════════════════════════════════════════════════════════════
 
-    function invariant_validatorCannotDrainConsensusReservedFunds() public view {
+    function invariant_reserveBackedByBalanceOrInTransit() public view {
         uint256 sumLocked = 0;
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
             (uint128 amount,,, bool closed) = coffer.sHolderConditions(bondId);
             if (closed) {
-                // Only count bonds whose ETH is already in the contract (not pending EIP-7002 arrival)
-                bool ethInContract = !_isPendingEip7002Arrival(bondId);
-                if (ethInContract) {
-                    sumLocked += uint256(amount);
-                }
+                sumLocked += uint256(amount);
             }
         }
+        // In-transit beacon ETH already requested via EIP-7002 but not yet credited (includes requests for
+        // bonds already settled from execution against present balance - the F-02 FCFS case).
+        uint256 inTransit = 0;
+        uint256 plen = handler.getPendingWithdrawalsLength();
+        for (uint256 j = 0; j < plen; j++) {
+            (, uint128 amt,,) = handler.ghostPendingWithdrawals(j);
+            inTransit += uint256(amt);
+        }
         assertGe(
-            address(coffer).balance,
+            address(coffer).balance + inTransit,
             sumLocked,
-            "validator must not drain balance below sum of consensus-closed bond values"
+            "reserved must be backed by present balance OR in-transit beacon ETH"
         );
     }
 
@@ -429,21 +433,6 @@ contract CofferInvariantExtTest is BaseTest {
                 assertGt(amount, 0, "consensus-closed bond must have non-zero on-chain amount");
             }
         }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // HELPER
-    // ══════════════════════════════════════════════════════════════════════
-
-    function _isPendingEip7002Arrival(uint256 bondId) internal view returns (bool) {
-        // A bond is awaiting EIP-7002 arrival iff it is still in the handler's pending-withdrawals
-        // queue (the public struct-array getter exposes bondId as the first field).
-        uint256 plen = handler.getPendingWithdrawalsLength();
-        for (uint256 i = 0; i < plen; i++) {
-            (uint256 pBondId,,,) = handler.ghostPendingWithdrawals(i);
-            if (pBondId == bondId) return true;
-        }
-        return false;
     }
 
     // ══════════════════════════════════════════════════════════════════════

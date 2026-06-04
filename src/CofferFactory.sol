@@ -92,7 +92,7 @@ contract CofferFactory {
         // solhint-disable-next-line gas-strict-inequalities
         require(_interestRate <= MAX_RATE, InvalidInterestRate());
         // solhint-disable-next-line gas-strict-inequalities
-        require(_issueSizeBufferBps <= BUFFER_DENOMINATOR, InvalidIssueSizeBufferBps());
+        require(_issueSizeBufferBps < BUFFER_DENOMINATOR, InvalidIssueSizeBufferBps());
         require(_startingBalance != 0, InvalidStartingBalance());
 
         uint256 maxMinimumValueToAccept =
