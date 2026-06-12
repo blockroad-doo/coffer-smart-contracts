@@ -334,6 +334,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// withdrawal credential, and is not a Coffer-specific weakness.
     /// @dev Anyone can send ETH but only validator/holders benefit from it
     // solhint-disable-next-line no-complex-fallback, use-natspec
+    /// #if_succeeds {:msg "issueSize increases by msg.value on receive"} sValidatorConditions.issueSize ==
+    ///     old(sValidatorConditions.issueSize) + msg.value;
     receive() external payable {
         // forge-lint: disable-next-line(unsafe-typecast) msg.value < total ETH supply, fits uint128
         ValidatorConditions storage vc = sValidatorConditions;
@@ -361,6 +363,10 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @param _duration Holder defines the duration, which must be within the validator's offered interval
     /// @param _version Version must match the current validator's version to prevent front-runs
     /// @return bondId The ID of the newly minted bond NFT
+    /// #if_succeeds {:msg "outstandingBonds increments by 1 on buyBond"} sValidatorConditions.outstandingBonds ==
+    ///     old(sValidatorConditions.outstandingBonds) + 1;
+    /// #if_succeeds {:msg "issueSize decreases by at least bondMaturityValue"} sValidatorConditions.issueSize <=
+    ///     old(sValidatorConditions.issueSize);
     function buyBond(uint32 _duration, uint32 _version) external payable returns (uint256 bondId) {
         ValidatorConditions storage vc = sValidatorConditions;
 

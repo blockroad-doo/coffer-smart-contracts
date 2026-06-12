@@ -53,6 +53,7 @@ contract FeeCurve is Ownable2Step, IFeeCurve {
     /// @dev Intentionally performs no require and no external call, so it can NEVER revert. This decouples
     /// bond issuance from the fee recipient: a hostile, non-payable, or self-destructed recipient can no
     /// longer brick buyBond on any clone. Fees pool here until claim().
+    /// #if_succeeds {:msg "sAccruedFees increases by msg.value"} sAccruedFees == old(sAccruedFees) + msg.value;
     function collectFee() external payable {
         sAccruedFees += msg.value;
         emit FeeCollected(msg.value);

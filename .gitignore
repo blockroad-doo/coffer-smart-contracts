@@ -16,6 +16,7 @@ TODO.md
 answers_for_audit.txt
 changes_since_last_quote.md
 report_responses.pdf
+audit/
 
 # Dotenv file
 .env
@@ -23,4 +24,6 @@ report_responses.pdf
 
 # VS Code
 .vscode
+
+.gitignore
 

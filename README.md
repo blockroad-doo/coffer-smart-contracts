@@ -45,7 +45,7 @@
 
 ## Quick Overview
 
-Coffer is a permissionless, non-custodial peer-to-peer protocol that allows validators to issue bonds backed by their stake, enabling ETH holders to earn interest on their ETH. A holder receives a fixed rate from the validator and commits to that rate for an agreed-upon period. At maturity, the holder can claim their bond by calling the contract. This enables validators to unlock liquidity from a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted, allowing the holder to transfer their bond to a third party. Each bond purchase pays a small, time-based protocol fee deducted from the bond's interest (see [Protocol Fees](#protocol-fees)).
+Coffer is a **permissionless, non-custodial peer-to-peer protocol** that allows validators to issue bonds backed by their stake, enabling ETH holders to earn interest on their ETH. A holder receives a fixed rate from the validator and commits to that rate for an agreed-upon period. At maturity, the holder can claim their bond by calling the contract. This enables validators to unlock liquidity from a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted, allowing the holder to transfer their bond to a third party. Each bond purchase pays a small, time-based protocol fee deducted from the bond's interest (see [Protocol Fees](#protocol-fees)).
 
 ---
 
@@ -356,7 +356,7 @@ where 1% = 100 and BUFFER_DENOMINATOR = 10000 (basis points).
 
 The buffer creates headroom between what the validator issues and what they hold on the consensus layer. A higher buffer means a smaller issueSize.
 
-The validator sets the buffer. The holder evaluates whether the chosen value, combined with the amount of ETH already issued, is adequate for the bond's duration given events the validator may face: missing attestations, going offline, being slashed, or the network entering a non-finalizing period.
+The validator sets the buffer. The holder evaluates whether the chosen value, combined with the amount of ETH already issued, is adequate for the bond's duration given events the validator may face: missing attestations, going offline, or being slashed. A validator that operates several validators, or several Coffers under common control, carries higher correlated-slashing exposure, since a single cause can slash them together; the holder weighs the buffer against that concentration. A validator operating near the top of its issue size without a buffer that reflects its concentration is one a holder can choose to avoid. Network-wide events (a non-finalizing period, or large-scale correlated slashing) are unbounded and are covered separately under Risk Factors.
 
 #### Exit Mechanics
 
@@ -388,7 +388,7 @@ This pull-based pattern prevents a griefing attack where a bond NFT is transferr
 
 ### Extreme Consensus-Layer Events
 
-Some risks are beyond what any buffer can cover. These are network-wide events where all validators, all holders, and all participants are exposed. Holders should be aware of them when evaluating a Coffer.
+Some risks are beyond what any buffer can cover. These are network-wide events where all validators, all holders, and all participants are exposed. The correlated-slashing entry below also distinguishes the bounded, smaller-scale case, which the buffer can address, from the network-wide case, which it cannot. Holders should be aware of these when evaluating a Coffer.
 
 #### Non-Finalization (Inactivity Leak)
 
@@ -400,9 +400,9 @@ The inactivity leak activates when the chain stops finalizing (requires more tha
 
 #### Correlated Slashing
 
-In a correlated slashing event the consensus-layer penalty scales with the total amount slashed within the same window. If it occurs, the Coffer may be unable to honour all outstanding bonds. Large-scale correlated slashing has not occurred on Ethereum mainnet. The largest events involve tens of validators.
+The consensus-layer slashing penalty scales with the total stake slashed within the same window, which produces two distinct cases. Small-scale correlated slashing, for example a single operator's validators slashed together by a common cause, remains a bounded fraction of the validator's balance; it is part of what the holder weighs when evaluating the buffer and the validator's concentration before buying (see Issuance Buffer), and a buffer can be sized against it. Correlated slashing on Ethereum mainnet has so far been of this scale; the largest events involve tens of validators.
 
-The Coffer protocol does not attempt to model or bound these events on-chain. Both are catastrophic for the entire network: validators lose stake, holders lose bond coverage, and all participants are exposed together. Holders of long-duration bonds should be aware that such events, however unlikely, are not covered by any on-chain mechanism.
+Large-scale correlated slashing, where a substantial fraction of total network stake is slashed in the same window, is the catastrophic case addressed here. The penalty can approach the entire balance, beyond what any buffer can cover. Like a non-finalizing period, it is a network-wide event: validators lose stake, holders lose bond coverage, and all participants are exposed together. The protocol does not attempt to model or bound it on-chain. Holders of long-duration bonds should be aware that such events, however unlikely, are not covered by any on-chain mechanism.
 
 ---
 

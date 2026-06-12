@@ -32,3 +32,4 @@ fail_on_revert = true
 
 [profile.ci]
 no_match_path = "test/invariant/*"
+

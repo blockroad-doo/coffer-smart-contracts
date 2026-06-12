@@ -38,6 +38,7 @@ contract CofferBondsRedeemedEarly is ICofferBondsRedeemedEarly {
     /// filtering is performed off-chain, matching the trust model of Coffer.receive().
     /// @param _holders Array of holder addresses
     /// @param _amounts Array of amounts owed to each holder
+    /// #if_succeeds {:msg "msg.value equals sum of amounts"} msg.value == unchecked_sum(_amounts);
     function deposit(address[] calldata _holders, uint128[] calldata _amounts) external payable {
         require(_holders.length == _amounts.length, DepositArrayLengthMismatch());
         uint256 total = 0;
@@ -54,6 +55,7 @@ contract CofferBondsRedeemedEarly is ICofferBondsRedeemedEarly {
     /// @notice Claim escrowed funds from early bond redemption
     /// @notice The _to parameter allows non-payable contracts to redirect funds
     /// @param _to Address to receive the claimed funds
+    /// #if_succeeds {:msg "claim sets caller's pending to zero"} sPendingClaims[msg.sender] == 0;
     function claim(address payable _to) external {
         uint256 amount = sPendingClaims[msg.sender];
         require(amount != 0, NoPendingClaim());
