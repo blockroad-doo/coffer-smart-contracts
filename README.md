@@ -12,18 +12,12 @@
   - [Interfaces](#interfaces)
   - [Clone Architecture (CWIA)](#clone-architecture-cwia)
   - [Roles](#roles)
-- [Testing](#testing)
-  - [Environment Setup](#environment-setup)
-  - [Deployment Scripts](#deployment-scripts)
-  - [Invariant Testing](#invariant-testing)
-  - [Integration Tests (Mock Validation)](#integration-tests-mock-validation)
-  - [Unit Tests](#unit-tests)
-  - [Fuzz Testing](#fuzz-testing)
+  - [Deployment](#deployment)
 - [Validator Considerations](#validator-considerations)
   - [Setup Steps](#setup-steps)
   - [Evaluating a Coffer](#evaluating-a-coffer)
     - [Before You Buy](#before-you-buy)
-  - [Issuance Buffer](#issuance-buffer)
+    - [Issuance Buffer](#issuance-buffer)
     - [Exit Mechanics](#exit-mechanics)
   - [Redeeming Bonds Early](#redeeming-bonds-early)
 - [Risk Factors](#risk-factors)
@@ -37,6 +31,7 @@
   - [Fee Curve](#fee-curve)
   - [How the Fee Is Applied](#how-the-fee-is-applied)
   - [Immutability and Administration](#immutability-and-administration)
+  - [Fee-Related Events](#fee-related-events)
 - [Invariants](#invariants)
   - [Contract Invariants](#contract-invariants-enforced-by-code)
   - [Cross-Layer Invariant](#cross-layer-invariant-not-enforceable-on-chain)
@@ -65,7 +60,7 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 | **`Coffer.sol`** | Individual Coffer contract managing validator-holder relationships |
 | **`CofferBondNft.sol`** | ERC-721 contract representing transferable Coffer bonds |
 | **`CofferBondsRedeemedEarly.sol`** | Pull-based claim contract for early bond redemptions |
-| **`FeeCurve.sol`** | Shared, protocol-wide fee schedule; resolves the current fee (in basis points) and the fee recipient for `buyBond` |
+| **`FeeCurve.sol`** | Shared, protocol-wide fee schedule. Resolves the current fee (in basis points) and the fee recipient for `buyBond` |
 
 ### Libraries
 
@@ -85,7 +80,7 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 
 ### Clone Architecture (CWIA)
 
-Each Coffer is deployed as a minimal proxy clone using Solady's `LibClone`. At construction time the factory deploys the shared contracts once (`CofferBondNft`, `CofferBondsRedeemedEarly`, and the `FeeCurve`) and a single Coffer implementation contract; every `createCoffer` call creates a lightweight clone pointing to that implementation.
+Each Coffer is deployed as a minimal proxy clone using Solady's `LibClone`. At construction time the factory deploys the shared contracts once (`CofferBondNft`, `CofferBondsRedeemedEarly`, and the `FeeCurve`) and a single Coffer implementation contract. Every `createCoffer` call creates a lightweight clone pointing to that implementation.
 
 88 bytes of immutable data are appended to each clone's bytecode via the Clones With Immutable Args (CWIA) pattern:
 
@@ -104,7 +99,7 @@ The remaining parameters (validator address, interest rate, durations, minimum v
 
 ### Roles
 
-Four roles. The Protocol Admin owns the shared `FeeCurve` (set to the deployer of `CofferFactory`) and can update the protocol fee recipient. The Validator is the owner of a given `Coffer` clone (using `Ownable2Step`; `renounceOwnership` is disabled). The Holder is the current owner of a given bond NFT, with authority scoped to that `bondId`. Anyone else can only call the entrypoints listed below.
+Four roles. The Protocol Admin owns the shared `FeeCurve` (set to the deployer of `CofferFactory`) and can update the protocol fee recipient. The Validator is the owner of a given `Coffer` clone (using `Ownable2Step`, with `renounceOwnership` disabled). The Holder is the current owner of a given bond NFT, with authority scoped to that `bondId`. Anyone else can only call the entrypoints listed below.
 
 **Holder** (current owner of `bondId`):
 - `Coffer.holderWithdrawFromExecution(uint256)`
@@ -121,182 +116,13 @@ Four roles. The Protocol Admin owns the shared `FeeCurve` (set to the deployer o
 - `FeeCurve.collectFee()` (no access control, called by Coffer clones during `buyBond` to deposit the fee)
 
 **Protocol Admin** (owner of the shared `FeeCurve`, set to the deployer of `CofferFactory`):
-- `FeeCurve.setFeeRecipient(address)` (redirects where future bond fees are sent; the fee amounts themselves are immutable)
+- `FeeCurve.setFeeRecipient(address)` (redirects where future bond fees are sent, the fee amounts themselves are immutable)
 
 **Validator**: every other state-changing function on `Coffer`, e.g. `changeInterestRate`, `changeMinimumAndMaximumDuration`, `changeMinimumValueToAccept`, `changeIssueSize`, `changeIssueSizeBufferBps`, `changeExitAllowed`, `changeCofferActivity`, `validatorWithdrawFromExecution`, `validatorWithdrawFromConsensus`, `validatorAddFundsToConsensus`, `redeemBondsEarly`, and `convertToCompounding`. Protocol-internal calls between contracts (NFT mint/burn/metadata-update, factory registration) are gated to the issuing/owning contract and are not user-callable.
 
----
+### Deployment
 
-## Testing
-
-### Environment Setup
-
-The `.env` file lives at the **monorepo root** (`coffer/.env`), one level above `coffer-smart-contracts/`. The deployment scripts reference it via `../.env`.
-
-Example `.env` with all variables the scripts read:
-
-```
-HOODI_RPC_URL=http://your-execution-node:8545
-
-# Protocol fee recipient (constructor arg for CofferFactory, forwarded to FeeCurve)
-FEE_RECIPIENT=0x<address-that-receives-protocol-fees>
-
-# Deployed contract addresses (auto-filled by DeployCofferFactory)
-HOODI_COFFER_FACTORY_ADDRESS=
-HOODI_COFFER_BOND_NFT_ADDRESS=
-HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS=
-HOODI_COFFER_IMPLEMENTATION_ADDRESS=
-HOODI_FEE_CURVE_ADDRESS=
-HOODI_COFFER_ADDRESS=   # logged by CreateCoffer; set manually (auto-writeback is disabled)
-
-# Coffer creation parameters (read by CreateCoffer)
-VALIDATOR_PUBLIC_KEY=0x<your-48-byte-bls-public-key>
-INTEREST_RATE=2000000
-MIN_DURATION=2592000
-MAX_DURATION=31536000
-MINIMUM_VALUE_TO_ACCEPT=100000000000000000
-ISSUE_SIZE_BUFFER_BPS=250
-ALLOW_EXIT=true
-STARTING_BALANCE=32000000000000000000
-```
-
-`DeployCofferFactory` **auto-updates** `.env` via FFI (`sed`): `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_BOND_NFT_ADDRESS`, `HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS`, `HOODI_COFFER_IMPLEMENTATION_ADDRESS`, and `HOODI_FEE_CURVE_ADDRESS` are written automatically after it runs. `CreateCoffer` logs the new Coffer address but its `.env` writeback is currently commented out, so `HOODI_COFFER_ADDRESS` must be set manually.
-
-**Hoodi** is the recommended testnet because validators operate there identically to mainnet. The same EIP-7002 withdrawal and EIP-7251 consolidation request contracts are active, making it the closest environment for end-to-end testing.
-
-> **Deployment requirement: EIP-7002/7251 predeploys must be live.** Coffer must only be deployed on chains where the EIP-7002 withdrawal and EIP-7251 consolidation predeploys exist: Ethereum **mainnet** (post-Pectra) and **Hoodi**. On a chain without them, a `staticcall` to the (codeless) predeploy returns empty data, which is read as a zero fee, so a consensus-withdrawal request silently no-ops while still marking the bond `consensusWithdrawClosed` as true. Verify non-empty code at the three system-contract addresses before deploying or buying. (This is an accepted, documented deployment constraint of this mainnet/Hoodi-only protocol.)
-
-### Deployment Scripts
-
-Two-step deployment flow in `script/`:
-
-**Step 1 - `DeployCofferFactory.s.sol`**
-
-Deploys `CofferFactory`, which internally deploys `CofferBondNft`, `CofferBondsRedeemedEarly`, the shared `FeeCurve` (using `FEE_RECIPIENT` from `.env`), and the `Coffer` implementation. Auto-writes `HOODI_COFFER_FACTORY_ADDRESS`, `HOODI_COFFER_BOND_NFT_ADDRESS`, `HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS`, `HOODI_COFFER_IMPLEMENTATION_ADDRESS`, and `HOODI_FEE_CURVE_ADDRESS` to `.env`. Set `FEE_RECIPIENT` in `.env` before running.
-
-```
-cd coffer-smart-contracts
-forge script script/DeployCofferFactory.s.sol \
-  --rpc-url <RPC_URL> \
-  --broadcast \
-  --private-key <DEPLOYER_PRIVATE_KEY>
-```
-
-**Step 2 - `CreateCoffer.s.sol`**
-
-Reads Coffer offer parameters from `.env` (`VALIDATOR_PUBLIC_KEY`, `INTEREST_RATE`, `STARTING_BALANCE`, etc.), calls `factory.createCoffer(...)`, and logs the new Coffer address. You must source `.env` first so the `vm.env*()` cheatcodes can read the variables. The `.env` writeback for `HOODI_COFFER_ADDRESS` is currently commented out, so copy the logged address into `.env` manually.
-
-```
-cd coffer-smart-contracts
-set -a && source ../.env && set +a
-forge script script/CreateCoffer.s.sol \
-  --rpc-url $HOODI_RPC_URL \
-  --broadcast \
-  --private-key <VALIDATOR_PRIVATE_KEY>
-```
-
-> **Note:** The deployment scripts use FFI (`sed`) to write back to `.env`. `ffi = true` is already enabled in `foundry.toml`. Only `DeployCofferFactory` currently performs the writeback; `CreateCoffer`'s `.env` writeback is commented out.
-
-### Invariant Testing
-
-Invariant tests (also called stateful fuzz tests) explore random sequences of contract calls to verify that critical properties always hold, no matter what order or combination of actions occurs.
-
-There are five invariant suites: `Coffer`, `CofferFactory`, `CofferBondNft`, `CofferBondsRedeemedEarly`, and `Interest`.
-
-#### Enabling invariant tests
-
-By default the `no_match_path` line in `[profile.default]` of `foundry.toml` is **active**, which excludes invariant and integration tests from a normal `forge test` run. To include them, either run with an explicit path filter (e.g. `forge test --mp "test/invariant/*"`) or comment that line out.
-
-#### Non-strict vs strict mode
-
-Each suite that includes intentionally-reverting handler functions (invalid inputs, expected failures) has two test contracts: a **non-strict** variant and a **strict** variant.
-
-| Mode | `fail_on_revert` | What it tests |
-|------|-------------------|---------------|
-| **Non-strict** | `false` | Runs all handlers, including ones that intentionally revert. Verifies invariants hold even when invalid calls are mixed in. |
-| **Strict** | `true` | Runs only valid handlers (excludes intentionally-reverting ones). Any unexpected revert fails the test immediately. |
-
-#### Running non-strict mode
-
-The default `[invariant]` section in `foundry.toml` already has `fail_on_revert = false`, so non-strict invariants run with no config changes:
-
-```toml
-[invariant]
-runs = 512
-depth = 64
-fail_on_revert = false
-```
-
-Then run:
-
-```
-forge test --mp "test/invariant/*"
-```
-
-#### Running strict mode
-
-The strict profile (`[profile.strict.invariant]`) already has `fail_on_revert = true`. No config changes needed:
-
-```
-forge test --mp "test/invariant/*" --profile strict
-```
-
-### Integration Tests (Mock Validation)
-
-Located in `test/integration/mock/`, with two fork test files:
-
-- **`EIP7002ForkValidation.t.sol`**: validates our EIP-7002 (withdrawal request) mock against the real mainnet predeploy
-- **`EIP7251ForkValidation.t.sol`**: validates our EIP-7251 (consolidation request) mock against the real mainnet predeploy
-
-These tests fork mainnet at a pinned post-Pectra block (22,400,000) to compare fee calculation and request queueing behavior between the real predeploys and our mocks. Tests auto-skip if `MAINNET_RPC_URL` is not set (graceful no-op).
-
-To run them:
-
-1. Uncomment the `[rpc_endpoints]` section in `foundry.toml`
-2. Set `MAINNET_RPC_URL` in `.env` (or export it)
-3. Run:
-   ```
-   MAINNET_RPC_URL=http://your-mainnet-node:8545 forge test --mp "test/integration/*" -vvv
-   ```
-
-These tests verify that our Solidity mocks (used in unit tests) faithfully replicate the behavior of the real EIP-7002 and EIP-7251 system contracts.
-
-The `test/integration/` directory also contains `EIP7002PredeployHazard.t.sol` (behavior of the EIP-7002 withdrawal predeploy under hazardous conditions) and `hoodi/CofferFactoryHoodi.t.sol` (a live Hoodi-testnet factory integration test).
-
-### Unit Tests
-
-Located in `test/unit/`, covering all contracts and libraries individually:
-
-| Test File | Covers |
-|-----------|--------|
-| `CofferMainOps.t.sol` | Bond lifecycle: buy, withdraw from execution/consensus |
-| `CofferValidatorOps.t.sol` | Validator-side operations: withdrawals, parameter changes |
-| `CofferHolderOps.t.sol` | Holder-side operations |
-| `CofferFactory.t.sol` | Factory deployment and `createCoffer` |
-| `CofferBondNft.t.sol` | NFT mint/burn and access control |
-| `CofferBondNftTokenUri.t.sol` | On-chain token URI metadata |
-| `CofferBondsRedeemedEarlyTest.t.sol` | Pull-based claim and deposit |
-| `Interest.t.sol` | Interest calculation edge cases |
-| `FeeCurve.t.sol` | Protocol fee curve: breakpoints, interpolation, plateau, and recipient changes |
-| `EIP7002Mock.t.sol` | EIP-7002 mock contract behavior |
-| `EIP7251Mock.t.sol` | EIP-7251 mock contract behavior |
-| `GasComparison.t.sol` | Gas usage benchmarks |
-| `RefundMarginalGas.t.sol` | On-chain refund branch gas measurement |
-| `VerifyExitAllowed.t.sol`, `VerifyHighFindings.t.sol`, `VerifyMediumFindings.t.sol`, `VerifyValidatorWithdraw.t.sol`, `VerifyVersionPhantom.t.sol` | Audit regression tests guarding specific fixed findings |
-
-Run with:
-
-```
-forge test --mp "test/unit/*"
-```
-
-### Fuzz Testing
-
-Foundry fuzz tests are configured with `runs = 1024` in `foundry.toml`. Functions that accept bounded numeric inputs (durations, amounts, rates) are automatically fuzzed with random values when run via `forge test`. No separate config is needed.
-
-```
-forge test --mp "test/unit/*"
-```
+Coffer must only be deployed on chains where the EIP-7002 withdrawal and EIP-7251 consolidation predeploys exist: Ethereum **mainnet** (post-Pectra) and **Hoodi**. On a chain without them, a `staticcall` to the (codeless) predeploy returns empty data, which is read as a zero fee, so a consensus-withdrawal request silently no-ops while still marking the bond `consensusWithdrawClosed` as true. Verify non-empty code at the three system-contract addresses before deploying or buying. This is an accepted, documented deployment constraint of this mainnet/Hoodi-only protocol.
 
 ---
 
@@ -310,20 +136,20 @@ forge test --mp "test/unit/*"
 
 CofferFactory uses CREATE2 deterministic deployment, so the Coffer address can be predicted before deployment. This allows validators to deposit with `0x02` compounding credentials directly, skipping the `BLSToExecutionChange` and `convertToCompounding()` steps.
 
-- [ ] **Step 1:** Create BLS signing keys
-- [ ] **Step 2:** Call `CofferFactory.predictCofferAddress(yourAddress, pubKeyPart1, pubKeyPart2)` to compute the Coffer contract address
-- [ ] **Step 3:** Make a deposit between `MIN_ACTIVATION_BALANCE` and `MAX_EFFECTIVE_BALANCE` (consensus-layer parameters, currently 32-2048 ETH) using `0x02` withdrawal credentials pointing to the predicted Coffer address
-- [ ] **Step 4:** Create Coffer contract through `CofferFactory.createCoffer(...)` with matching `_startingBalance` (deploys at the predicted address)
+1. Create BLS signing keys
+2. Call `CofferFactory.predictCofferAddress(yourAddress, pubKeyPart1, pubKeyPart2)` to compute the Coffer contract address
+3. Make a deposit between `MIN_ACTIVATION_BALANCE` and `MAX_EFFECTIVE_BALANCE` (consensus-layer parameters, currently 32-2048 ETH) using `0x02` withdrawal credentials pointing to the predicted Coffer address
+4. Create Coffer contract through `CofferFactory.createCoffer(...)` with matching `_startingBalance` (deploys at the predicted address)
 
 #### Validators with 0x00 (or 0x01) withdrawal credentials
 
 For validators already created with `0x00` credentials:
 
-- [ ] **Step 1:** Create signing keys with `0x00` credentials
-- [ ] **Step 2:** Make a deposit of `MIN_ACTIVATION_BALANCE` (the consensus-layer minimum, currently 32 ETH) using signing keys from Step 1
-- [ ] **Step 3:** Create Coffer contract through CofferFactory (pass signing public key from Step 1)
-- [ ] **Step 4:** Perform one-time `BLSToExecutionChange` to transform `0x00` → `0x01` with the Coffer contract as the withdrawal credential
-- [ ] **Step 5:** Call Coffer function `convertToCompounding()` to convert from `0x01` → `0x02`
+1. Create signing keys with `0x00` credentials
+2. Make a deposit of `MIN_ACTIVATION_BALANCE` (the consensus-layer minimum, currently 32 ETH) using the signing keys from step 1
+3. Create Coffer contract through CofferFactory (pass the signing public key from step 1)
+4. Perform one-time `BLSToExecutionChange` to transform `0x00` → `0x01` with the Coffer contract as the withdrawal credential
+5. Call Coffer function `convertToCompounding()` to convert from `0x01` → `0x02`
 
 ### Evaluating a Coffer
 
@@ -342,7 +168,7 @@ The holder must verify this on the execution and consensus layers before any int
 
 **Validator credentials are not 0x02**
 
-`convertToCompounding()` and EIP-7002 withdrawal requests require the validator to have 0x02 (compounding) withdrawal credentials. If the validator's credentials are still 0x00 or 0x01, these functions cannot execute; the bond cannot be satisfied as designed until credentials are upgraded to 0x02. The holder must verify credential type on the consensus layer.
+`convertToCompounding()` and EIP-7002 withdrawal requests require the validator to have 0x02 (compounding) withdrawal credentials. If the validator's credentials are still 0x00 or 0x01, these functions cannot execute. The bond cannot be satisfied as designed until credentials are upgraded to 0x02. The holder must verify credential type on the consensus layer.
 
 #### Issuance Buffer
 
@@ -356,11 +182,11 @@ where 1% = 100 and BUFFER_DENOMINATOR = 10000 (basis points).
 
 The buffer creates headroom between what the validator issues and what they hold on the consensus layer. A higher buffer means a smaller issueSize.
 
-The validator sets the buffer. The holder evaluates whether the chosen value, combined with the amount of ETH already issued, is adequate for the bond's duration given events the validator may face: missing attestations, going offline, or being slashed. A validator that operates several validators, or several Coffers under common control, carries higher correlated-slashing exposure, since a single cause can slash them together; the holder weighs the buffer against that concentration. A validator operating near the top of its issue size without a buffer that reflects its concentration is one a holder can choose to avoid. Network-wide events (a non-finalizing period, or large-scale correlated slashing) are unbounded and are covered separately under Risk Factors.
+The validator sets the buffer. The holder evaluates whether the chosen value, combined with the amount of ETH already issued, is adequate for the bond's duration given events the validator may face: missing attestations, going offline, or being slashed. A validator that operates several validators, or several Coffers under common control, carries higher correlated-slashing exposure, since a single cause can slash them together. The holder weighs the buffer against that concentration. A validator operating near the top of its issue size without a buffer that reflects its concentration is one a holder can choose to avoid. Network-wide events (a non-finalizing period, or large-scale correlated slashing) are unbounded and are covered separately under Risk Factors.
 
 #### Exit Mechanics
 
-The beacon chain caps partial withdrawals at the active-validator floor, `MIN_ACTIVATION_BALANCE` (a consensus-layer parameter, currently 32 ETH; it could change in a future fork).
+The beacon chain caps partial withdrawals at the active-validator floor, `MIN_ACTIVATION_BALANCE` (a consensus-layer parameter, currently 32 ETH, which could change in a future fork).
 
 **The contract does not reserve this floor for you.** `issueSize` is seeded purely as `startingBalance * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFER_DENOMINATOR`, with no automatic `MIN_ACTIVATION_BALANCE` deduction, and the validator can set `issueSize` to any value while `outstandingBonds == 0`. The holder must therefore verify the floor condition below before buying.
 
@@ -370,7 +196,7 @@ When `exitAllowed` is `false`, holders can recover only via partial withdrawals,
 sum(outstanding bondMaturityValues) <= consensusBalance + executionBalance - MIN_ACTIVATION_BALANCE
 ```
 
-with margin for the bond's duration. If this does not hold, recovery would require a full exit, which `exitAllowed = false` forbids; the holder would then depend on the validator voluntarily depositing ETH.
+with margin for the bond's duration. If this does not hold, recovery would require a full exit, which `exitAllowed = false` forbids. The holder would then depend on the validator voluntarily depositing ETH.
 
 When `exitAllowed` is `true`, a holder with a matured bond can initiate a full exit when the contract holds insufficient ETH, so the `MIN_ACTIVATION_BALANCE` floor does not cap recovery. Note: consensus balance is not static. Slashing, inactivity leaks, or missed attestations can reduce it after evaluation, so holders of long-duration bonds should size their margin accordingly.
 
@@ -395,12 +221,12 @@ Some risks are beyond what any buffer can cover. These are network-wide events w
 The inactivity leak activates when the chain stops finalizing (requires more than one-third of stake offline from a cross-cutting cause). Penalties in this regime grow quadratically over time. A flat percentage buffer cannot track this growth, so in a sustained leak the validator's balance may fall below what is needed to cover outstanding bonds. Holders of bonds that span such a period may face:
 
 1. **Total loss, validator stake depleted**: if the leak reduces the validator's consensus balance to zero or below outstanding bond obligations, there is nothing to recover.
-2. **Partial recovery with race**: if some balance remains but is insufficient, holders compete for the execution-layer balance via `holderWithdrawFromExecution`. This race also applies across already-consensus-closed bonds: a bond closed via an EIP-7002 request (its ETH in transit) may claim a cover-in-place bond's present ETH first, with the cover-in-place holder made whole once the in-transit ETH lands. The protocol stays solvent across this first-come-first-served reordering - contract balance plus in-transit consensus ETH always covers the total reserved - so it is harmless in the normal regime; only the undercollateralized / `exitAllowed = false` cases above can turn the reordering into a shortfall.
+2. **Partial recovery with race**: if some balance remains but is insufficient, holders compete for the execution-layer balance via `holderWithdrawFromExecution`. This race also applies across already-consensus-closed bonds: a bond closed via an EIP-7002 request (its ETH in transit) may claim a cover-in-place bond's present ETH first, with the cover-in-place holder made whole once the in-transit ETH lands. The protocol stays solvent across this first-come-first-served reordering because contract balance plus in-transit consensus ETH always covers the total reserved, so it is harmless in the normal regime. Only the undercollateralized or `exitAllowed = false` cases above can turn the reordering into a shortfall.
 3. **Consensus-locked residue**: when `exitAllowed = false`, partial withdrawals are capped at `consensus balance - MIN_ACTIVATION_BALANCE` (the consensus-layer activation floor, currently 32 ETH). Remaining bond value stays on the consensus layer until the validator voluntarily initiates a withdrawal or exits.
 
 #### Correlated Slashing
 
-The consensus-layer slashing penalty scales with the total stake slashed within the same window, which produces two distinct cases. Small-scale correlated slashing, for example a single operator's validators slashed together by a common cause, remains a bounded fraction of the validator's balance; it is part of what the holder weighs when evaluating the buffer and the validator's concentration before buying (see Issuance Buffer), and a buffer can be sized against it. Correlated slashing on Ethereum mainnet has so far been of this scale; the largest events involve tens of validators.
+The consensus-layer slashing penalty scales with the total stake slashed within the same window, which produces two distinct cases. Small-scale correlated slashing, for example a single operator's validators slashed together by a common cause, remains a bounded fraction of the validator's balance. It is part of what the holder weighs when evaluating the buffer and the validator's concentration before buying (see Issuance Buffer), and a buffer can be sized against it. Correlated slashing on Ethereum mainnet has so far been of this scale, with the largest events involving tens of validators.
 
 Large-scale correlated slashing, where a substantial fraction of total network stake is slashed in the same window, is the catastrophic case addressed here. The penalty can approach the entire balance, beyond what any buffer can cover. Like a non-finalizing period, it is a network-wide event: validators lose stake, holders lose bond coverage, and all participants are exposed together. The protocol does not attempt to model or bound it on-chain. Holders of long-duration bonds should be aware that such events, however unlikely, are not covered by any on-chain mechanism.
 
@@ -410,9 +236,9 @@ Large-scale correlated slashing, where a substantial fraction of total network s
 
 ### Changing Offer Parameters
 
-Validators cannot **CHANGE** `exitAllowed` to `false` in the Coffer contract, and they cannot **INCREASE** `issueSize` or `interestRate`, **INCREASE** `maximumDuration`, or **DECREASE** `issueSizeBufferBps` while there are unmatured bonds. This would give the validator the ability to manipulate the amounts the Coffer contract handles, benefiting themselves at the expense of holders.
+Validators cannot **CHANGE** `exitAllowed` to `false` in the Coffer contract, and they cannot **INCREASE** `issueSize` or `interestRate`, **INCREASE** `maximumDuration`, or **DECREASE** `issueSizeBufferBps` while there are outstanding bonds. This would give the validator the ability to manipulate the amounts the Coffer contract handles, benefiting themselves at the expense of holders. Every restricted change is gated on `outstandingBonds == 0`, and a bond counts as outstanding while its `bondMaturityValue` is non-zero, including matured bonds that have not yet been redeemed.
 
-Decreasing `issueSize`, `interestRate`, and `maximumDuration`, increasing `issueSizeBufferBps`, as well as turning `exitAllowed` from `false → true`, can only make the contract safer for the holder.
+Decreasing `issueSize`, `interestRate`, and `maximumDuration`, increasing `issueSizeBufferBps`, as well as turning `exitAllowed` from `false → true`, can only work in the holder's favor.
 
 
 ### Granting Full Exit to Holders
@@ -422,12 +248,12 @@ Decreasing `issueSize`, `interestRate`, and `maximumDuration`, increasing `issue
 - Makes sense if validator's stake yields 2.5%
 - Problem: Validator cannot earn 5 ETH in 1 year
 
-A holder must have the ability to fully exit the validator to repay the bond and receive the principal with earned interest as expected. Therefore, the validator is expected to allow full exits; otherwise, the bond wouldn't be repayable until the validator stakes enough ETH on the consensus layer, which could be a much longer period than the holder accepted.
+A holder must have the ability to fully exit the validator to repay the bond and receive the principal with earned interest as expected. Therefore, the validator is expected to allow full exits. Otherwise, the bond wouldn't be repayable until the validator stakes enough ETH on the consensus layer, which could be a much longer period than the holder accepted.
 
 **Key Points:**
 - A validator that allows full exits can prevent a holder from initiating exit by depositing the required ETH amount
 - When full exits are allowed, every holder with a matured bond can initiate a full exit when there's insufficient ETH in the Coffer contract
-- Allowing full exits is an option that can be changed (only when the validator has no unmatured bonds)
+- Allowing full exits is an option that can be changed (only when the validator has no outstanding bonds)
 - Validators with larger stakes (consensus balance exceeds the issue size by at least `MIN_ACTIVATION_BALANCE`, currently 32 ETH) can make full exits forbidden
 - In restricted scenarios, holders can only initiate partial withdrawals with the amount of ETH needed to fulfill bond conditions at maturity
 
@@ -472,7 +298,7 @@ send(validator, principal - fee)
 
 The curve (the fee amounts) is **immutable**: the breakpoints live in code with no setter. The only mutable parameter is the fee **recipient**, changeable by the `FeeCurve` owner (the protocol admin) via `setFeeRecipient(address)`. A holder can therefore rely on the fee for a given purchase date being fixed and publicly verifiable in advance.
 
-The fee depends only on the calendar **date** (days since `FeeCurve` deployment), not on the individual transaction. A `buyBond` signed on one UTC day but included on the next therefore realizes that next day's fee - at most ~1.08 bps of interest higher (the steepest segment of the curve, days 0-90; zero after the day-3650 plateau). Because the fee is taken from interest (never principal) and is paid to the protocol - not the validator - this is a bounded, no-loss-of-principal timing nuance, not a value a validator or proposer can manipulate for gain. Holders who want exact terms across a day boundary should price against the next breakpoint's value.
+The fee depends only on the calendar **date** (days since `FeeCurve` deployment), not on the individual transaction. A `buyBond` signed on one UTC day but included on the next therefore realizes that next day's fee, at most ~1.08 bps of interest higher (the steepest segment of the curve, days 0-90, and zero after the day-3650 plateau). Because the fee is taken from interest (never principal) and is paid to the protocol rather than the validator, this is a bounded, no-loss-of-principal timing nuance, not a value a validator or proposer can manipulate for gain. Holders who want exact terms across a day boundary should price against the next breakpoint's value.
 
 ### Fee-Related Events
 
@@ -489,12 +315,12 @@ The fee depends only on the calendar **date** (days since `FeeCurve` deployment)
 
 - **issueSize conservation**: `issueSize + sum(bondMaturityValues) = totalIssuableCapacity` (capacity = cumulative buffer-adjusted deposits + execution-layer receive() deposits minus explicit issueSize decreases). The protocol fee does not affect this accounting: it is paid out of the validator's principal payout in `buyBond`, not from the bond backing, and each `bondMaturityValue` is already net of the fee
 - **receive() issueSize top-up**: `receive()` increases `issueSize` by `msg.value`. Beacon chain withdrawals (EIP-4895) credit balance without code execution and do not trigger `receive()`, so all `receive()` invocations are execution-layer transfers with real ETH backing
-- **Parameter monotonicity**: While `outstandingBonds > 0`: `issueSize`, `interestRate`, `maximumDuration` can only decrease; `issueSizeBufferBps` can only increase; `exitAllowed` can only go `false`→`true`
-- **Validator execution withdrawal bound**: Validator can withdraw from execution up to `issueSize` while preserving `totalConsensusReserved`; unrestricted when `outstandingBonds == 0`
+- **Parameter monotonicity**: While `outstandingBonds > 0`, `issueSize`, `interestRate`, and `maximumDuration` can only decrease, `issueSizeBufferBps` can only increase, and `exitAllowed` can only go `false`→`true`
+- **Validator execution withdrawal bound**: Validator can withdraw from execution up to `issueSize` while preserving `totalConsensusReserved`. Withdrawals are unrestricted when `outstandingBonds == 0`
 - **outstandingBonds accuracy**: Equals the number of bonds with `bondMaturityValue > 0`
 - **Bond-NFT bijection**: Each active bond maps 1:1 to a live NFT (mint on buy, burn on full withdrawal/redeem)
-- **Version monotonicity**: `version` strictly increases on any parameter change that affects holder safety, and on `validatorWithdrawFromExecution`
-- **bondMaturityValue >= principal**: `bondMaturityValue = principal + interest - fee`. The protocol fee is capped at 9.9% of the *interest* (never the principal), so net interest stays non-negative and the maturity value never drops below the principal; `buyBond` reverts with `FeeExceedsPrincipal` in the extreme case where the computed fee would exceed the principal
+- **Version monotonicity**: `version` strictly increases on any parameter change that affects holder protections, and on `validatorWithdrawFromExecution`
+- **bondMaturityValue >= principal**: `bondMaturityValue = principal + interest - fee`. The protocol fee is capped at 9.9% of the *interest* (never the principal), so net interest stays non-negative and the maturity value never drops below the principal. `buyBond` reverts with `FeeExceedsPrincipal` in the extreme case where the computed fee would exceed the principal
 
 ### Cross-Layer Invariant (not enforceable on-chain)
 
