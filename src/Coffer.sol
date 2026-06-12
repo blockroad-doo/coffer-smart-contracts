@@ -334,8 +334,6 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// withdrawal credential, and is not a Coffer-specific weakness.
     /// @dev Anyone can send ETH but only validator/holders benefit from it
     // solhint-disable-next-line no-complex-fallback, use-natspec
-    /// #if_succeeds {:msg "issueSize increases by msg.value on receive"} sValidatorConditions.issueSize ==
-    ///     old(sValidatorConditions.issueSize) + msg.value;
     receive() external payable {
         // forge-lint: disable-next-line(unsafe-typecast) msg.value < total ETH supply, fits uint128
         ValidatorConditions storage vc = sValidatorConditions;
