@@ -18,6 +18,9 @@ changes_since_last_quote.md
 report_responses.pdf
 audit/
 
+# Node dependencies (solhint lint tooling)
+node_modules/
+
 # Dotenv file
 .env
 .vercel
@@ -26,4 +29,7 @@ audit/
 .vscode
 
 .gitignore
+
+script/CreateCofferMainnet.s.sol
+script/DeployCofferFactoryMainnet.s.sol
 

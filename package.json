@@ -1,0 +1,12 @@
+{
+  "name": "coffer-smart-contracts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lint tooling for the Coffer smart contracts. Solidity itself is built with Foundry.",
+  "scripts": {
+    "lint": "make lint"
+  },
+  "devDependencies": {
+    "solhint": "6.2.3"
+  }
+}

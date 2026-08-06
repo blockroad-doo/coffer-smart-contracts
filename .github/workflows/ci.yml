@@ -20,8 +20,14 @@ jobs:
           version: stable
           cache: false
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
       - name: Install solhint
-        run: npm i -g solhint
+        run: npm ci
 
       - name: Run lint
         run: make lint
