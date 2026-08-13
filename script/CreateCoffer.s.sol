@@ -108,7 +108,9 @@ contract CreateCoffer is Script {
     /// @param logs The recorded VM logs to search
     /// @return cofferAddress The address of the newly created Coffer
     function _extractCofferAddress(Vm.Log[] memory logs) private pure returns (address cofferAddress) {
-        bytes32 cofferIssuedTopic = keccak256("CofferIssued(address,address)");
+        bytes32 cofferIssuedTopic =
+        // solhint-disable-next-line gas-small-strings
+        keccak256("CofferIssued(address,address,bytes32,bytes16,uint32,uint32,uint32,uint128,uint16,bool,uint128)");
         for (uint256 i = 0; i < logs.length; ++i) {
             if (logs[i].topics[0] == cofferIssuedTopic) {
                 cofferAddress = address(uint160(uint256(logs[i].topics[2])));

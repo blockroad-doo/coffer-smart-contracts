@@ -38,7 +38,29 @@ contract CofferFactory {
     /// @notice Emitted when a new Coffer contract is created
     /// @param owner The address of the validator who created the Coffer
     /// @param cofferAddress The address of the newly deployed Coffer contract
-    event CofferIssued(address indexed owner, address indexed cofferAddress);
+    /// @param publicKeyPart1 First 32 bytes of the validator BLS public key (indexed, so creations are
+    /// filterable by pubkey)
+    /// @param publicKeyPart2 Last 16 bytes of the validator BLS public key
+    /// @param interestRate Yearly interest rate offered to bond holders
+    /// @param minimumDuration Minimum bond duration in seconds
+    /// @param maximumDuration Maximum bond duration in seconds
+    /// @param minimumValueToAccept Minimum value a holder must deposit
+    /// @param issueSizeBufferBps Conservatism buffer applied to the starting balance. 1% = 100
+    /// @param exitAllowed Whether holders can initiate validator exits
+    /// @param issueSize The initial issueSize derived by initialize (buffer-scaled starting balance)
+    event CofferIssued(
+        address indexed owner,
+        address indexed cofferAddress,
+        bytes32 indexed publicKeyPart1,
+        bytes16 publicKeyPart2,
+        uint32 interestRate,
+        uint32 minimumDuration,
+        uint32 maximumDuration,
+        uint128 minimumValueToAccept,
+        uint16 issueSizeBufferBps,
+        bool exitAllowed,
+        uint128 issueSize
+    );
 
     /// @notice Deploys shared contracts and the Coffer implementation for CWIA cloning
     /// @param _feeRecipient Initial protocol fee recipient address
@@ -95,20 +117,28 @@ contract CofferFactory {
         require(_issueSizeBufferBps < BUFFER_DENOMINATOR, InvalidIssueSizeBufferBps());
         require(_startingBalance != 0, InvalidStartingBalance());
 
-        uint256 maxMinimumValueToAccept =
-            uint256(_startingBalance) * (BUFFER_DENOMINATOR - _issueSizeBufferBps) / BUFFER_DENOMINATOR;
-
         require(_minimumValueToAccept != 0, InvalidMinimumValueToAccept());
-        // solhint-disable-next-line gas-strict-inequalities
-        require(_minimumValueToAccept <= maxMinimumValueToAccept, InvalidMinimumValueToAccept());
+        // minimumValueToAccept must not exceed the buffer-scaled starting balance (the initial issueSize).
+        // Inlined rather than held in a local: the 11-argument CofferIssued emit below needs the stack room.
+        require(
+            // solhint-disable-next-line gas-strict-inequalities
+            _minimumValueToAccept
+                <= uint256(_startingBalance) * (BUFFER_DENOMINATOR - _issueSizeBufferBps) / BUFFER_DENOMINATOR,
+            InvalidMinimumValueToAccept()
+        );
 
-        // Deploy deterministic clone with immutable args (CREATE2)
-        bytes memory data = _packCwiaData(_publicKeyPart1, _publicKeyPart2);
-        bytes32 salt = _computeSalt(msg.sender, _publicKeyPart1, _publicKeyPart2);
-        address clone = LibClone.cloneDeterministic(I_COFFER_IMPLEMENTATION, data, salt);
+        // Deploy deterministic clone with immutable args (CREATE2). Scoped so the CWIA
+        // data and salt are released before the emit — legacy codegen holds locals to
+        // function end, and the 11-argument event would otherwise go stack-too-deep.
+        address clone;
+        {
+            bytes memory data = _packCwiaData(_publicKeyPart1, _publicKeyPart2);
+            bytes32 salt = _computeSalt(msg.sender, _publicKeyPart1, _publicKeyPart2);
+            clone = LibClone.cloneDeterministic(I_COFFER_IMPLEMENTATION, data, salt);
+        }
 
         // Initialize the clone's storage
-        Coffer(payable(clone))
+        uint128 issueSize = Coffer(payable(clone))
             .initialize(
                 msg.sender,
                 _interestRate,
@@ -122,7 +152,19 @@ contract CofferFactory {
 
         CofferBondNft(I_COFFER_BOND_NFT_ADDRESS).registerCoffer(clone);
 
-        emit CofferIssued(msg.sender, clone);
+        emit CofferIssued(
+            msg.sender,
+            clone,
+            _publicKeyPart1,
+            _publicKeyPart2,
+            _interestRate,
+            _minimumDuration,
+            _maximumDuration,
+            _minimumValueToAccept,
+            _issueSizeBufferBps,
+            _exitAllowed,
+            issueSize
+        );
 
         return clone;
     }

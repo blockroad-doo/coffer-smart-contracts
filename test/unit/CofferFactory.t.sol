@@ -172,15 +172,49 @@ contract CofferFactoryTest is BaseTest {
         Vm.Log[] memory entries = vm.getRecordedLogs();
         bool found = false;
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("CofferIssued(address,address)")) {
+            if (
+                entries[i].topics[0]
+                    == keccak256(
+                        "CofferIssued(address,address,bytes32,bytes16,uint32,uint32,uint32,uint128,uint16,bool,uint128)"
+                    )
+            ) {
                 assertEq(address(uint160(uint256(entries[i].topics[1]))), validator, "Owner indexed param mismatch");
                 assertTrue(uint256(entries[i].topics[2]) != 0, "Coffer address should not be zero");
+                assertEq(entries[i].topics[3], validPublicKeyPart1, "publicKeyPart1 indexed param mismatch");
+                _assertCofferIssuedData(entries[i].data);
                 found = true;
                 break;
             }
         }
         assertTrue(found, "CofferIssued event not emitted");
         vm.stopPrank();
+    }
+
+    /// @dev Decodes the CofferIssued data payload and asserts every non-indexed field against the createCoffer inputs
+    function _assertCofferIssuedData(bytes memory data) private view {
+        (
+            bytes16 publicKeyPart2,
+            uint32 interestRate,
+            uint32 minimumDuration,
+            uint32 maximumDuration,
+            uint128 minimumValueToAccept,
+            uint16 issueSizeBufferBps,
+            bool exitAllowed,
+            uint128 issueSize
+        ) = abi.decode(data, (bytes16, uint32, uint32, uint32, uint128, uint16, bool, uint128));
+
+        assertEq(bytes32(publicKeyPart2), bytes32(validPublicKeyPart2), "publicKeyPart2 mismatch");
+        assertEq(interestRate, defaultInterestRate, "interestRate mismatch");
+        assertEq(minimumDuration, defaultMinDuration, "minimumDuration mismatch");
+        assertEq(maximumDuration, defaultMaxDuration, "maximumDuration mismatch");
+        assertEq(minimumValueToAccept, defaultMinimumAmount, "minimumValueToAccept mismatch");
+        assertEq(issueSizeBufferBps, defaultIssueSizeBufferBps, "issueSizeBufferBps mismatch");
+        assertEq(exitAllowed, defaultExitAllowed, "exitAllowed mismatch");
+        assertEq(
+            issueSize,
+            uint128(uint256(DEFAULT_STARTING_BALANCE) * (10000 - defaultIssueSizeBufferBps) / 10000),
+            "issueSize mismatch"
+        );
     }
 
     function test_CreateCoffer_Success_SetsOwner() public {

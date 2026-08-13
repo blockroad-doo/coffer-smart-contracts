@@ -290,6 +290,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @param _exitAllowed Whether holders can initiate validator exits
     /// @param _startingBalance Validator's starting balance used to seed the initial issueSize (scaled by the buffer)
     /// @notice issueSize is computed as _startingBalance scaled by the buffer.
+    /// @return The derived initial issueSize, returned so the factory can emit it in CofferIssued
     function initialize(
         address _owner,
         uint32 _interestRate,
@@ -299,7 +300,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         uint16 _issueSizeBufferBps,
         bool _exitAllowed,
         uint128 _startingBalance
-    ) external initializer {
+    ) external initializer returns (uint128) {
         _transferOwnership(_owner);
 
         sValidatorConditions = ValidatorConditions({
@@ -318,6 +319,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         sValidatorConditions.issueSize =
         // forge-lint: disable-next-line(unsafe-typecast) buffer-scaled balance (<= _startingBalance) fits uint128
         uint128(uint256(_startingBalance) * (BUFFER_DENOMINATOR - _issueSizeBufferBps) / BUFFER_DENOMINATOR);
+
+        return sValidatorConditions.issueSize;
     }
 
     /// @notice Receive ETH and increase issueSize by the received amount

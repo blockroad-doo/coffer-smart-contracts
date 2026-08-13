@@ -477,7 +477,19 @@ abstract contract BaseTest is Test {
 
 // Event interfaces for cleaner event emission expectations
 interface CofferFactoryEvents {
-    event CofferIssued(address indexed owner, address indexed cofferAddress);
+    event CofferIssued(
+        address indexed owner,
+        address indexed cofferAddress,
+        bytes32 indexed publicKeyPart1,
+        bytes16 publicKeyPart2,
+        uint32 interestRate,
+        uint32 minimumDuration,
+        uint32 maximumDuration,
+        uint128 minimumValueToAccept,
+        uint16 issueSizeBufferBps,
+        bool exitAllowed,
+        uint128 issueSize
+    );
 }
 
 interface CofferEvents {
