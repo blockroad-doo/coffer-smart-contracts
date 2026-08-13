@@ -85,7 +85,7 @@ contract CofferFactoryHoodi is Test {
         vm.prank(testUser);
         vm.expectEmit(true, false, false, false, factoryAddr);
         // Only topic1 (owner) is checked; the remaining args are placeholders
-        emit CofferFactory.CofferIssued(testUser, address(0), bytes32(0), bytes16(0), 0, 0, 0, 0, 0, false, 0);
+        emit CofferFactory.CofferIssued(testUser, address(0), bytes32(0), bytes16(0), 0, 0, 0, 0, 0, 0);
         factory.createCoffer(
             bytes32(uint256(1)),
             bytes16(uint128(2)),
@@ -94,7 +94,6 @@ contract CofferFactoryHoodi is Test {
             365 days,
             1 ether,
             250,
-            true,
             32 ether
         );
     }

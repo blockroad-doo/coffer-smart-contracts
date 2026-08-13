@@ -10,12 +10,6 @@ import {CofferHandlerExt} from "./CofferHandlerExt.sol";
 contract CofferInvariantExtTest is BaseTest {
     CofferHandlerExt public handler;
 
-    uint128 public immutable STARTING_BALANCE;
-
-    constructor() {
-        STARTING_BALANCE = defaultStartingBalance;
-    }
-
     function setUp() public virtual override {
         super.setUp();
 
@@ -29,7 +23,7 @@ contract CofferInvariantExtTest is BaseTest {
         // Fund validator for redeemBondsEarly top-ups + consensus deposits
         vm.deal(validator, 10_000 ether);
 
-        handler = new CofferHandlerExt(coffer, bondNft, bondsRedeemedEarly, feeCurve);
+        handler = new CofferHandlerExt(coffer, feeCurve);
 
         // Seed ghost consensus balance to model the validator stake backing issueSize.
         // issueSize is the validator's buffer-scaled consensus-layer stake; since setUp inflated
@@ -43,10 +37,11 @@ contract CofferInvariantExtTest is BaseTest {
 
     // ══════════════════════════════════════════════════════════════════════
     // INVARIANT 1: issueSize CONSERVATION (GHOST ACCUMULATOR)
-    // ghostIssueSize tracks: +startingBalance_buffered at init,
-    // +msg.value on receive, +buffer*msg.value on validatorAddFundsToConsensus,
-    // -bondMaturityValue on buyBond, -amount on validator withdraw with bonds,
-    // reset on changeIssueSize.
+    // ghostIssueSize starts from the on-chain issueSize read at handler construction (setUp has
+    // already raised it to 100 ether), then tracks: +msg.value on receive, +buffer*msg.value on
+    // validatorAddFundsToConsensus, -bondMaturityValue on buyBond, -amount on validator withdraw
+    // with bonds outstanding, reset on changeIssueSize. Post-default the on-chain bumps continue
+    // through receive() (dead state, every consumer frozen) and the ghost keeps mirroring them.
     // ══════════════════════════════════════════════════════════════════════
 
     function invariant_issueSizeGhostMatchesOnChain() public {
@@ -59,39 +54,6 @@ contract CofferInvariantExtTest is BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // INVARIANT 2: totalConsensusReserved EXACTNESS
-    // totalConsensusReserved == sum of bondMaturityValue for closed bonds
-    // ══════════════════════════════════════════════════════════════════════
-
-    function invariant_totalConsensusReservedMatchesClosedSum() public view {
-        uint256 ghostSum = handler.ghostTotalConsensusReserved();
-        uint256 onChainReserved = coffer.totalConsensusReserved();
-
-        assertEq(
-            ghostSum, onChainReserved, "totalConsensusReserved must equal ghost sum of consensus-closed bond values"
-        );
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // INVARIANT 3: reserved => outstanding
-    // totalConsensusReserved > 0 => outstandingBonds > 0
-    // outstandingBonds == 0 => totalConsensusReserved == 0
-    // ══════════════════════════════════════════════════════════════════════
-
-    function invariant_reservedImpliesOutstanding() public view {
-        (,,,,,, uint32 outstandingBonds,,,) = coffer.sValidatorConditions();
-        uint128 reserved = coffer.totalConsensusReserved();
-
-        if (reserved > 0) {
-            assertTrue(outstandingBonds > 0, "totalConsensusReserved > 0 implies outstandingBonds > 0");
-        }
-
-        if (outstandingBonds == 0) {
-            assertEq(reserved, 0, "outstandingBonds == 0 implies totalConsensusReserved == 0");
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
     // INVARIANT 4: bondMaturityValue >= principal per bond
     // No-loss-of-principal: bondMaturityValue >= msg.value for every active bond
     // ══════════════════════════════════════════════════════════════════════
@@ -100,7 +62,7 @@ contract CofferInvariantExtTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 onChainAmount,,,) = coffer.sHolderConditions(bondId);
+            (uint128 onChainAmount,,) = coffer.sHolderConditions(bondId);
             uint128 principal = handler.ghostPrincipal(bondId);
             // A partial execution withdrawal reduces the on-chain remainder, so compare the
             // remainder PLUS what the holder already received against principal. No-loss-of-principal
@@ -115,8 +77,7 @@ contract CofferInvariantExtTest is BaseTest {
 
     // ══════════════════════════════════════════════════════════════════════
     // INVARIANT 5: PARAMETER MONOTONICITY WHILE BONDS OUTSTANDING
-    // issueSize/rate/maxDuration non-increasing, buffer non-decreasing,
-    // exitAllowed false->true only
+    // issueSize/rate/maxDuration non-increasing, buffer non-decreasing
     // ══════════════════════════════════════════════════════════════════════
 
     function invariant_parameterBoundsWhileBondsOutstanding() public view {
@@ -128,7 +89,7 @@ contract CofferInvariantExtTest is BaseTest {
             uint128 minimumValueToAccept,,,
             uint16 issueSizeBufferBps,
             bool isActive,
-            bool exitAllowed
+            bool validatorDefaulted
         ) = coffer.sValidatorConditions();
 
         // All values must be within protocol constants
@@ -168,7 +129,7 @@ contract CofferInvariantExtTest is BaseTest {
         uint256 inTransit = 0;
         uint256 plen = handler.getPendingWithdrawalsLength();
         for (uint256 j = 0; j < plen; j++) {
-            (, uint128 amt,,) = handler.ghostPendingWithdrawals(j);
+            (uint128 amt,) = handler.ghostPendingWithdrawals(j);
             inTransit += uint256(amt);
         }
 
@@ -284,7 +245,7 @@ contract CofferInvariantExtTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,,) = coffer.sHolderConditions(bondId);
+            (uint128 amount,,) = coffer.sHolderConditions(bondId);
             assertTrue(amount > 0, "active bond must have non-zero on-chain amount");
         }
     }
@@ -318,62 +279,57 @@ contract CofferInvariantExtTest is BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // INVARIANT 16: CONSENSUS WITHDRAW CLOSED DATA PERSISTS
-    // Bond with pending consensus withdrawal has non-zero on-chain amount
+    // INVARIANT 16-18: DEFAULT STATE MACHINE (serve-or-default, doc invariants C1/C2/C3/C8 + C4)
     // ══════════════════════════════════════════════════════════════════════
 
-    function invariant_pendingConsensusDataPersists() public view {
-        uint256 len = handler.getActiveBondIdsLength();
-        for (uint256 i = 0; i < len; i++) {
-            uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,, bool closed) = coffer.sHolderConditions(bondId);
-            if (closed) {
-                assertGt(amount, 0, "bond with consensusWithdrawClosed must have non-zero amount");
-            }
-        }
+    /// @dev C1: the default flag is monotone and only our handler flips it. The ghost only ever
+    /// latches true, so two-way equality proves the on-chain flag never unsets and never flips
+    /// without a handler-observed declareDefault.
+    function invariant_defaultMonotoneAndMirrored() public view {
+        (,,,,,,,,, bool validatorDefaulted) = coffer.sValidatorConditions();
+        assertEq(validatorDefaulted, handler.ghostValidatorDefaulted(), "on-chain default flag must mirror the ghost");
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // INVARIANT 17 (EP-10): STATE MUTATED BEFORE EXTERNAL CALL CHECK
-    // After holderWithdrawFromConsensus sets consensusWithdrawClosed=true,
-    // the bond must still exist with non-zero amount
-    // ══════════════════════════════════════════════════════════════════════
-
-    function invariant_consensusClosedStateConsistency() public view {
-        uint128 totalConsensusReservedOnChain = coffer.totalConsensusReserved();
-        uint256 ghostSum = handler.ghostTotalConsensusReserved();
-
-        // Ghost sum should match on-chain (redundant with Invariant 2, but explicit)
-        assertEq(ghostSum, totalConsensusReservedOnChain, "ghost totalConsensusReserved must match on-chain");
+    /// @dev C3: a solvent validator can never be defaulted. The handler records a violation if a
+    /// declare ever succeeded while the bond was covered.
+    function invariant_solventValidatorNeverDefaulted() public view {
+        assertFalse(handler.ghostDefaultViolation(), "declareDefault must never succeed against a covered bond");
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // INVARIANT 18: RESERVE BACKED BY BALANCE OR IN-TRANSIT BEACON ETH (F-02 corrected)
-    // Every consensus-closed bond's value is backed by present balance OR in-transit EIP-7002 ETH
-    // ══════════════════════════════════════════════════════════════════════
+    /// @dev C8: post-default the bond set only shrinks (buyBond is frozen, bonds leave via
+    /// payment or redemption only).
+    function invariant_bondSetOnlyShrinksPostDefault() public view {
+        if (!handler.ghostValidatorDefaulted()) return;
+        assertLe(
+            handler.getActiveBondIdsLength(),
+            handler.ghostBondsAtDefault(),
+            "active bond count must not grow after default"
+        );
+        assertEq(handler.ghostTotalBondsBought(), handler.ghostBoughtAtDefault(), "no bond can be minted after default");
+    }
 
-    function invariant_reserveBackedByBalanceOrInTransit() public view {
-        uint256 sumLocked = 0;
-        uint256 len = handler.getActiveBondIdsLength();
-        for (uint256 i = 0; i < len; i++) {
-            uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,, bool closed) = coffer.sHolderConditions(bondId);
-            if (closed) {
-                sumLocked += uint256(amount);
-            }
-        }
-        // In-transit beacon ETH already requested via EIP-7002 but not yet credited (includes requests for
-        // bonds already settled from execution against present balance - the F-02 FCFS case).
-        uint256 inTransit = 0;
-        uint256 plen = handler.getPendingWithdrawalsLength();
-        for (uint256 j = 0; j < plen; j++) {
-            (, uint128 amt,,) = handler.ghostPendingWithdrawals(j);
-            inTransit += uint256(amt);
-        }
-        assertGe(
-            address(coffer).balance + inTransit,
-            sumLocked,
-            "reserved must be backed by present balance OR in-transit beacon ETH"
+    /// @dev C2: once defaulted, ETH leaves the pool only toward bond owners. Every modeled flow is
+    /// attributed in the handler's ledger, so the balance must reconcile exactly: any wei leaking
+    /// to the validator (or anywhere else) breaks the equality.
+    function invariant_postDefaultOutflowOnlyToHolders() public view {
+        if (!handler.ghostValidatorDefaulted()) return;
+        assertEq(
+            address(coffer).balance,
+            handler.ghostBalanceAtDefault() + handler.ghostPoolInflowsSinceDefault()
+                - handler.ghostPoolOutflowsSinceDefault(),
+            "post-default pool balance must reconcile against the attributed ledger"
+        );
+    }
+
+    /// @dev C4 shadow: post-default the recovery estate only migrates toward the pool. The modeled
+    /// consensus stake never grows again (deposits are frozen), it only drains into in-transit
+    /// (exit sweep, pre-default partials) and from there into the contract balance.
+    function invariant_consensusEstateMonotonePostDefault() public view {
+        if (!handler.ghostValidatorDefaulted()) return;
+        assertLe(
+            uint256(handler.ghostConsensusBalance()),
+            uint256(handler.ghostConsensusAtDefault()),
+            "modeled consensus stake must never grow after default"
         );
     }
 
@@ -386,7 +342,7 @@ contract CofferInvariantExtTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,,) = coffer.sHolderConditions(bondId);
+            (uint128 amount,,) = coffer.sHolderConditions(bondId);
             assertEq(
                 uint256(handler.ghostBondMaturityValue(bondId)),
                 uint256(amount),
@@ -418,24 +374,6 @@ contract CofferInvariantExtTest is BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // INVARIANT 22 (OD-1/TF-1): COVER-IN-PLACE msg.value CONSERVATION
-    // After holderWithdrawFromConsensus with cover-in-place, consensusWithdrawClosed
-    // must be true and totalConsensusReserved must include the amount
-    // ══════════════════════════════════════════════════════════════════════
-
-    function invariant_coverInPlaceConsistency() public view {
-        uint256 len = handler.getActiveBondIdsLength();
-        for (uint256 i = 0; i < len; i++) {
-            uint256 bondId = handler.getActiveBondIdAt(i);
-            if (handler.ghostConsensusWithdrawClosed(bondId)) {
-                (uint128 amount,,, bool closed) = coffer.sHolderConditions(bondId);
-                assertTrue(closed, "ghost consensus flag must match on-chain flag");
-                assertGt(amount, 0, "consensus-closed bond must have non-zero on-chain amount");
-            }
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
     // INVARIANT 23: DEBUG CALL SUMMARY
     // ══════════════════════════════════════════════════════════════════════
 
@@ -443,7 +381,6 @@ contract CofferInvariantExtTest is BaseTest {
         console2.log("--- Extended Invariant Call Summary ---");
         console2.log("buyBond:                    ", handler.callsBuyBond());
         console2.log("holderWithdrawFromExecution: ", handler.callsHolderWithdrawFromExecution());
-        console2.log("holderWithdrawFromConsensus: ", handler.callsHolderWithdrawFromConsensus());
         console2.log("simulateEthArrival:         ", handler.callsSimulateEthArrival());
         console2.log("redeemBondsEarly:           ", handler.callsRedeemBondsEarly());
         console2.log("validatorWithdrawExecution:  ", handler.callsValidatorWithdrawFromExecution());
@@ -456,18 +393,20 @@ contract CofferInvariantExtTest is BaseTest {
         console2.log("changeIssueSizeBufferBps:   ", handler.callsChangeIssueSizeBufferBps());
         console2.log("changeMinMaxDuration:       ", handler.callsChangeMinimumAndMaximumDuration());
         console2.log("changeMinValueToAccept:     ", handler.callsChangeMinimumValueToAccept());
-        console2.log("changeExitAllowed:          ", handler.callsChangeExitAllowed());
         console2.log("advanceTime:                ", handler.callsAdvanceTime());
         console2.log("sendEthToCoffer:            ", handler.callsSendEthToCoffer());
+        console2.log("declareDefault:             ", handler.callsDeclareDefault());
+        console2.log("exitValidator:              ", handler.callsExitValidator());
         console2.log("--- Ghost Totals ---");
         console2.log("totalBought:                ", handler.ghostTotalBondsBought());
         console2.log("totalWithdrawnExecution:     ", handler.ghostTotalBondsWithdrawnExecution());
-        console2.log("totalWithdrawnConsensus:     ", handler.ghostTotalBondsWithdrawnConsensus());
         console2.log("totalRedeemed:              ", handler.ghostTotalBondsRedeemed());
         console2.log("activeBonds:                ", handler.getActiveBondIdsLength());
         console2.log("pendingWithdrawals:         ", handler.getPendingWithdrawalsLength());
+        console2.log("totalEthArrivedConsensus:   ", handler.ghostTotalEthArrivedFromConsensus());
         console2.log("ghostIssueSize:             ", handler.ghostIssueSize());
         console2.log("ghostConsensusBalance:      ", handler.ghostConsensusBalance());
-        console2.log("ghostTotalConsensusReserved: ", handler.ghostTotalConsensusReserved());
+        console2.log("defaultsDeclared:           ", handler.ghostTotalDefaultsDeclared());
+        console2.log("validatorDefaulted:         ", handler.ghostValidatorDefaulted() ? uint256(1) : uint256(0));
     }
 }

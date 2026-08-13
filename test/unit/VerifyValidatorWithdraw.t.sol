@@ -19,8 +19,6 @@ contract VerifyValidatorWithdrawTest is BaseTest {
     // ========================================
 
     /// @dev PoC: Validator drains execution-layer ETH that non-consensus-closed
-    /// holders depend on. The gate `balance >= _amount + totalConsensusReserved`
-    /// only protects consensus-closed bonds (those in totalConsensusReserved).
     /// After validator extraction, non-consensus-closed holders face partial
     /// or zero withdrawals from the execution layer.
     function test_V1_ValidatorDrainUndercollateralizesNonConsensusClosedHolder() public {
@@ -31,8 +29,7 @@ contract VerifyValidatorWithdrawTest is BaseTest {
         // 2. Holder buys bond: 10 ETH, 1 month, 5% interest
         uint256 bondId = buyBond(cofferAddr, holder1, 10 ether, ONE_MONTH, 2);
 
-        (uint128 bondMaturityValue,,, bool consensusWithdrawClosed) = coffer.sHolderConditions(bondId);
-        assertFalse(consensusWithdrawClosed, "bond not consensus-closed");
+        (uint128 bondMaturityValue,,) = coffer.sHolderConditions(bondId);
         assertGt(bondMaturityValue, 10 ether, "bond has value > principal");
 
         // 3. Advance past maturity
@@ -40,8 +37,6 @@ contract VerifyValidatorWithdrawTest is BaseTest {
 
         // 4. Read pre-attack state
         (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
-        uint128 totalConsensusReservedBefore = coffer.totalConsensusReserved();
-        assertEq(totalConsensusReservedBefore, 0, "no consensus-closed bonds");
 
         // 5. Simulate: validator's partial consensus withdrawal arrives at execution
         //    (EIP-4895 sweep: receive() does NOT fire, issueSize unchanged)
@@ -51,7 +46,6 @@ contract VerifyValidatorWithdrawTest is BaseTest {
 
         // 6. Validator withdraws execution-layer ETH
         //    Gate 1: _amount <= issueSize (passes since issueSize >> 50)
-        //    Gate 2: balance >= _amount + totalConsensusReserved
         //            = 50 >= 50 + 0 = passes
         //    => Validator drains 50 ETH, contract has 0 left
         uint128 drainAmount = 50 ether;
@@ -70,7 +64,7 @@ contract VerifyValidatorWithdrawTest is BaseTest {
         coffer.holderWithdrawFromExecution(bondId);
 
         // 9. Bond is still active with full value - holder is undercollateralized
-        (uint128 remaining,,,) = coffer.sHolderConditions(bondId);
+        (uint128 remaining,,) = coffer.sHolderConditions(bondId);
         assertEq(remaining, bondMaturityValue, "bond still active, holder stranded");
 
         // 10. outstandingBonds unchanged - validator can't increase issueSize
@@ -89,7 +83,7 @@ contract VerifyValidatorWithdrawTest is BaseTest {
 
         uint256 bondId = buyBond(cofferAddr, holder1, 10 ether, ONE_MONTH, 2);
 
-        (uint128 bondMaturityValue,,,) = coffer.sHolderConditions(bondId);
+        (uint128 bondMaturityValue,,) = coffer.sHolderConditions(bondId);
         advanceTime(ONE_MONTH + 1);
 
         (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
@@ -98,7 +92,6 @@ contract VerifyValidatorWithdrawTest is BaseTest {
         vm.deal(cofferAddr, uint256(bondMaturityValue) + 60);
 
         // Validator drains up to issueSize, leaving only enough for
-        // totalConsensusReserved (which is 0) + 1 wei
         uint128 drainAmt = uint128(cofferAddr.balance - 1);
         assertLe(drainAmt, issueSizeBefore, "drain within issueSize");
 
@@ -118,47 +111,8 @@ contract VerifyValidatorWithdrawTest is BaseTest {
         assertLt(holderReceived, bondMaturityValue, "holder severely undercollateralized");
 
         // Remaining bond value
-        (uint128 remaining,,,) = coffer.sHolderConditions(bondId);
+        (uint128 remaining,,) = coffer.sHolderConditions(bondId);
         assertEq(remaining, bondMaturityValue - 1, "remaining bond value");
-    }
-
-    /// @dev Contrast: Consensus-closed bonds ARE protected. This test shows
-    /// that after holder calls holderWithdrawFromConsensus, the validator
-    /// CANNOT drain the execution balance that covers the bond value.
-    function test_V1_ConsensusClosedHolderIsProtected() public {
-        vm.prank(validator);
-        coffer.changeIssueSize(100 ether);
-
-        uint256 bondId = buyBond(cofferAddr, holder1, 10 ether, ONE_MONTH, 2);
-        (uint128 bondMaturityValue,,,) = coffer.sHolderConditions(bondId);
-
-        advanceTime(ONE_MONTH + 1);
-
-        // Holder consensus-closes: totalConsensusReserved increases
-        uint256 fee = getWithdrawalFee();
-        vm.prank(holder1);
-        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
-
-        uint128 totalConsensusReserved = coffer.totalConsensusReserved();
-        assertEq(totalConsensusReserved, bondMaturityValue, "consensus reserved = bond value");
-
-        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
-
-        // Fund contract with bondMaturityValue
-        vm.deal(cofferAddr, bondMaturityValue);
-
-        // Validator tries to drain - REVERTS because balance(amt) < amt + reserved
-        if (issueSize > 0) {
-            vm.prank(validator);
-            vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
-            coffer.validatorWithdrawFromExecution(issueSize);
-        }
-
-        // Holder can still withdraw fully
-        uint256 holderBalBefore = holder1.balance;
-        vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(bondId);
-        assertEq(holder1.balance - holderBalBefore, bondMaturityValue, "holder fully paid");
     }
 
     // ========================================

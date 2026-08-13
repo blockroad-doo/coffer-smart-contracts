@@ -33,8 +33,7 @@ contract CofferFactoryTest is BaseTest {
         uint32 minDuration,
         uint32 maxDuration,
         uint128 minimumAmount,
-        uint16 issueSizeBufferBps,
-        bool exitAllowed
+        uint16 issueSizeBufferBps
     ) internal returns (address cofferAddr) {
         return _createCofferAndGetAddress(
             caller,
@@ -45,7 +44,6 @@ contract CofferFactoryTest is BaseTest {
             maxDuration,
             minimumAmount,
             issueSizeBufferBps,
-            exitAllowed,
             DEFAULT_STARTING_BALANCE
         );
     }
@@ -60,7 +58,6 @@ contract CofferFactoryTest is BaseTest {
         uint32 maxDuration,
         uint128 minimumAmount,
         uint16 issueSizeBufferBps,
-        bool exitAllowed,
         uint128 startingBalance
     ) internal returns (address cofferAddr) {
         cofferAddr = factory.predictCofferAddress(caller, pubKeyPart1, pubKeyPart2);
@@ -73,7 +70,6 @@ contract CofferFactoryTest is BaseTest {
             maxDuration,
             minimumAmount,
             issueSizeBufferBps,
-            exitAllowed,
             startingBalance
         );
     }
@@ -91,7 +87,7 @@ contract CofferFactoryTest is BaseTest {
             uint32 outstandingBonds,
             uint16 issueSizeBufferBps,
             bool isActive,
-            bool exitAllowed
+            bool validatorDefaulted
         ) = c.sValidatorConditions();
         vc.issueSize = issueSize;
         vc.interestRate = interestRate;
@@ -102,7 +98,7 @@ contract CofferFactoryTest is BaseTest {
         vc.outstandingBonds = outstandingBonds;
         vc.issueSizeBufferBps = issueSizeBufferBps;
         vc.isActive = isActive;
-        vc.exitAllowed = exitAllowed;
+        vc.validatorDefaulted = validatorDefaulted;
     }
 
     /// @dev Asserts all fields of sValidatorConditions on a deployed Coffer
@@ -117,7 +113,7 @@ contract CofferFactoryTest is BaseTest {
         uint32 expectedOutstandingBonds,
         uint32 expectedIssueSizeBufferBps,
         bool expectedIsActive,
-        bool expectedExitAllowed
+        bool expectedValidatorDefaulted
     ) internal view {
         Coffer.ValidatorConditions memory vc = _getValidatorConditions(cofferAddr);
 
@@ -130,7 +126,7 @@ contract CofferFactoryTest is BaseTest {
         assertEq(vc.outstandingBonds, expectedOutstandingBonds, "outstandingBonds mismatch");
         assertEq(vc.issueSizeBufferBps, expectedIssueSizeBufferBps, "issueSizeBufferBps mismatch");
         assertEq(vc.isActive, expectedIsActive, "isActive mismatch");
-        assertEq(vc.exitAllowed, expectedExitAllowed, "exitAllowed mismatch");
+        assertEq(vc.validatorDefaulted, expectedValidatorDefaulted, "validatorDefaulted mismatch");
     }
 
     /// @dev Computes the dynamic max for _minimumAmountToAccept given startingBalance and issueSizeBufferBps
@@ -165,7 +161,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
 
@@ -175,7 +170,7 @@ contract CofferFactoryTest is BaseTest {
             if (
                 entries[i].topics[0]
                     == keccak256(
-                        "CofferIssued(address,address,bytes32,bytes16,uint32,uint32,uint32,uint128,uint16,bool,uint128)"
+                        "CofferIssued(address,address,bytes32,bytes16,uint32,uint32,uint32,uint128,uint16,uint128)"
                     )
             ) {
                 assertEq(address(uint160(uint256(entries[i].topics[1]))), validator, "Owner indexed param mismatch");
@@ -199,9 +194,8 @@ contract CofferFactoryTest is BaseTest {
             uint32 maximumDuration,
             uint128 minimumValueToAccept,
             uint16 issueSizeBufferBps,
-            bool exitAllowed,
             uint128 issueSize
-        ) = abi.decode(data, (bytes16, uint32, uint32, uint32, uint128, uint16, bool, uint128));
+        ) = abi.decode(data, (bytes16, uint32, uint32, uint32, uint128, uint16, uint128));
 
         assertEq(bytes32(publicKeyPart2), bytes32(validPublicKeyPart2), "publicKeyPart2 mismatch");
         assertEq(interestRate, defaultInterestRate, "interestRate mismatch");
@@ -209,7 +203,6 @@ contract CofferFactoryTest is BaseTest {
         assertEq(maximumDuration, defaultMaxDuration, "maximumDuration mismatch");
         assertEq(minimumValueToAccept, defaultMinimumAmount, "minimumValueToAccept mismatch");
         assertEq(issueSizeBufferBps, defaultIssueSizeBufferBps, "issueSizeBufferBps mismatch");
-        assertEq(exitAllowed, defaultExitAllowed, "exitAllowed mismatch");
         assertEq(
             issueSize,
             uint128(uint256(DEFAULT_STARTING_BALANCE) * (10000 - defaultIssueSizeBufferBps) / 10000),
@@ -226,8 +219,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
 
         Coffer c = Coffer(payable(cofferAddr));
@@ -243,8 +235,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
 
         Coffer c = Coffer(payable(cofferAddr));
@@ -262,8 +253,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            false // exitAllowed
+            defaultIssueSizeBufferBps
         );
 
         _assertValidatorConditions(
@@ -277,11 +267,11 @@ contract CofferFactoryTest is BaseTest {
             0, // outstandingBonds
             defaultIssueSizeBufferBps,
             true, // isActive
-            false // exitAllowed
+            false // validatorDefaulted
         );
     }
 
-    function test_CreateCoffer_Success_ExitAllowed_CalculatesAvailableAmount() public {
+    function test_CreateCoffer_Success_IssueSizeNotReduced() public {
         address cofferAddr = _createCofferAndGetAddress(
             validator,
             validPublicKeyPart1,
@@ -290,36 +280,16 @@ contract CofferFactoryTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            true // exitAllowed
+            defaultIssueSizeBufferBps
         );
 
         uint256 expectedAvailable = calculateExpectedIssueSize(DEFAULT_STARTING_BALANCE, defaultIssueSizeBufferBps);
 
         Coffer c = Coffer(payable(cofferAddr));
         (uint128 issueSize,,,,,,,,,) = c.sValidatorConditions();
-        assertEq(issueSize, expectedAvailable, "Issue size should match penalty calculation");
-        assertTrue(expectedAvailable > 0, "Expected issue size should be positive for these params");
-    }
-
-    function test_CreateCoffer_Success_ExitNotAllowed_IssueSizeNotReduced() public {
-        address cofferAddr = _createCofferAndGetAddress(
-            validator,
-            validPublicKeyPart1,
-            validPublicKeyPart2,
-            defaultInterestRate,
-            defaultMinDuration,
-            defaultMaxDuration,
-            defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            false
+        assertEq(
+            issueSize, expectedAvailable, "issueSize is the buffer-scaled starting balance (no 32 ETH floor deduction)"
         );
-
-        uint256 expectedAvailable = calculateExpectedIssueSize(DEFAULT_STARTING_BALANCE, defaultIssueSizeBufferBps);
-
-        Coffer c = Coffer(payable(cofferAddr));
-        (uint128 issueSize,,,,,,,,,) = c.sValidatorConditions();
-        assertEq(issueSize, expectedAvailable, "exitAllowed=false no longer reduces issueSize (32 ETH floor removed)");
     }
 
     function test_CreateCoffer_Success_MultipleCoffers() public {
@@ -331,8 +301,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
 
         address coffer2 = _createCofferAndGetAddress(
@@ -343,8 +312,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
 
         assertTrue(coffer1 != address(0), "First coffer should be non-zero");
@@ -367,7 +335,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
     }
@@ -383,7 +350,6 @@ contract CofferFactoryTest is BaseTest {
             ONE_MONTH, // max = 1 month < min
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
     }
@@ -400,7 +366,6 @@ contract CofferFactoryTest is BaseTest {
             uint32(MAX_DURATION) + 1, // exceeds 50-year cap
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
     }
@@ -416,7 +381,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
     }
@@ -433,7 +397,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
     }
@@ -449,7 +412,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             0, // _minimumAmountToAccept = 0
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
     }
@@ -465,7 +427,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             10001, // exceeds BUFFER_DENOMINATOR (10000)
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
     }
@@ -482,7 +443,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             10000, // == BUFFER_DENOMINATOR
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
     }
@@ -499,7 +459,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             1,
             9999,
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
         assertTrue(clone != address(0), "createCoffer should succeed at buffer 9999");
@@ -523,7 +482,6 @@ contract CofferFactoryTest is BaseTest {
             // forge-lint: disable-next-line(unsafe-typecast) maxAllowed derived from safe test params fits uint128
             uint128(maxAllowed) + 1,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
     }
@@ -541,8 +499,7 @@ contract CofferFactoryTest is BaseTest {
             ONE_MONTH, // min == max
             ONE_MONTH, // min == max
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
         assertTrue(cofferAddr != address(0), "Should succeed when min == max duration");
     }
@@ -563,8 +520,7 @@ contract CofferFactoryTest is BaseTest {
                 // forge-lint: disable-next-line(unsafe-typecast) MAX_DURATION is a small constant that fits uint32
                 uint32(MAX_DURATION),
                 1, // smallest valid amount
-                defaultIssueSizeBufferBps,
-                defaultExitAllowed
+                defaultIssueSizeBufferBps
             );
             assertTrue(cofferAddr != address(0), "Should succeed at exact MAX_DURATION");
         }
@@ -580,8 +536,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
         assertTrue(cofferAddr != address(0), "Should succeed at exact max rate");
     }
@@ -595,8 +550,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
         assertTrue(cofferAddr != address(0), "Should succeed at min rate = 1");
     }
@@ -614,8 +568,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             // forge-lint: disable-next-line(unsafe-typecast) maxAllowed derived from safe test params fits uint128
             uint128(maxAllowed), // exactly at the boundary
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
         assertTrue(cofferAddr != address(0), "Should succeed at exact max minimum amount");
     }
@@ -629,8 +582,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             1, // smallest valid amount = 1 wei
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
         assertTrue(cofferAddr != address(0), "Should succeed at min amount = 1 wei");
     }
@@ -650,8 +602,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
 
         assertEq(predicted, deployed, "Predicted address should match deployed address");
@@ -680,8 +631,7 @@ contract CofferFactoryTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
 
         // Second deployment with same sender + pubkey should revert
@@ -695,7 +645,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             DEFAULT_STARTING_BALANCE
         );
     }
@@ -715,7 +664,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             0 // zero starting balance is rejected
         );
     }
@@ -731,7 +679,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            true,
             largeBalance
         );
 
@@ -752,7 +699,6 @@ contract CofferFactoryTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            true, // exitAllowed, so issueSize is computed from startingBalance
             customBalance
         );
 

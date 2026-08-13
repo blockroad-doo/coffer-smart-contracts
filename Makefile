@@ -8,7 +8,7 @@ lint:
 	#npx --no-install solhint -c test/.solhint.json --max-warnings 0 "test/**/*.t.sol"
 
 coverage: 
-	forge coverage --no-match-test "MarginalRefundBranchGas"
+	forge coverage
 
 build:
 	forge build

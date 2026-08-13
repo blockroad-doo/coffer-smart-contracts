@@ -26,14 +26,10 @@ import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
  *    calldata is a well-formed `multicall(bytes[])` encoding whose subcalls really dispatch to `buyBond`, so
  *    the value-bearing failure is provably about msg.value rather than about malformed calldata.
  *  - Leg A3: batched `redeemBondsEarly` is never looser than the same calls made sequentially, because the
- *    per-subcall gate `balance >= totalValue + totalConsensusReserved` (src/Coffer.sol:488) is re-evaluated
- *    against post-state on every subcall. Covered BOTH with a zero reserve and with a non-zero reserve
- *    produced by the cover-in-place branch of `holderWithdrawFromConsensus` (src/Coffer.sol:739). The
- *    non-zero case matters: no other deterministic test reaches that gate with a surviving reserve — every
- *    other redeemBondsEarly unit test either never closes a bond or redeems the closed bond itself, which
- *    decrements the reserve to 0 in the loop at src/Coffer.sol:464-466 before the gate is read. (The
- *    invariant handlers under test/invariant/ can reach it with a non-zero reserve, but only
- *    fuzz-dependently, and they are excluded from the default profile.)
+ *    per-subcall gate `balance >= totalValue` is re-evaluated against post-state on every subcall.
+ *  - Leg A4: claim-then-declareDefault batch semantics (doc §9 A2/A7) — the single-bond batch unwinds
+ *    atomically when the claim pays in full, works when the claim shortfalls, and the two-bond shape is
+ *    the intended atomic drain-then-default.
  *
  * The PoC also validated the attack's value-reuse economics on a throwaway Coffer subclass that added a
  * payable batcher. That harness is intentionally NOT carried over: it proved a property of code Coffer
@@ -97,46 +93,19 @@ contract VerifyMulticallNonPayable is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             defaultStartingBalance
         );
         vm.prank(holder1);
         id1 = Coffer(payable(c)).buyBond{value: 5 ether}(ONE_MONTH, 1);
         vm.prank(holder2);
         id2 = Coffer(payable(c)).buyBond{value: 6 ether}(ONE_MONTH, 1);
-        (uint128 a1,,,) = Coffer(payable(c)).sHolderConditions(id1);
-        (uint128 a2,,,) = Coffer(payable(c)).sHolderConditions(id2);
+        (uint128 a1,,) = Coffer(payable(c)).sHolderConditions(id1);
+        (uint128 a2,,) = Coffer(payable(c)).sHolderConditions(id2);
         bmv1 = a1;
         bmv2 = a2;
         vm.prank(validator);
         (bool ok,) = c.call{value: fullTopUp ? bmv1 + bmv2 : bmv1}("");
         require(ok, "top-up");
-    }
-
-    /// @dev Close `bondId` through the cover-in-place branch of holderWithdrawFromConsensus
-    ///      (src/Coffer.sol:739): with msg.value == 0 and balance >= bondMaturityValue + reserve it flips
-    ///      consensusWithdrawClosed and adds bondMaturityValue to totalConsensusReserved WITHOUT enqueuing
-    ///      an EIP-7002 request, WITHOUT paying a fee and WITHOUT deleting the bond, so the bond stays
-    ///      redeemable via redeemBondsEarly. Setup pattern borrowed from
-    ///      test/unit/VerifyConsensusReserveCrossDrain.t.sol:73-80. The branch returns before the
-    ///      `exitAllowed` read at src/Coffer.sol:749, so it works unchanged on the exitAllowed == false
-    ///      coffers _setupTwoBonds creates. The bond must already have matured.
-    function _coverInPlace(address c, address holder, uint256 bondId, uint256 expectedBmv) internal {
-        Coffer cf = Coffer(payable(c));
-        uint256 reservedBefore = cf.totalConsensusReserved();
-        uint256 balanceBefore = c.balance;
-        (,,, uint256 tailBefore) = getQueueState();
-
-        vm.prank(holder);
-        cf.holderWithdrawFromConsensus{value: 0}(bondId);
-
-        (uint128 bmv,,, bool closed) = cf.sHolderConditions(bondId);
-        assertTrue(closed, "bond closed via cover-in-place");
-        assertEq(uint256(bmv), expectedBmv, "bondMaturityValue survives the close (still redeemable)");
-        assertEq(c.balance, balanceBefore, "cover-in-place moves no ETH and pays no EIP-7002 fee");
-        assertEq(cf.totalConsensusReserved(), reservedBefore + expectedBmv, "reserve grew by bondMaturityValue");
-        (,,, uint256 tailAfter) = getQueueState();
-        assertEq(tailAfter, tailBefore, "no EIP-7002 request enqueued (cover-in-place, not the exit path)");
     }
 
     // ════════════════════════════════════════════════════════════
@@ -214,12 +183,10 @@ contract VerifyMulticallNonPayable is BaseTest {
 
     /// @notice CONFIRMED (real Coffer): a zero-value batch of two redeemBondsEarly behaves
     ///         IDENTICALLY to two sequential calls — the per-subcall balance gate
-    ///         (`balance >= totalValue + totalConsensusReserved`) is re-evaluated post-state
-    ///         each time, so batching extracts no extra value. (Note: attaching the shortfall
-    ///         as batch msg.value is impossible — multicall is non-payable — so the only
-    ///         reachable batch is the zero-value one; the coffer is topped up via receive().)
-    ///         Scope: totalConsensusReserved is 0 throughout, so this pins only the totalValue half of
-    ///         the gate; the reserve half is covered by the two NonZeroReserve tests below.
+    ///         (`balance >= totalValue`) is re-evaluated post-state each time, so batching
+    ///         extracts no extra value. (Note: attaching the shortfall as batch msg.value is
+    ///         impossible — multicall is non-payable — so the only reachable batch is the
+    ///         zero-value one; the coffer is topped up via receive().)
     function test_BatchedRedeemBondsEarly_ZeroReserve_MatchesSequential() public {
         // Branch 1 (fresh coffer #1): one zero-value multicall batching both redeems.
         uint256 rBal;
@@ -269,7 +236,6 @@ contract VerifyMulticallNonPayable is BaseTest {
     ///         subcall's balance gate — nothing is deposited. Sequentially, the first call
     ///         succeeds and only the second reverts. The batch is therefore strictly
     ///         all-or-nothing, never looser than sequential: no extra value extractable.
-    ///         Scope: as above, totalConsensusReserved is 0 here.
     function test_BatchedRedeemBondsEarly_ZeroReserve_Underfunded_RevertsAtomically() public {
         (address c, uint256 id1, uint256 id2, uint256 bmv1,) = _setupTwoBonds(303, false);
 
@@ -293,126 +259,71 @@ contract VerifyMulticallNonPayable is BaseTest {
         assertEq(bondsRedeemedEarly.sPendingClaims(holder1), bmv1, "sequential first call succeeds");
     }
 
-    /// @notice CONFIRMED (real Coffer): the equivalence still holds when totalConsensusReserved is NON-ZERO
-    ///         at the gate. Bond A is closed via cover-in-place (src/Coffer.sol:739), which reserves bmvA
-    ///         without moving ETH. The batch then redeems B BEFORE A, so subcall 1's gate is
-    ///         balance(bmvA + bmvB) >= totalValue(bmvB) + totalConsensusReserved(bmvA) — exact equality,
-    ///         i.e. the boundary, and the only deterministic test in this repo where that gate sees a
-    ///         non-zero reserve.
-    ///         Redeeming A first would decrement the reserve to 0 in the loop at src/Coffer.sol:464-466
-    ///         before the gate is read, leaving the reserve half unexercised — the blind spot in the two
-    ///         zero-reserve tests above.
-    function test_BatchedRedeemBondsEarly_NonZeroReserve_AtBoundary_MatchesSequential() public {
-        // Both coffers are created in the SAME block so the FeeCurve day, and therefore every
-        // bondMaturityValue, is identical; only afterwards is time advanced, maturing all four bonds.
-        (address cBatch, uint256 batchIdA, uint256 batchIdB, uint256 bmvA, uint256 bmvB) = _setupTwoBonds(404, true);
-        (address cSeq, uint256 seqIdA, uint256 seqIdB, uint256 seqBmvA, uint256 seqBmvB) = _setupTwoBonds(505, true);
+    // ════════════════════════════════════════════════════════════
+    // LEG A4 — claim-then-declareDefault batch semantics (doc §9 A2/A7)
+    // ════════════════════════════════════════════════════════════
+
+    /// @notice Single-bond batch, claim pays IN FULL: the claim deletes the bond, `declareDefault` then
+    ///         reverts on the existence check, and OZ Multicall bubbles the revert — unwinding the whole
+    ///         batch, the holder's own payment included. The naive "protect yourself" batch is worse than
+    ///         useless in the good case; conditional smart-wallet logic is the correct tool.
+    function test_Multicall_SingleBond_FullClaimThenDeclareDefault_RevertsAtomically() public {
+        (address c, uint256 id1,, uint256 bmv1,) = _setupTwoBonds(0xA401, false);
         advanceTime(ONE_MONTH + 1);
 
-        _coverInPlace(cBatch, holder1, batchIdA, bmvA);
-        _coverInPlace(cSeq, holder1, seqIdA, seqBmvA);
-        assertEq(cBatch.balance, bmvA + bmvB, "batch coffer sits exactly on the gate boundary");
-        assertEq(cSeq.balance, seqBmvA + seqBmvB, "sequential coffer sits exactly on its own gate boundary");
+        bytes[] memory batch = new bytes[](2);
+        batch[0] = abi.encodeWithSelector(Coffer.holderWithdrawFromExecution.selector, id1);
+        batch[1] = abi.encodeWithSelector(Coffer.declareDefault.selector, id1);
 
-        // Branch 1: one zero-value multicall, B BEFORE A (see the note above on why order matters).
-        uint256 preClaim1 = bondsRedeemedEarly.sPendingClaims(holder1);
-        uint256 preClaim2 = bondsRedeemedEarly.sPendingClaims(holder2);
-        uint256 preEscrow = address(bondsRedeemedEarly).balance;
-        {
-            bytes[] memory batch = _redeemBatch(batchIdB, batchIdA);
-            vm.prank(validator);
-            Coffer(payable(cBatch)).multicall(batch);
-        }
-        assertEq(
-            bondsRedeemedEarly.sPendingClaims(holder1) - preClaim1, bmvA, "batch: cover-in-place holder credited bmvA"
-        );
-        assertEq(bondsRedeemedEarly.sPendingClaims(holder2) - preClaim2, bmvB, "batch: holder2 credited bmvB");
-        assertEq(address(bondsRedeemedEarly).balance - preEscrow, bmvA + bmvB, "batch: escrow received bmvA + bmvB");
-        assertEq(cBatch.balance, 0, "batch: coffer fully paid out at the boundary");
-        assertEq(Coffer(payable(cBatch)).totalConsensusReserved(), 0, "batch: reserve released by A's redemption");
-        (, uint32 batchOutstanding) = _issueSize(cBatch);
-        assertEq(batchOutstanding, 0, "batch: no bonds left");
-
-        // Branch 2: the same two calls in the same order, made sequentially on the twin coffer.
-        preClaim1 = bondsRedeemedEarly.sPendingClaims(holder1);
-        preClaim2 = bondsRedeemedEarly.sPendingClaims(holder2);
-        preEscrow = address(bondsRedeemedEarly).balance;
-        vm.prank(validator);
-        Coffer(payable(cSeq)).redeemBondsEarly(_ids(seqIdB));
-        vm.prank(validator);
-        Coffer(payable(cSeq)).redeemBondsEarly(_ids(seqIdA));
-
-        // Identical outcome: the escrow deltas match and the two coffers agree on final state.
-        assertEq(
-            bondsRedeemedEarly.sPendingClaims(holder1) - preClaim1, seqBmvA, "sequential credited holder1 identically"
-        );
-        assertEq(
-            bondsRedeemedEarly.sPendingClaims(holder2) - preClaim2, seqBmvB, "sequential credited holder2 identically"
-        );
-        assertEq(
-            address(bondsRedeemedEarly).balance - preEscrow, seqBmvA + seqBmvB, "sequential moved identical escrow"
-        );
-        assertEq(cSeq.balance, cBatch.balance, "sequential leaves the identical coffer balance");
-        assertEq(Coffer(payable(cSeq)).totalConsensusReserved(), 0, "sequential leaves the identical reserve");
-        (, uint32 seqOutstanding) = _issueSize(cSeq);
-        assertEq(seqOutstanding, batchOutstanding, "sequential leaves the identical outstandingBonds");
-    }
-
-    /// @notice CONFIRMED (real Coffer): the reserve half of the redeemBondsEarly gate is load-bearing. One
-    ///         wei below the boundary the batch reverts atomically and the same single redeem of B reverts
-    ///         on its own, while a twin coffer holding the IDENTICAL balance and IDENTICAL bond values —
-    ///         differing only in that no bond was consensus-closed, so totalConsensusReserved == 0 —
-    ///         redeems B successfully. Cover-in-place holder A is therefore protected rather than stranded:
-    ///         their reserved ETH is not spendable on B's early redemption, and they still withdraw bmvA in
-    ///         full afterwards.
-    function test_BatchedRedeemBondsEarly_NonZeroReserve_OneWeiShort_RevertsAndProtectsHolder() public {
-        // Same-block creation keeps both coffers' bondMaturityValues identical (see the test above).
-        (address c, uint256 idA, uint256 idB, uint256 bmvA, uint256 bmvB) = _setupTwoBonds(606, true);
-        (address ctl,, uint256 ctlIdB,,) = _setupTwoBonds(707, true);
-        advanceTime(ONE_MONTH + 1);
-
-        _coverInPlace(c, holder1, idA, bmvA);
-
-        // One wei below the boundary. vm.deal credits balance without running receive(), i.e. exactly how
-        // an EIP-4895 beacon withdrawal lands (same technique as VerifyConsensusReserveCrossDrain.t.sol:69).
-        vm.deal(c, bmvA + bmvB - 1);
-        vm.deal(ctl, bmvA + bmvB - 1);
-
-        bytes[] memory batch = _redeemBatch(idB, idA);
-        vm.prank(validator);
-        vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
+        uint256 balBefore = holder1.balance;
+        vm.prank(holder1);
+        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
         Coffer(payable(c)).multicall(batch);
 
-        // Not a batching artifact: subcall 1 in isolation fails the same gate, because
-        // balance(bmvA + bmvB - 1) >= totalValue(bmvB) + totalConsensusReserved(bmvA) is false by 1 wei.
-        vm.prank(validator);
-        vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
-        Coffer(payable(c)).redeemBondsEarly(_ids(idB));
+        // Payment unwound, bond intact, no default
+        assertEq(holder1.balance, balBefore, "holder payment rolled back with the batch");
+        (uint128 remaining,,) = Coffer(payable(c)).sHolderConditions(id1);
+        assertEq(remaining, bmv1, "bond survives the reverted batch");
+        (,,,,,,,,, bool defaulted) = Coffer(payable(c)).sValidatorConditions();
+        assertFalse(defaulted, "no default declared");
+    }
 
-        // Atomic: no escrow deposit, no state drift, reserve intact.
-        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), 0, "no partial deposit for A");
-        assertEq(bondsRedeemedEarly.sPendingClaims(holder2), 0, "no partial deposit for B");
-        assertEq(address(bondsRedeemedEarly).balance, 0, "escrow untouched");
-        assertEq(c.balance, bmvA + bmvB - 1, "coffer untouched");
-        assertEq(Coffer(payable(c)).totalConsensusReserved(), bmvA, "reserve intact after the revert");
-        (, uint32 outstanding) = _issueSize(c);
-        assertEq(outstanding, 2, "both bonds still open");
+    /// @notice Single-bond batch, claim SHORTFALLS: the partial payout leaves the bond alive and the pool
+    ///         empty, so `declareDefault` fires in the same transaction. This is the case the batch is for.
+    function test_Multicall_SingleBond_PartialClaimThenDeclareDefault_FlipsDefault() public {
+        (address c, uint256 id1,, uint256 bmv1,) = _setupTwoBonds(0xA402, false);
+        advanceTime(ONE_MONTH + 1);
+        vm.deal(c, bmv1 - 1 ether); // shortfall: partial branch pays what exists
 
-        // CONTROL: same bond value, same balance, but reserve == 0 -> the same redeem SUCCEEDS. The only
-        // differing state between the two coffers is the cover-in-place close, so the 1-wei shortfall
-        // above is attributable to totalConsensusReserved and to nothing else.
-        (uint128 ctlBmvB,,,) = Coffer(payable(ctl)).sHolderConditions(ctlIdB);
-        assertEq(uint256(ctlBmvB), bmvB, "control bond B carries the same bondMaturityValue");
-        assertEq(Coffer(payable(ctl)).totalConsensusReserved(), 0, "control has no consensus reserve");
-        vm.prank(validator);
-        Coffer(payable(ctl)).redeemBondsEarly(_ids(ctlIdB));
-        assertEq(bondsRedeemedEarly.sPendingClaims(holder2), bmvB, "control: B redeemed at the same balance");
+        bytes[] memory batch = new bytes[](2);
+        batch[0] = abi.encodeWithSelector(Coffer.holderWithdrawFromExecution.selector, id1);
+        batch[1] = abi.encodeWithSelector(Coffer.declareDefault.selector, id1);
 
-        // Holder A is protected, not stranded: the reserved ETH is still claimable in full.
-        uint256 holderABefore = holder1.balance;
         vm.prank(holder1);
-        Coffer(payable(c)).holderWithdrawFromExecution(idA);
-        assertEq(holder1.balance - holderABefore, bmvA, "cover-in-place holder A paid bmvA in full");
-        assertEq(Coffer(payable(c)).totalConsensusReserved(), 0, "A's reserve released on withdrawal");
+        Coffer(payable(c)).multicall(batch);
+
+        (uint128 remaining,,) = Coffer(payable(c)).sHolderConditions(id1);
+        assertEq(remaining, 1 ether, "partial payout landed");
+        (,,,,,,,,, bool defaulted) = Coffer(payable(c)).sValidatorConditions();
+        assertTrue(defaulted, "shortfall flips the default in the same tx");
+    }
+
+    /// @notice Two-bond batch (A7): drain the pool through B1's claim, default on B2 — removes the
+    ///         validator's mempool reaction window between drain and default. Intended under the Σ-duty.
+    function test_Multicall_TwoBonds_DrainThenDefault_Succeeds() public {
+        (address c, uint256 id1, uint256 id2,,) = _setupTwoBonds(0xA403, false); // pool covers bmv1 only
+        advanceTime(ONE_MONTH + 1);
+
+        bytes[] memory batch = new bytes[](2);
+        batch[0] = abi.encodeWithSelector(Coffer.holderWithdrawFromExecution.selector, id1);
+        batch[1] = abi.encodeWithSelector(Coffer.declareDefault.selector, id2);
+
+        vm.prank(holder1);
+        Coffer(payable(c)).multicall(batch);
+
+        (uint128 remaining1,,) = Coffer(payable(c)).sHolderConditions(id1);
+        assertEq(remaining1, 0, "B1 drained the pool in full");
+        (,,,,,,,,, bool defaulted) = Coffer(payable(c)).sValidatorConditions();
+        assertTrue(defaulted, "B2's default landed atomically after the drain");
     }
 }

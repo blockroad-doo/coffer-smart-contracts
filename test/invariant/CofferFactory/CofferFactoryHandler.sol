@@ -34,7 +34,6 @@ contract CofferFactoryHandler is Test {
         uint32 maxDur,
         uint128 minAmount,
         uint16 issueSizeBufferBps,
-        bool exitAllowed,
         uint128 startingBalance
     ) external {
         address actor = actors[actorSeed % actors.length];
@@ -63,9 +62,7 @@ contract CofferFactoryHandler is Test {
         // Use predictCofferAddress and try/catch for duplicate salt reverts
         address predicted = factory.predictCofferAddress(actor, pk1, pk2);
         vm.prank(actor);
-        try factory.createCoffer(
-            pk1, pk2, rate, minDur, maxDur, minAmount, issueSizeBufferBps, exitAllowed, startingBalance
-        ) {
+        try factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, issueSizeBufferBps, startingBalance) {
             ghostDeployedCoffers.push(predicted);
             ++ghostDeploymentCount;
         } catch {
@@ -82,15 +79,12 @@ contract CofferFactoryHandler is Test {
         uint32 maxDur,
         uint128 minAmount,
         uint16 issueSizeBufferBps,
-        bool exitAllowed,
         uint128 startingBalance
     ) external {
         address actor = actors[actorSeed % actors.length];
         // Pass raw unclamped inputs: expected to revert
         vm.prank(actor);
-        factory.createCoffer(
-            pk1, pk2, rate, minDur, maxDur, minAmount, issueSizeBufferBps, exitAllowed, startingBalance
-        );
+        factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, issueSizeBufferBps, startingBalance);
         // Ghost state NOT updated
     }
 

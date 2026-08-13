@@ -27,28 +27,28 @@ contract CofferMainOpsTest is BaseTest {
     }
 
     // ========================================
-    // CONSTRUCTOR (exitAllowed = false)
+    // CONSTRUCTOR
     // ========================================
 
-    function test_Constructor_ExitNotAllowed_SetsOwner() public view {
+    function test_Constructor_SetsOwner() public view {
         assertEq(coffer.owner(), validator);
     }
 
-    function test_Constructor_ExitNotAllowed_SetsImmutables() public view {
+    function test_Constructor_SetsImmutables() public view {
         assertEq(coffer.iCofferBondNftAddress(), address(bondNft));
         assertEq(coffer.iCofferBondsRedeemedEarly(), address(bondsRedeemedEarly));
         assertEq(coffer.iPublicKeyPart1(), validPublicKeyPart1);
         assertEq(coffer.iPublicKeyPart2(), validPublicKeyPart2);
     }
 
-    function test_Constructor_ExitNotAllowed_IssueSizeNotReduced() public view {
+    function test_Constructor_IssueSizeNotReduced() public view {
         (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(issueSize, calculateExpectedIssueSize(defaultStartingBalance, defaultIssueSizeBufferBps));
     }
 
-    function test_Constructor_ExitNotAllowed_LargeBalance_IssueSizeNotReduced() public {
+    function test_Constructor_LargeBalance_IssueSizeNotReduced() public {
         uint128 largeStartingBalance = 256 ether;
-        address noExitCofferAddr = createCoffer(
+        address largeCofferAddr = createCoffer(
             validator,
             bytes32(uint256(11)),
             bytes16(uint128(21)),
@@ -57,19 +57,18 @@ contract CofferMainOpsTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            false,
             largeStartingBalance
         );
-        Coffer noExitCoffer = Coffer(payable(noExitCofferAddr));
+        Coffer largeCoffer = Coffer(payable(largeCofferAddr));
 
-        (uint128 issueSize,,,,,,,,,) = noExitCoffer.sValidatorConditions();
+        (uint128 issueSize,,,,,,,,,) = largeCoffer.sValidatorConditions();
 
         uint256 base = calculateExpectedIssueSize(largeStartingBalance, defaultIssueSizeBufferBps);
-        // exitAllowed no longer affects the initial issueSize (the 32 ETH floor deduction was removed).
+        // The initial issueSize is the buffer-scaled starting balance (the 32 ETH floor deduction was removed).
         assertEq(issueSize, base);
     }
 
-    function test_Constructor_ExitNotAllowed_SetsAllValidatorConditions() public view {
+    function test_Constructor_SetsAllValidatorConditions() public view {
         (
             uint128 issueSize,
             uint32 interestRate,
@@ -80,7 +79,7 @@ contract CofferMainOpsTest is BaseTest {
             uint32 outstandingBonds,
             uint16 issueSizeBufferBps,
             bool isActive,
-            bool exitAllowed
+            bool validatorDefaulted
         ) = coffer.sValidatorConditions();
 
         assertEq(issueSize, calculateExpectedIssueSize(defaultStartingBalance, defaultIssueSizeBufferBps));
@@ -92,95 +91,12 @@ contract CofferMainOpsTest is BaseTest {
         assertEq(outstandingBonds, 0);
         assertEq(issueSizeBufferBps, defaultIssueSizeBufferBps);
         assertTrue(isActive);
-        assertFalse(exitAllowed);
+        assertFalse(validatorDefaulted);
     }
 
     function test_Constructor_RevertsZeroFeeCurve() public {
         vm.expectRevert(Coffer.ZeroAddressFeeCurve.selector);
         new Coffer(address(0));
-    }
-
-    // ========================================
-    // CONSTRUCTOR (exitAllowed = true)
-    // ========================================
-
-    function test_Constructor_ExitAllowed_CalculatesAvailableAmount() public {
-        address exitCofferAddr = createCoffer(
-            validator,
-            bytes32(uint256(10)),
-            bytes16(uint128(20)),
-            defaultInterestRate,
-            defaultMinDuration,
-            defaultMaxDuration,
-            defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            true
-        );
-        Coffer exitCoffer = Coffer(payable(exitCofferAddr));
-
-        (uint128 issueSize,,,,,,,,,) = exitCoffer.sValidatorConditions();
-
-        uint256 expected = calculateExpectedIssueSize(defaultStartingBalance, defaultIssueSizeBufferBps);
-        assertEq(issueSize, expected);
-    }
-
-    function test_Constructor_ExitAllowed_AvailableAmountIsPositive() public {
-        address exitCofferAddr = createCoffer(
-            validator,
-            bytes32(uint256(10)),
-            bytes16(uint128(20)),
-            defaultInterestRate,
-            defaultMinDuration,
-            defaultMaxDuration,
-            defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            true
-        );
-        Coffer exitCoffer = Coffer(payable(exitCofferAddr));
-
-        (uint128 issueSize,,,,,,,,,) = exitCoffer.sValidatorConditions();
-        assertGt(issueSize, 0);
-    }
-
-    function test_Constructor_ExitAllowed_SetsAllValidatorConditions() public {
-        address exitCofferAddr = createCoffer(
-            validator,
-            bytes32(uint256(10)),
-            bytes16(uint128(20)),
-            defaultInterestRate,
-            defaultMinDuration,
-            defaultMaxDuration,
-            defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            true
-        );
-        Coffer exitCoffer = Coffer(payable(exitCofferAddr));
-
-        (
-            uint128 issueSize,
-            uint32 interestRate,
-            uint32 minimumDuration,
-            uint32 maximumDuration,
-            uint128 minimumValueToAccept,
-            uint32 version,
-            uint32 outstandingBonds,
-            uint16 issueSizeBufferBps,
-            bool isActive,
-            bool exitAllowed
-        ) = exitCoffer.sValidatorConditions();
-
-        uint256 expectedAvailable = calculateExpectedIssueSize(defaultStartingBalance, defaultIssueSizeBufferBps);
-
-        assertEq(issueSize, expectedAvailable);
-        assertEq(interestRate, defaultInterestRate);
-        assertEq(minimumDuration, defaultMinDuration);
-        assertEq(maximumDuration, defaultMaxDuration);
-        assertEq(minimumValueToAccept, defaultMinimumAmount);
-        assertEq(version, 1);
-        assertEq(outstandingBonds, 0);
-        assertEq(issueSizeBufferBps, defaultIssueSizeBufferBps);
-        assertTrue(isActive);
-        assertTrue(exitAllowed);
     }
 
     // ========================================
@@ -282,20 +198,6 @@ contract CofferMainOpsTest is BaseTest {
         coffer.changeIssueSize(15 ether); // increase from 10 ether triggers revert
     }
 
-    function test_ChangeExitAllowed_RevertsWhenForbiddingExitsWithBondsExist() public {
-        vm.prank(validator);
-        coffer.changeExitAllowed(); // version -> 2, exitAllowed = true
-
-        vm.prank(validator);
-        coffer.changeIssueSize(10 ether); // version -> 3
-
-        buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 3);
-
-        vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorCannotForbidExitsWhileOutstandingBondExists.selector);
-        coffer.changeExitAllowed(); // tries true -> false, should revert
-    }
-
     function test_ChangeIssueSizeBufferBps_RevertsWhenDecreasedWithBondsExist() public {
         _setupBondForModifierTests();
 
@@ -353,7 +255,6 @@ contract CofferMainOpsTest is BaseTest {
                 defaultMaxDuration,
                 defaultMinimumAmount,
                 defaultIssueSizeBufferBps,
-                false,
                 defaultStartingBalance
             );
     }
@@ -374,20 +275,6 @@ contract CofferMainOpsTest is BaseTest {
         vm.prank(holder2); // not the NFT owner
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
         coffer.holderWithdrawFromExecution(bondId);
-    }
-
-    function test_HolderIsCaller_RevertsIfNotNftOwner_WithdrawFromConsensus() public {
-        vm.prank(validator);
-        coffer.changeIssueSize(10 ether); // version -> 2
-
-        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
-        advanceTime(ONE_MONTH + 1);
-
-        uint256 fee = getWithdrawalFee();
-
-        vm.prank(holder2); // not the NFT owner
-        vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
     }
 
     function test_HolderIsCaller_SucceedsAfterNftTransfer() public {

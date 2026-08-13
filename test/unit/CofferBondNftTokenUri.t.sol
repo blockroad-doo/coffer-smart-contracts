@@ -77,12 +77,12 @@ contract CofferBondNftTokenUriTest is BaseTest {
         assertTrue(_contains(json, expectedPubKey));
 
         // Verify maturesAt (startTimestamp + duration)
-        (, uint32 duration, uint32 startTimestamp,) = testCoffer.sHolderConditions(bondId);
+        (, uint32 duration, uint32 startTimestamp) = testCoffer.sHolderConditions(bondId);
         uint256 maturesAt = uint256(startTimestamp) + uint256(duration);
         assertTrue(_contains(json, string.concat('"maturesAt":', Strings.toString(maturesAt))));
 
         // Verify maturityValue
-        (uint128 bondMaturityValue,,,) = testCoffer.sHolderConditions(bondId);
+        (uint128 bondMaturityValue,,) = testCoffer.sHolderConditions(bondId);
         assertTrue(
             _contains(json, string.concat('"maturityValue":"', Strings.toString(uint256(bondMaturityValue)), '"'))
         );
@@ -128,8 +128,7 @@ contract CofferBondNftTokenUriTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            defaultExitAllowed
+            defaultIssueSizeBufferBps
         );
 
         uint32 version1 = _enableBonding(cofferAddr, validator, 10 ether);

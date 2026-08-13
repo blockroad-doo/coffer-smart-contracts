@@ -23,6 +23,8 @@ contract RejectEther {
 }
 
 contract CofferValidatorOpsTest is BaseTest {
+    uint256 private constant BUFFER_DENOMINATOR = 10000;
+
     address public cofferAddr;
 
     function setUp() public override {
@@ -80,8 +82,8 @@ contract CofferValidatorOpsTest is BaseTest {
         uint256 id1 = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
         uint256 id2 = buyBond(cofferAddr, holder2, 1 ether, ONE_MONTH, 2);
 
-        (uint128 amt1,,,) = coffer.sHolderConditions(id1);
-        (uint128 amt2,,,) = coffer.sHolderConditions(id2);
+        (uint128 amt1,,) = coffer.sHolderConditions(id1);
+        (uint128 amt2,,) = coffer.sHolderConditions(id2);
 
         vm.deal(cofferAddr, amt1 + amt2);
 
@@ -108,7 +110,7 @@ contract CofferValidatorOpsTest is BaseTest {
         ids[0] = bondId;
         coffer.redeemBondsEarly{value: amtOwed - partial_}(ids);
 
-        (uint128 amt,,,) = coffer.sHolderConditions(bondId);
+        (uint128 amt,,) = coffer.sHolderConditions(bondId);
         assertEq(amt, 0); // deleted
     }
 
@@ -122,30 +124,6 @@ contract CofferValidatorOpsTest is BaseTest {
         uint256[] memory ids = new uint256[](1);
         ids[0] = bondId;
         coffer.redeemBondsEarly(ids); // should succeed
-    }
-
-    function test_RedeemBondsEarly_ClearsConsensusReserved() public {
-        (uint256 bondId, uint128 amtOwed) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
-
-        // Advance past maturity so consensus withdrawal is allowed
-        advanceTime(ONE_MONTH + 1);
-
-        // Holder initiates consensus withdrawal (sets consensusWithdrawClosed = true)
-        uint256 fee = getWithdrawalFee();
-        vm.prank(holder1);
-        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
-
-        // Validator redeems early: should clear the consensus reservation
-        vm.deal(cofferAddr, amtOwed);
-        vm.prank(validator);
-        uint256[] memory ids = new uint256[](1);
-        ids[0] = bondId;
-        coffer.redeemBondsEarly(ids);
-
-        (uint128 amt,,,) = coffer.sHolderConditions(bondId);
-        assertEq(amt, 0); // bond deleted
-        (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
-        assertEq(bonds, 0); // outstanding bonds cleared
     }
 
     function test_RedeemBondsEarly_DoesNotRestoreIssueSize() public {
@@ -232,7 +210,7 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.buyBond{value: 1 ether}(ONE_MONTH, 2);
         uint256 bondId = 1; // first bond
 
-        (uint128 amtOwed,,,) = coffer.sHolderConditions(bondId);
+        (uint128 amtOwed,,) = coffer.sHolderConditions(bondId);
         vm.deal(cofferAddr, amtOwed);
 
         vm.prank(validator);
@@ -277,8 +255,8 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.buyBond{value: 1 ether}(ONE_MONTH, 2);
         uint256 id2 = 2;
 
-        (uint128 amt1,,,) = coffer.sHolderConditions(id1);
-        (uint128 amt2,,,) = coffer.sHolderConditions(id2);
+        (uint128 amt1,,) = coffer.sHolderConditions(id1);
+        (uint128 amt2,,) = coffer.sHolderConditions(id2);
         vm.deal(cofferAddr, amt1 + amt2);
 
         vm.prank(validator);
@@ -625,70 +603,6 @@ contract CofferValidatorOpsTest is BaseTest {
     }
 
     // ========================================
-    // changeExitAllowed
-    // ========================================
-
-    function test_ChangeExitAllowed_Enable_EmitsEvent() public {
-        vm.expectEmit(false, false, false, false);
-        emit CofferEvents.CofferAllowsHolderToExit();
-
-        vm.prank(validator);
-        coffer.changeExitAllowed();
-
-        (,,,,,,,,, bool exitAllowed) = coffer.sValidatorConditions();
-        assertTrue(exitAllowed);
-    }
-
-    function test_ChangeExitAllowed_Disable_EmitsEvent() public {
-        vm.prank(validator);
-        coffer.changeExitAllowed(); // enable
-
-        vm.expectEmit(false, false, false, false);
-        emit CofferEvents.CofferForbidsHolderToExit();
-
-        vm.prank(validator);
-        coffer.changeExitAllowed(); // disable
-    }
-
-    function test_ChangeExitAllowed_VersionIncrements() public {
-        vm.prank(validator);
-        coffer.changeExitAllowed();
-
-        (,,,,, uint32 version,,,,) = coffer.sValidatorConditions();
-        assertEq(version, 2);
-    }
-
-    function test_ChangeExitAllowed_RevertsIfForbiddingExitsWithOutstandingBonds() public {
-        vm.prank(validator);
-        coffer.changeExitAllowed(); // version -> 2, exitAllowed = true
-
-        vm.prank(validator);
-        coffer.changeIssueSize(10 ether); // version -> 3
-
-        buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 3);
-
-        vm.prank(validator);
-        vm.expectRevert(Coffer.ValidatorCannotForbidExitsWhileOutstandingBondExists.selector);
-        coffer.changeExitAllowed(); // tries true -> false, should revert
-    }
-
-    function test_ChangeExitAllowed_EnableSucceedsWithOutstandingBonds() public {
-        _setupSingleBond(10 ether, 1 ether, ONE_MONTH); // exitAllowed starts false, bond exists
-
-        vm.prank(validator);
-        coffer.changeExitAllowed(); // false -> true, should succeed
-
-        (,,,,,,,,, bool exitAllowed) = coffer.sValidatorConditions();
-        assertTrue(exitAllowed);
-    }
-
-    function test_ChangeExitAllowed_RevertsIfNotOwner() public {
-        vm.prank(holder1);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, holder1));
-        coffer.changeExitAllowed();
-    }
-
-    // ========================================
     // changeIssueSizeBufferBps
     // ========================================
 
@@ -850,7 +764,7 @@ contract CofferValidatorOpsTest is BaseTest {
         assertEq(issueSizeAfter, 0);
 
         // Bond is still active
-        (uint128 bondAmt,,,) = coffer.sHolderConditions(bondId);
+        (uint128 bondAmt,,) = coffer.sHolderConditions(bondId);
         assertEq(bondAmt, amtOwed);
     }
 
@@ -878,31 +792,6 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         vm.expectRevert(Coffer.ValidatorDoesntCoverTheValue.selector);
         coffer.validatorWithdrawFromExecution(issueSize + 1);
-    }
-
-    function test_ValidatorWithdrawFromExecution_ProtectsConsensusReserved() public {
-        (uint256 bondId, uint128 amtOwed) = _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
-
-        // Advance past maturity so consensus withdrawal is allowed
-        advanceTime(ONE_MONTH + 1);
-
-        // Holder initiates consensus withdrawal
-        uint256 fee = getWithdrawalFee();
-        vm.prank(holder1);
-        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
-
-        // Fund contract with exactly amtOwed (simulating consensus ETH arrival)
-        vm.deal(cofferAddr, amtOwed);
-
-        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
-
-        // Even though issueSize allows it, balance check should fail
-        // because totalConsensusReserved protects the balance for the holder
-        if (issueSize > 0) {
-            vm.prank(validator);
-            vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
-            coffer.validatorWithdrawFromExecution(issueSize);
-        }
     }
 
     function test_ValidatorWithdrawFromExecution_NoBonds_WithdrawsContractBalance() public {
@@ -962,8 +851,7 @@ contract CofferValidatorOpsTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            false
+            defaultIssueSizeBufferBps
         );
 
         vm.deal(rejectorCofferAddr, 10 ether);
@@ -1199,5 +1087,138 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         vm.expectRevert(Coffer.ConsolidationContractCallFailed.selector);
         coffer.convertToCompounding{value: fee}();
+    }
+
+    // ========================================
+    // V-4 / BSA-1: issueSize and issueSizeBufferBps independently settable
+    // (salvaged from VerifyExitAllowed.t.sol when the exitAllowed regime was removed)
+    // ========================================
+
+    function test_BSA1_HighBufferHighIssueSize_Inconsistent() public {
+        uint128 startingBalance = 100 ether;
+        address bsa1CofferAddr = createCoffer(
+            validator,
+            bytes32(uint256(0xB5A1)),
+            bytes16(uint128(0xB5A1)),
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            0,
+            startingBalance
+        );
+        Coffer c = Coffer(payable(bsa1CofferAddr));
+
+        vm.prank(validator);
+        c.changeIssueSizeBufferBps(1000);
+
+        (,,,,,,, uint16 buffer1,,) = c.sValidatorConditions();
+        assertEq(buffer1, 1000);
+
+        vm.prank(validator);
+        c.changeIssueSize(95 ether);
+
+        (uint128 issueSize,,,,,,,,,) = c.sValidatorConditions();
+        (,,,,,,, uint16 buffer2,,) = c.sValidatorConditions();
+        assertEq(issueSize, 95 ether);
+        assertEq(buffer2, 1000);
+
+        uint256 maxAllowed = uint256(startingBalance) * (BUFFER_DENOMINATOR - buffer2) / BUFFER_DENOMINATOR;
+        assertEq(maxAllowed, 90 ether, "buffer cap should allow max 90 ETH");
+        assertGt(issueSize, maxAllowed, "BUG: issueSize exceeds buffer-capped limit - inconsistent state");
+    }
+
+    function test_BSA1_BufferIncrease_IssueSizeNotReduced() public {
+        uint128 startingBalance = 100 ether;
+        address bsa1CofferAddr = createCoffer(
+            validator,
+            bytes32(uint256(0xB5A1)),
+            bytes16(uint128(0xB5A1)),
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            0,
+            startingBalance
+        );
+        Coffer c = Coffer(payable(bsa1CofferAddr));
+
+        (uint128 issueSize0,,,,,,,,,) = c.sValidatorConditions();
+        (,,,,,,, uint16 buf0,,) = c.sValidatorConditions();
+        assertEq(issueSize0, 100 ether);
+        assertEq(buf0, 0);
+
+        for (uint16 i = 0; i < 3; i++) {
+            uint16 newBuf = uint16(500 * (i + 1));
+            vm.prank(validator);
+            c.changeIssueSizeBufferBps(newBuf);
+
+            (uint128 issSize,,,,,,,,,) = c.sValidatorConditions();
+            (,,,,,,, uint16 buf,,) = c.sValidatorConditions();
+            assertEq(buf, newBuf);
+
+            uint256 maxAllowed = uint256(startingBalance) * (BUFFER_DENOMINATOR - buf) / BUFFER_DENOMINATOR;
+            assertGt(issSize, maxAllowed, "BUG: issueSize not reduced when buffer increased");
+        }
+    }
+
+    function test_BSA1_IssueSizeNotCheckedAgainstBuffer() public {
+        address bsa1CofferAddr = createCoffer(
+            validator,
+            bytes32(uint256(0xB5A1)),
+            bytes16(uint128(0xB5A1)),
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            defaultIssueSizeBufferBps
+        );
+        Coffer c = Coffer(payable(bsa1CofferAddr));
+
+        vm.prank(validator);
+        c.changeIssueSizeBufferBps(500);
+
+        uint128 tooHigh = 31 ether;
+        vm.prank(validator);
+        c.changeIssueSize(tooHigh);
+
+        (uint128 issueSize,,,,,,,,,) = c.sValidatorConditions();
+        (,,,,,,, uint16 buf,,) = c.sValidatorConditions();
+        uint256 maxAllowed = uint256(defaultStartingBalance) * (BUFFER_DENOMINATOR - buf) / BUFFER_DENOMINATOR;
+        assertGt(issueSize, maxAllowed, "BUG: changeIssueSize accepts values exceeding buffer-capped maximum");
+    }
+
+    function testFuzz_BSA1_FuzzBufferAndIssueSize(uint16 bufferBps, uint128 issueSizeVal) public {
+        bufferBps = uint16(bound(bufferBps, 0, 5000));
+        uint128 startingBalance = 100 ether;
+
+        address bsa1CofferAddr = createCoffer(
+            validator,
+            bytes32(uint256(0xB5A1)),
+            bytes16(uint128(0xB5A1)),
+            defaultInterestRate,
+            defaultMinDuration,
+            defaultMaxDuration,
+            defaultMinimumAmount,
+            0,
+            startingBalance
+        );
+        Coffer c = Coffer(payable(bsa1CofferAddr));
+
+        vm.prank(validator);
+        c.changeIssueSizeBufferBps(bufferBps);
+
+        issueSizeVal = uint128(bound(issueSizeVal, 1 ether, 200 ether));
+        vm.prank(validator);
+        c.changeIssueSize(issueSizeVal);
+
+        (uint128 actualIssueSize,,,,,,,,,) = c.sValidatorConditions();
+        (,,,,,,, uint16 actualBuffer,,) = c.sValidatorConditions();
+
+        uint256 maxAllowed = uint256(startingBalance) * (BUFFER_DENOMINATOR - actualBuffer) / BUFFER_DENOMINATOR;
+
+        if (actualIssueSize > maxAllowed) {
+            assertGt(actualIssueSize, maxAllowed, "confirmed: issueSize exceeds buffer cap");
+        }
     }
 }

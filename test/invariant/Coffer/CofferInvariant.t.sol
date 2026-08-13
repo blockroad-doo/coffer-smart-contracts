@@ -22,7 +22,7 @@ contract CofferInvariantTest is BaseTest {
         // Fund validator for redeemBondsEarly top-ups + consensus deposits
         vm.deal(validator, 10_000 ether);
 
-        handler = new CofferHandler(coffer, bondNft, feeCurve);
+        handler = new CofferHandler(coffer, feeCurve);
         targetContract(address(handler));
     }
 
@@ -43,7 +43,7 @@ contract CofferInvariantTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,,) = coffer.sHolderConditions(bondId);
+            (uint128 amount,,) = coffer.sHolderConditions(bondId);
             assertEq(
                 uint256(handler.ghostBondAmount(bondId)), uint256(amount), "ghostBondAmount must match on-chain amount"
             );
@@ -57,7 +57,7 @@ contract CofferInvariantTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,,) = coffer.sHolderConditions(bondId);
+            (uint128 amount,,) = coffer.sHolderConditions(bondId);
             totalBondAmounts += uint256(amount);
         }
 
@@ -88,7 +88,7 @@ contract CofferInvariantTest is BaseTest {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {
             uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,,) = coffer.sHolderConditions(bondId);
+            (uint128 amount,,) = coffer.sHolderConditions(bondId);
             assertTrue(amount > 0, "Active bond must have non-zero amount");
         }
     }
@@ -141,60 +141,33 @@ contract CofferInvariantTest is BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // 5. CONSENSUS WITHDRAWAL CONSISTENCY
+    // 5. DEFAULT STATE MACHINE (serve-or-default, doc invariants C1/C3/C8)
     // ══════════════════════════════════════════════════════════════════════
 
-    function invariant_pendingConsensusImpliesActive() public view {
-        uint256 len = handler.getActiveBondIdsLength();
-        for (uint256 i = 0; i < len; i++) {
-            uint256 bondId = handler.getActiveBondIdAt(i);
-            if (handler.ghostHasPendingConsensusWithdrawal(bondId)) {
-                assertTrue(handler.ghostIsBondActive(bondId), "Pending consensus withdrawal implies bond is active");
-            }
-        }
+    /// @dev C1: the default flag is monotone and only our handler flips it. The ghost only ever
+    /// latches true, so two-way equality proves the on-chain flag never unsets and never flips
+    /// without a handler-observed declareDefault.
+    function invariant_defaultMonotoneAndMirrored() public view {
+        (,,,,,,,,, bool validatorDefaulted) = coffer.sValidatorConditions();
+        assertEq(validatorDefaulted, handler.ghostValidatorDefaulted(), "on-chain default flag must mirror the ghost");
     }
 
-    function invariant_pendingConsensusDataPersists() public view {
-        uint256 len = handler.getActiveBondIdsLength();
-        for (uint256 i = 0; i < len; i++) {
-            uint256 bondId = handler.getActiveBondIdAt(i);
-            if (handler.ghostHasPendingConsensusWithdrawal(bondId)) {
-                (uint128 amount,,,) = coffer.sHolderConditions(bondId);
-                assertGt(amount, 0, "Pending consensus bond must have non-zero on-chain amount");
-            }
-        }
+    /// @dev C3: a solvent validator can never be defaulted. The handler records a violation if a
+    /// declare ever succeeded while the bond was covered.
+    function invariant_solventValidatorNeverDefaulted() public view {
+        assertFalse(handler.ghostDefaultViolation(), "declareDefault must never succeed against a covered bond");
     }
 
-    /// @dev Reserve-solvency invariant (F-02 corrected). Every consensus-closed bond's bondMaturityValue
-    /// must be backed by ETH that is either already in the contract OR in transit from the consensus layer
-    /// (an EIP-7002 request the handler will credit on arrival). A closed bond doing an execution withdrawal
-    /// uses reserved=0 (Coffer.sol:653), so an in-transit bond may claim a cover-in-place bond's present ETH
-    /// first (FCFS); that bond's own beacon ETH then backs the remainder, so `balance + inTransit >= reserved`
-    /// still holds. (The previous version asserted `balance >= sumLocked` excluding pending bonds, which is
-    /// reachably false once a pending bond settles against present balance - see VerifyConsensusReserveCrossDrain.)
-    function invariant_reserveBackedByBalanceOrInTransit() public view {
-        uint256 sumLocked = 0;
-        uint256 len = handler.getActiveBondIdsLength();
-        for (uint256 i = 0; i < len; i++) {
-            uint256 bondId = handler.getActiveBondIdAt(i);
-            (uint128 amount,,, bool closed) = coffer.sHolderConditions(bondId);
-            if (closed) {
-                sumLocked += uint256(amount);
-            }
-        }
-        // In-transit beacon ETH already requested via EIP-7002 but not yet credited (includes requests for
-        // bonds already settled from execution against present balance - the F-02 FCFS case).
-        uint256 inTransit = 0;
-        uint256 plen = handler.getPendingWithdrawalsLength();
-        for (uint256 j = 0; j < plen; j++) {
-            (, uint128 amt,,) = handler.ghostPendingWithdrawals(j);
-            inTransit += uint256(amt);
-        }
-        assertGe(
-            address(coffer).balance + inTransit,
-            sumLocked,
-            "reserved must be backed by present balance OR in-transit beacon ETH"
+    /// @dev C8: post-default the bond set only shrinks (buyBond is frozen, bonds leave via
+    /// payment or redemption only).
+    function invariant_bondSetOnlyShrinksPostDefault() public view {
+        if (!handler.ghostValidatorDefaulted()) return;
+        assertLe(
+            handler.getActiveBondIdsLength(),
+            handler.ghostBondsAtDefault(),
+            "active bond count must not grow after default"
         );
+        assertEq(handler.ghostTotalBondsBought(), handler.ghostBoughtAtDefault(), "no bond can be minted after default");
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -205,8 +178,6 @@ contract CofferInvariantTest is BaseTest {
         console2.log("--- Call Summary ---");
         console2.log("buyBond:                    ", handler.callsBuyBond());
         console2.log("holderWithdrawFromExecution: ", handler.callsHolderWithdrawFromExecution());
-        console2.log("holderWithdrawFromConsensus: ", handler.callsHolderWithdrawFromConsensus());
-        console2.log("simulateEthArrival:         ", handler.callsSimulateEthArrival());
         console2.log("redeemBondsEarly:           ", handler.callsRedeemBondsEarly());
         console2.log("validatorWithdrawExecution:  ", handler.callsValidatorWithdrawFromExecution());
         console2.log("validatorAddFundsConsensus:  ", handler.callsValidatorAddFundsToConsensus());
@@ -215,13 +186,13 @@ contract CofferInvariantTest is BaseTest {
         console2.log("changeIssueSize:            ", handler.callsChangeIssueSize());
         console2.log("advanceTime:                ", handler.callsAdvanceTime());
         console2.log("sendEthToCoffer:            ", handler.callsSendEthToCoffer());
+        console2.log("declareDefault:             ", handler.callsDeclareDefault());
         console2.log("--- Ghost Totals ---");
         console2.log("totalBought:                ", handler.ghostTotalBondsBought());
         console2.log("totalWithdrawnExecution:     ", handler.ghostTotalBondsWithdrawnExecution());
-        console2.log("totalWithdrawnConsensus:     ", handler.ghostTotalBondsWithdrawnConsensus());
         console2.log("totalRedeemed:              ", handler.ghostTotalBondsRedeemed());
         console2.log("activeBonds:                ", handler.getActiveBondIdsLength());
-        console2.log("pendingWithdrawals:         ", handler.getPendingWithdrawalsLength());
-        console2.log("totalEthArrivedConsensus:   ", handler.ghostTotalEthArrivedFromConsensus());
+        console2.log("defaultsDeclared:           ", handler.ghostTotalDefaultsDeclared());
+        console2.log("validatorDefaulted:         ", handler.ghostValidatorDefaulted() ? uint256(1) : uint256(0));
     }
 }

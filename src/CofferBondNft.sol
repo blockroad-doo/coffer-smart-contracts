@@ -88,8 +88,7 @@ contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
         address _cofferAddress = cofferOf[_bondId];
         ICoffer coffer = ICoffer(_cofferAddress);
 
-        // slither-disable-next-line unused-return
-        (uint128 bondMaturityValue, uint32 duration, uint32 startTimestamp,) = coffer.sHolderConditions(_bondId);
+        (uint128 bondMaturityValue, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(_bondId);
 
         string memory validatorPubKey =
             Strings.toHexString(abi.encodePacked(coffer.iPublicKeyPart1(), coffer.iPublicKeyPart2()));

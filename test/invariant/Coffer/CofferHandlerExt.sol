@@ -3,8 +3,6 @@ pragma solidity 0.8.34;
 
 import {Test, Vm} from "forge-std/Test.sol";
 import {Coffer} from "../../../src/Coffer.sol";
-import {CofferBondNft} from "../../../src/CofferBondNft.sol";
-import {CofferBondsRedeemedEarly} from "../../../src/CofferBondsRedeemedEarly.sol";
 import {FeeCurve} from "../../../src/FeeCurve.sol";
 import {Interest} from "../../../src/libraries/Interest.sol";
 
@@ -17,21 +15,20 @@ contract CofferHandlerExt is Test {
 
     address private constant WITHDRAWAL_CONTRACT = 0x00000961Ef480Eb55e80D19ad83579A64c007002;
 
-    uint256 constant EXIT_QUEUE_ETH = 500_500 ether;
+    // Models the wall-clock between an EIP-7002 request landing on-chain and its ETH arriving at
+    // the withdrawal-credential address: exit/withdrawal queue plus withdrawability delay plus the
+    // beacon sweep, ~8.7 days at a 500k ETH queue.
+    uint256 constant EXIT_QUEUE_ETH = 500_000 ether;
     uint256 constant ETH_PER_EPOCH = 256 ether;
     uint16 constant SECONDS_PER_EPOCH = 384;
     uint256 constant EXIT_QUEUE_DELAY = (EXIT_QUEUE_ETH * SECONDS_PER_EPOCH) / ETH_PER_EPOCH;
 
     struct PendingWithdrawal {
-        uint256 bondId;
         uint128 amount;
         uint256 arrivalTime;
-        address holderAddress;
     }
 
     Coffer public coffer;
-    CofferBondNft public bondNft;
-    CofferBondsRedeemedEarly public bondsRedeemedEarly;
     FeeCurve public feeCurve;
 
     address public validator;
@@ -39,7 +36,6 @@ contract CofferHandlerExt is Test {
 
     uint128 public ghostIssueSize;
     uint128 public ghostConsensusBalance;
-    uint128 public ghostTotalConsensusReserved;
 
     uint256[] public ghostActiveBondIds;
     mapping(uint256 => bool) public ghostIsBondActive;
@@ -47,18 +43,36 @@ contract CofferHandlerExt is Test {
     mapping(uint256 => uint128) public ghostBondMaturityValue;
     mapping(uint256 => uint128) public ghostPrincipal;
     mapping(uint256 => uint128) public ghostExecutionWithdrawn;
-    mapping(uint256 => bool) public ghostConsensusWithdrawClosed;
     PendingWithdrawal[] public ghostPendingWithdrawals;
 
     uint256 public ghostTotalBondsBought;
     uint256 public ghostTotalBondsRedeemed;
     uint256 public ghostTotalBondsWithdrawnExecution;
-    uint256 public ghostTotalBondsWithdrawnConsensus;
     uint256 public ghostTotalEthArrivedFromConsensus;
+
+    // ── Ghost state: default machine ───────────────────────────────────────
+    // Latched true by handlerDeclareDefault on a successful declare, never unset (C1 mirror).
+    bool public ghostValidatorDefaulted;
+    // Set if a declare ever SUCCEEDS while the pre-call balance covered the bond. Handler-side
+    // asserts would be masked under fail_on_revert = false, so violations are recorded here and
+    // asserted by invariant_solventValidatorNeverDefaulted (C3).
+    bool public ghostDefaultViolation;
+    // Snapshots taken at the default flip.
+    uint256 public ghostBondsAtDefault;
+    uint256 public ghostBoughtAtDefault;
+    uint256 public ghostBalanceAtDefault;
+    uint128 public ghostConsensusAtDefault;
+    uint256 public ghostTotalDefaultsDeclared;
+    // C2 ledger: every wei entering/leaving the pool after the flip, attributed by cause.
+    // Inflows: receive() tops, consensus arrivals, exit-fee surpluses (none: exact fee).
+    // Outflows: holder claim payouts and redeemBondsEarly net escrow spend.
+    uint256 public ghostPoolInflowsSinceDefault;
+    uint256 public ghostPoolOutflowsSinceDefault;
+    // Exit-sweep model: the stake moves into in-transit exactly once.
+    bool public ghostExitSweepQueued;
 
     uint256 public callsBuyBond;
     uint256 public callsHolderWithdrawFromExecution;
-    uint256 public callsHolderWithdrawFromConsensus;
     uint256 public callsSimulateEthArrival;
     uint256 public callsRedeemBondsEarly;
     uint256 public callsValidatorWithdrawFromExecution;
@@ -71,19 +85,13 @@ contract CofferHandlerExt is Test {
     uint256 public callsChangeIssueSizeBufferBps;
     uint256 public callsChangeMinimumAndMaximumDuration;
     uint256 public callsChangeMinimumValueToAccept;
-    uint256 public callsChangeExitAllowed;
     uint256 public callsAdvanceTime;
     uint256 public callsSendEthToCoffer;
+    uint256 public callsDeclareDefault;
+    uint256 public callsExitValidator;
 
-    constructor(
-        Coffer _coffer,
-        CofferBondNft _bondNft,
-        CofferBondsRedeemedEarly _bondsRedeemedEarly,
-        FeeCurve _feeCurve
-    ) {
+    constructor(Coffer _coffer, FeeCurve _feeCurve) {
         coffer = _coffer;
-        bondNft = _bondNft;
-        bondsRedeemedEarly = _bondsRedeemedEarly;
         feeCurve = _feeCurve;
         validator = _coffer.owner();
 
@@ -98,7 +106,6 @@ contract CofferHandlerExt is Test {
 
         ghostIssueSize = _readVc().issueSize;
         ghostConsensusBalance = 0;
-        ghostTotalConsensusReserved = 0;
     }
 
     // One-shot: setUp seeds the modeled consensus stake exactly once. Guarded because
@@ -126,13 +133,13 @@ contract CofferHandlerExt is Test {
         uint32 outstandingBonds;
         uint16 issueSizeBufferBps;
         bool isActive;
-        bool exitAllowed;
+        bool validatorDefaulted;
     }
 
     function _readVc() private view returns (Vc memory v) {
         // Split reads across two calls to avoid stack-too-deep
         (v.issueSize, v.interestRate, v.minimumDuration, v.maximumDuration, v.minimumValueToAccept) = _readVc1();
-        (v.version, v.outstandingBonds, v.issueSizeBufferBps, v.isActive, v.exitAllowed) = _readVc2();
+        (v.version, v.outstandingBonds, v.issueSizeBufferBps, v.isActive, v.validatorDefaulted) = _readVc2();
     }
 
     function _readVc1() private view returns (uint128, uint32, uint32, uint32, uint128) {
@@ -172,6 +179,10 @@ contract CofferHandlerExt is Test {
     // ══════════════════════════════════════════════════════════════════════
     function handlerBuyBond(uint256 actorSeed, uint256 amount, uint256 duration) external {
         ++callsBuyBond;
+
+        // buyBond is frozen while defaulted (ValidatorInDefault)
+        if (ghostValidatorDefaulted) return;
+
         address holder = holders[actorSeed % holders.length];
         Vc memory vc = _readVc();
 
@@ -212,7 +223,6 @@ contract CofferHandlerExt is Test {
         // forge-lint: disable-next-line(unsafe-typecast)
         ghostBondMaturityValue[bondId] = uint128(computedBondMaturityValue);
         ghostPrincipal[bondId] = amt;
-        ghostConsensusWithdrawClosed[bondId] = false;
         ++ghostTotalBondsBought;
         // casting to 'uint128' is safe because computedBondMaturityValue fits inside consensus limits
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -231,89 +241,32 @@ contract CofferHandlerExt is Test {
         uint256 bondId = ghostActiveBondIds[idx];
         address holder = ghostBondHolder[bondId];
 
-        (uint128 amount, uint32 _duration, uint32 startTimestamp,) = coffer.sHolderConditions(bondId);
+        (uint128 amount, uint32 _duration, uint32 startTimestamp) = coffer.sHolderConditions(bondId);
         if (amount == 0) return;
+        // Check maturity; waived while defaulted (acceleration, R5)
         // forge-lint: disable-next-line
-        if (uint256(_duration) + uint256(startTimestamp) > block.timestamp) return;
+        if (!ghostValidatorDefaulted && uint256(_duration) + uint256(startTimestamp) > block.timestamp) return;
         if (address(coffer).balance == 0) return;
 
         vm.prank(holder);
         coffer.holderWithdrawFromExecution(bondId);
 
-        (uint128 amountAfter,,,) = coffer.sHolderConditions(bondId);
+        (uint128 amountAfter,,) = coffer.sHolderConditions(bondId);
+        uint128 paidOut = amount - amountAfter;
+        if (ghostValidatorDefaulted) ghostPoolOutflowsSinceDefault += paidOut;
 
         if (amountAfter == 0) {
             ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
             ghostActiveBondIds.pop();
             ghostIsBondActive[bondId] = false;
-            // Full withdrawal deletes the on-chain struct, so its consensusWithdrawClosed flag
-            // reads back false. Rely on the ghost flag (kept in lockstep with the on-chain flag
-            // in handlerHolderWithdrawFromConsensus) to mirror the contract's reserved decrement.
-            if (ghostConsensusWithdrawClosed[bondId]) {
-                ghostTotalConsensusReserved -= ghostBondMaturityValue[bondId];
-            }
             delete ghostBondHolder[bondId];
             delete ghostBondMaturityValue[bondId];
             delete ghostPrincipal[bondId];
             delete ghostExecutionWithdrawn[bondId];
-            delete ghostConsensusWithdrawClosed[bondId];
             ++ghostTotalBondsWithdrawnExecution;
         } else {
-            uint128 withdrawn = amount - amountAfter;
-            ghostBondMaturityValue[bondId] -= withdrawn;
-            ghostExecutionWithdrawn[bondId] += withdrawn;
-            if (ghostConsensusWithdrawClosed[bondId]) {
-                ghostTotalConsensusReserved -= withdrawn;
-            }
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // HANDLER: holderWithdrawFromConsensus
-    // ══════════════════════════════════════════════════════════════════════
-    function handlerHolderWithdrawFromConsensus(uint256 idSeed) external {
-        ++callsHolderWithdrawFromConsensus;
-        uint256 len = ghostActiveBondIds.length;
-        if (len == 0) return;
-
-        uint256 idx = idSeed % len;
-        uint256 bondId = ghostActiveBondIds[idx];
-        address holder = ghostBondHolder[bondId];
-
-        (uint128 amount, uint32 _duration, uint32 startTimestamp, bool alreadyClosed) = coffer.sHolderConditions(bondId);
-        if (amount == 0 || alreadyClosed) return;
-        // forge-lint: disable-next-line
-        if (uint256(_duration) + uint256(startTimestamp) > block.timestamp) return;
-        if (ghostConsensusWithdrawClosed[bondId]) return;
-
-        (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
-        if (!readOk) return;
-        // casting to 'uint256' is safe because feeData staticcall return fits
-        // forge-lint: disable-next-line(unsafe-typecast)
-        uint256 fee = uint256(bytes32(feeData));
-        if (holder.balance < fee) return;
-
-        uint256 preCallBalance = address(coffer).balance;
-        uint128 reservedBefore = coffer.totalConsensusReserved();
-        bool fallbackPath = preCallBalance >= uint256(amount) + uint256(reservedBefore);
-
-        vm.prank(holder);
-        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
-
-        ghostConsensusWithdrawClosed[bondId] = true;
-        ghostTotalConsensusReserved += amount;
-        ++ghostTotalBondsWithdrawnConsensus;
-
-        if (!fallbackPath) {
-            ghostPendingWithdrawals.push(
-                PendingWithdrawal({
-                    bondId: bondId,
-                    amount: amount,
-                    arrivalTime: block.timestamp + EXIT_QUEUE_DELAY,
-                    holderAddress: holder
-                })
-            );
-            ghostConsensusBalance = ghostConsensusBalance > amount ? ghostConsensusBalance - amount : 0;
+            ghostBondMaturityValue[bondId] -= paidOut;
+            ghostExecutionWithdrawn[bondId] += paidOut;
         }
     }
 
@@ -331,6 +284,7 @@ contract CofferHandlerExt is Test {
             if (block.timestamp >= pw.arrivalTime) {
                 vm.deal(address(coffer), address(coffer).balance + pw.amount);
                 ghostTotalEthArrivedFromConsensus += pw.amount;
+                if (ghostValidatorDefaulted) ghostPoolInflowsSinceDefault += pw.amount;
                 ghostPendingWithdrawals[idx] = ghostPendingWithdrawals[ghostPendingWithdrawals.length - 1];
                 ghostPendingWithdrawals.pop();
             }
@@ -348,7 +302,7 @@ contract CofferHandlerExt is Test {
         uint256 idx = idSeed % len;
         uint256 bondId = ghostActiveBondIds[idx];
 
-        (uint128 amount,,,) = coffer.sHolderConditions(bondId);
+        (uint128 amount,,) = coffer.sHolderConditions(bondId);
         if (amount == 0) return;
 
         uint256 topUp = amount > address(coffer).balance ? amount - address(coffer).balance : 0;
@@ -357,19 +311,23 @@ contract CofferHandlerExt is Test {
         uint256[] memory bondIds = new uint256[](1);
         bondIds[0] = bondId;
 
+        uint256 balanceBefore = address(coffer).balance;
         vm.prank(validator);
         coffer.redeemBondsEarly{value: topUp}(bondIds);
 
-        if (ghostConsensusWithdrawClosed[bondId]) {
-            ghostTotalConsensusReserved -= ghostBondMaturityValue[bondId];
+        // C2 ledger: the pool's net change is (topUp in, amount out to escrow). Track both sides
+        // exactly via the balance delta so the outflow attribution stays wei-precise.
+        if (ghostValidatorDefaulted) {
+            ghostPoolInflowsSinceDefault += topUp;
+            ghostPoolOutflowsSinceDefault += balanceBefore + topUp - address(coffer).balance;
         }
+
         ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
         ghostActiveBondIds.pop();
         ghostIsBondActive[bondId] = false;
         delete ghostBondHolder[bondId];
         delete ghostBondMaturityValue[bondId];
         delete ghostPrincipal[bondId];
-        delete ghostConsensusWithdrawClosed[bondId];
         ++ghostTotalBondsRedeemed;
     }
 
@@ -378,6 +336,10 @@ contract CofferHandlerExt is Test {
     // ══════════════════════════════════════════════════════════════════════
     function handlerValidatorWithdrawFromExecution(uint256 amount) external {
         ++callsValidatorWithdrawFromExecution;
+
+        // Frozen while defaulted (ValidatorInDefault)
+        if (ghostValidatorDefaulted) return;
+
         Vc memory vc = _readVc();
         uint256 contractBalance = address(coffer).balance;
         if (contractBalance == 0) return;
@@ -385,10 +347,7 @@ contract CofferHandlerExt is Test {
         uint128 amt;
         if (vc.outstandingBonds > 0) {
             if (vc.issueSize == 0) return;
-            uint128 reserved = coffer.totalConsensusReserved();
-            uint256 maxByBalance = contractBalance > reserved ? contractBalance - reserved : 0;
-            if (maxByBalance == 0) return;
-            uint256 maxWithdraw = vc.issueSize < maxByBalance ? vc.issueSize : maxByBalance;
+            uint256 maxWithdraw = vc.issueSize < contractBalance ? vc.issueSize : contractBalance;
             amt = uint128(bound(amount, 1, maxWithdraw));
         } else {
             amt = uint128(bound(amount, 1, contractBalance));
@@ -414,6 +373,11 @@ contract CofferHandlerExt is Test {
     function handlerValidatorWithdrawFromConsensus(uint256 amount) external {
         ++callsValidatorWithdrawFromConsensus;
 
+        // Frozen while defaulted (ValidatorInDefault) -- the security boundary: no new pending
+        // partial can ever be created post-default. Pre-default pendings still arrive later,
+        // which mirrors scenario A3 (a dust partial fired just before the flip).
+        if (ghostValidatorDefaulted) return;
+
         (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
         if (!readOk) return;
         // casting to 'uint256' is safe because feeData staticcall return fits
@@ -421,7 +385,12 @@ contract CofferHandlerExt is Test {
         uint256 fee = uint256(bytes32(feeData));
         if (validator.balance < fee) return;
 
-        uint64 amtGwei = uint64(bound(amount, 0, 10_000_000));
+        // Request up to the modeled stake, capped at 50 ETH per request
+        uint256 maxGwei = uint256(ghostConsensusBalance) / GWEI_RATE;
+        if (maxGwei > 50 gwei) maxGwei = 50 gwei; // 50 gwei of gwei-units == 50 ETH in wei
+        // casting to 'uint64' is safe because maxGwei is capped at 5e10
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint64 amtGwei = uint64(bound(amount, 0, maxGwei));
 
         vm.prank(validator);
         coffer.validatorWithdrawFromConsensus{value: fee}(amtGwei);
@@ -429,7 +398,17 @@ contract CofferHandlerExt is Test {
         // casting to 'uint128' is safe because GWEI_RATE fits in uint128
         // forge-lint: disable-next-line(unsafe-typecast)
         uint128 amtWei = uint128(amtGwei) * uint128(GWEI_RATE);
-        ghostConsensusBalance = ghostConsensusBalance > amtWei ? ghostConsensusBalance - amtWei : 0;
+        if (amtWei == 0) return;
+
+        // Move the requested stake into in-transit: it leaves the modeled consensus balance now
+        // and lands at the coffer once handlerSimulateEthArrival passes the queue delay.
+        uint128 inTransit = amtWei <= ghostConsensusBalance ? amtWei : ghostConsensusBalance;
+        ghostConsensusBalance -= inTransit;
+        if (inTransit > 0) {
+            ghostPendingWithdrawals.push(
+                PendingWithdrawal({amount: inTransit, arrivalTime: block.timestamp + EXIT_QUEUE_DELAY})
+            );
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -437,14 +416,19 @@ contract CofferHandlerExt is Test {
     // ══════════════════════════════════════════════════════════════════════
     function handlerValidatorAddFundsToConsensus(uint256 amount) external {
         ++callsValidatorAddFundsToConsensus;
+
+        // Frozen while defaulted (ValidatorInDefault)
+        if (ghostValidatorDefaulted) return;
+
         Vc memory vc = _readVc();
 
         // casting to 'uint128' is safe because bound result stays within consensus limits
         // forge-lint: disable-next-line(unsafe-typecast)
         uint128 amt = uint128(bound(amount, 1 ether, 100 ether));
+        // round down to a gwei multiple (the contract requires msg.value % 1 gwei == 0)
         // casting to 'uint128' is safe because result stays within consensus limits
-        // forge-lint: disable-next-line(unsafe-typecast)
-        amt = uint128((amt * GWEI_RATE) / GWEI_RATE);
+        // forge-lint: disable-next-line(unsafe-typecast, divide-before-multiply) floor to a gwei multiple
+        amt = uint128((amt / GWEI_RATE) * GWEI_RATE);
         if (amt < 1 ether) amt = 1 ether;
         if (validator.balance < amt) return;
 
@@ -481,6 +465,10 @@ contract CofferHandlerExt is Test {
     // ══════════════════════════════════════════════════════════════════════
     function handlerConvertToCompounding() external {
         ++callsConvertToCompounding;
+
+        // Frozen while defaulted (ValidatorInDefault)
+        if (ghostValidatorDefaulted) return;
+
         address consolidation = 0x0000BBdDc7CE488642fb579F8B00f3a590007251;
         (bool readOk, bytes memory feeData) = consolidation.staticcall("");
         if (!readOk) return;
@@ -503,7 +491,10 @@ contract CofferHandlerExt is Test {
         vm.prank(sender);
         (bool success,) = address(coffer).call{value: amt}("");
         if (!success) return;
+        // The on-chain issueSize bump still happens post-default (dead state, every consumer is
+        // frozen), so the ghost keeps mirroring it either way.
         ghostIssueSize += amt;
+        if (ghostValidatorDefaulted) ghostPoolInflowsSinceDefault += amt;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -547,8 +538,10 @@ contract CofferHandlerExt is Test {
         // Declaring a larger issueSize is the validator asserting issuance capacity that must be
         // backed by consensus-layer stake (issueSize = stake * (1 - buffer) <= stake). Model the
         // stake so cross-layer solvency reflects an honest, adequately-staked validator. We only
-        // raise (never lower) the modeled stake; a lower issueSize keeps the prior stake.
-        if (ghostConsensusBalance < newIssueSize) {
+        // raise (never lower) the modeled stake; a lower issueSize keeps the prior stake. Post
+        // default the honest-staking assumption no longer applies (deposits are frozen), so the
+        // modeled stake never grows there (C4: the recovery estate only shrinks toward the pool).
+        if (!ghostValidatorDefaulted && ghostConsensusBalance < newIssueSize) {
             ghostConsensusBalance = newIssueSize;
         }
     }
@@ -602,24 +595,113 @@ contract CofferHandlerExt is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // HANDLER: changeExitAllowed
-    // ══════════════════════════════════════════════════════════════════════
-    function handlerChangeExitAllowed() external {
-        ++callsChangeExitAllowed;
-        Vc memory vc = _readVc();
-        if (!vc.exitAllowed || vc.outstandingBonds == 0) {
-            vm.prank(validator);
-            coffer.changeExitAllowed();
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
     // HANDLER: advanceTime
     // ══════════════════════════════════════════════════════════════════════
     function handlerAdvanceTime(uint256 seconds_) external {
         ++callsAdvanceTime;
         uint256 advance = bound(seconds_, 1, 60 days);
         vm.warp(block.timestamp + advance);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // HANDLER: declareDefault
+    // ══════════════════════════════════════════════════════════════════════
+    /// @dev Anyone-callable default declaration. Strict-safe: scans the active list for a bond
+    /// that satisfies the on-chain predicate (matured AND unpayable) and only calls when one
+    /// exists, so the handler never reverts by construction.
+    function handlerDeclareDefault(uint256 idSeed) external {
+        ++callsDeclareDefault;
+
+        if (ghostValidatorDefaulted) return;
+
+        uint256 len = ghostActiveBondIds.length;
+        if (len == 0) return;
+
+        uint256 contractBalance = address(coffer).balance;
+        uint256 start = idSeed % len;
+
+        // Pick a matured, unpayable bond. If every unpayable bond is still running, model the
+        // patient adversary: warp to the earliest such maturity (same precedent as
+        // handlerAdvanceTime warping) and declare then. Without the wait, the rich test validator
+        // redeems bonds faster than they can mature unpaid and the default region goes unexplored.
+        uint256 targetBondId;
+        uint256 earliestMaturity = type(uint256).max;
+        for (uint256 i = 0; i < len; i++) {
+            uint256 bondId = ghostActiveBondIds[(start + i) % len];
+            (uint128 amount, uint32 _duration, uint32 startTimestamp) = coffer.sHolderConditions(bondId);
+
+            if (amount == 0) continue;
+            if (contractBalance >= amount) continue;
+
+            uint256 maturity = uint256(_duration) + uint256(startTimestamp);
+            // forge-lint: disable-next-line
+            if (maturity <= block.timestamp) {
+                targetBondId = bondId;
+                earliestMaturity = 0;
+                break;
+            }
+            if (maturity < earliestMaturity) {
+                earliestMaturity = maturity;
+                targetBondId = bondId;
+            }
+        }
+        if (earliestMaturity == type(uint256).max) return; // every bond is covered
+        if (earliestMaturity != 0) vm.warp(earliestMaturity + 1);
+
+        {
+            uint256 bondId = targetBondId;
+
+            // C3 evidence: if this declare succeeds although the bond was covered, record the
+            // violation instead of asserting (asserts would be masked under fail_on_revert=false)
+            (uint128 amount,,) = coffer.sHolderConditions(bondId);
+            bool coveredBeforeCall = address(coffer).balance >= amount;
+
+            vm.prank(holders[idSeed % holders.length]);
+            coffer.declareDefault(bondId);
+
+            if (coveredBeforeCall) ghostDefaultViolation = true;
+
+            ghostValidatorDefaulted = true;
+            ghostBondsAtDefault = ghostActiveBondIds.length;
+            ghostBoughtAtDefault = ghostTotalBondsBought;
+            ghostBalanceAtDefault = address(coffer).balance;
+            ghostConsensusAtDefault = ghostConsensusBalance;
+            ++ghostTotalDefaultsDeclared;
+            return;
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // HANDLER: exitValidator
+    // ══════════════════════════════════════════════════════════════════════
+    /// @dev Anyone-callable, repeatable exit request. Pays the exact fee (no surplus, keeping the
+    /// C2 ledger simple). The sweep model moves the whole remaining modeled stake into in-transit
+    /// exactly once; it lands at the coffer via handlerSimulateEthArrival after the queue delay.
+    /// Repeat calls exercise on-chain re-callability with nothing further to move.
+    function handlerExitValidator(uint256 seed) external {
+        ++callsExitValidator;
+
+        if (!ghostValidatorDefaulted) return;
+
+        (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
+        if (!readOk || feeData.length != 32) return;
+        // casting to 'uint256' is safe because feeData staticcall return fits
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint256 fee = uint256(bytes32(feeData));
+
+        address caller = holders[seed % holders.length];
+        if (caller.balance < fee) return;
+
+        vm.prank(caller);
+        coffer.exitValidator{value: fee}();
+
+        if (!ghostExitSweepQueued && ghostConsensusBalance > 0) {
+            ghostPendingWithdrawals.push(
+                PendingWithdrawal({amount: ghostConsensusBalance, arrivalTime: block.timestamp + EXIT_QUEUE_DELAY})
+            );
+            ghostConsensusBalance = 0;
+            ghostExitSweepQueued = true;
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════

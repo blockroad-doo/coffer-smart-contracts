@@ -48,7 +48,6 @@ contract VerifyFeeRecipientPullPattern is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             defaultStartingBalance
         );
         Coffer c = Coffer(payable(cofferAddr));

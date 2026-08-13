@@ -6,8 +6,11 @@ import {Coffer} from "../../src/Coffer.sol";
 
 /**
  * @title EIP7002PredeployHazardTest
- * @notice PoC verifying hypothesis EP-1: absent EIP-7002 predeploy = silent no-op
- * @dev Tests both holderWithdrawFromConsensus and validatorWithdrawFromConsensus
+ * @notice EP-1: on a chain without the EIP-7002 predeploy, staticcall("") answers (true, "") and the write
+ * call is a successful no-op. The old design burned the holder's one-shot consensus flag on that silent
+ * no-op; under serve-or-default nothing is one-shot — exitValidator fails loud on the fee-length check and
+ * stays re-callable forever, so the hazard's damage model collapses to gas.
+ * @dev Pins the A14 delta for exitValidator and the unchanged validatorWithdrawFromConsensus behavior
  */
 contract EIP7002PredeployHazardTest is BaseTest {
     address public cofferAddr;
@@ -23,42 +26,25 @@ contract EIP7002PredeployHazardTest is BaseTest {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            true, // exitAllowed = true so we can issue bonds without 32 ETH floor
             defaultStartingBalance
         );
         coffer = Coffer(payable(cofferAddr));
     }
 
     // ========================================================================
-    // PHASE 1 - ATTACKER: Demonstrate silent no-op
+    // A14 delta: codeless predeploy fails loud, burns nothing
     // ========================================================================
 
-    function test_PredeployAbsent_HolderWithdrawFromConsensus_NoOp() public {
-        // 1. Set up a bond
-        vm.prank(validator);
-        coffer.changeIssueSize(10 ether);
-
-        uint32 version = 2;
-        uint256 bondId = buyBond(cofferAddr, holder1, 5 ether, ONE_MONTH, version);
-
-        // 2. Wait for bond maturity
+    function test_PredeployAbsent_ExitValidator_FailsLoud() public {
+        // 1. Manufacture a default: buyBond forwards the principal to the validator, so the contract
+        //    holds nothing when the bond matures
+        uint256 bondId = buyBond(cofferAddr, holder1, 5 ether, ONE_MONTH, 1);
         advanceTime(ONE_MONTH + 1);
+        coffer.declareDefault(bondId);
 
-        // Record pre-state
-        (uint128 bondValueBefore,,, bool closedBefore) = coffer.sHolderConditions(bondId);
-        uint256 reservedBefore = coffer.totalConsensusReserved();
-
-        assertFalse(closedBefore, "Bond should not be closed yet");
-        assertEq(reservedBefore, 0, "totalConsensusReserved should start at 0");
-
-        // 3. Drain contract balance so cover-in-place (line 736) does NOT trigger
-        //    cover-in-place fires when: balance >= bondMaturityValue + totalConsensusReserved
-        vm.deal(cofferAddr, 0);
-
-        // 4. Remove EIP-7002 predeploy code (simulate absent predeploy)
+        // 2. Remove EIP-7002 predeploy code (simulate absent predeploy)
         vm.etch(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, hex"");
 
-        // Verify predeploy code is gone
         uint256 codeSizeBefore;
         address predeploy = WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS;
         assembly {
@@ -66,29 +52,18 @@ contract EIP7002PredeployHazardTest is BaseTest {
         }
         assertEq(codeSizeBefore, 0, "Predeploy code must be absent");
 
-        // 5. Call holderWithdrawFromConsensus with 0 msg.value
-        //    staticcall("") returns (true, "") when no code at address
-        //    bytes32("") = 0 -> fee = 0 -> require(0 <= 0) passes
-        vm.prank(holder1);
-        coffer.holderWithdrawFromConsensus{value: 0}(bondId);
+        // 3. A codeless predeploy answers staticcall("") with (true, ""). The old design decoded that to
+        //    fee 0 and burned the holder's one-shot flag on a silent no-op; exitValidator's
+        //    feeData.length == 32 check fails loud instead.
+        vm.expectRevert(abi.encodeWithSignature("WithdrawalContractCallFailed()"));
+        coffer.exitValidator{value: 0}();
 
-        // 6. Verify bond marked closed despite no actual withdrawal
-        (uint128 bondValueAfter,,, bool closedAfter) = coffer.sHolderConditions(bondId);
-        uint256 reservedAfter = coffer.totalConsensusReserved();
+        // 4. Nothing was burned: the default stands and the call stays repeatable forever
+        (,,,,,,,,, bool defaulted) = coffer.sValidatorConditions();
+        assertTrue(defaulted, "default flag untouched by the failed exit request");
 
-        assertTrue(closedAfter, "consensusWithdrawClosed = true (DEFENDER LOST)");
-        assertEq(bondValueAfter, bondValueBefore, "Bond value unchanged (no actual withdrawal)");
-        assertGt(reservedAfter, reservedBefore, "totalConsensusReserved increased (DEFENDER LOST)");
-
-        // 7. Verify that calling again reverts (bond permanently closed)
-        vm.prank(holder1);
-        vm.expectRevert(abi.encodeWithSignature("ConsensusWithdrawAlreadyClosed()"));
-        coffer.holderWithdrawFromConsensus{value: 0}(bondId);
-
-        // 8. Verify holder CANNOT recover through holderWithdrawFromExecution
-        vm.prank(holder1);
-        vm.expectRevert(abi.encodeWithSignature("ContractBalanceLessThanValue()"));
-        coffer.holderWithdrawFromExecution(bondId);
+        vm.expectRevert(abi.encodeWithSignature("WithdrawalContractCallFailed()"));
+        coffer.exitValidator{value: 0}();
     }
 
     function test_PredeployAbsent_ValidatorWithdrawFromConsensus_NoOp() public {
@@ -115,15 +90,11 @@ contract EIP7002PredeployHazardTest is BaseTest {
         assertEq(balanceAfter, balanceBefore, "Balance unchanged - no withdrawal occurred (DEFENDER LOST)");
     }
 
-    function test_PredeployPresent_WorksNormally() public {
-        // CONTROL: With predeploy present, everything works
-        vm.prank(validator);
-        coffer.changeIssueSize(10 ether);
-
-        uint32 version = 2;
-        uint256 bondId = buyBond(cofferAddr, holder1, 5 ether, ONE_MONTH, version);
-
+    function test_PredeployPresent_ExitValidator_WorksNormally() public {
+        // CONTROL: with the predeploy present, a defaulted coffer's exit request enqueues normally
+        uint256 bondId = buyBond(cofferAddr, holder1, 5 ether, ONE_MONTH, 1);
         advanceTime(ONE_MONTH + 1);
+        coffer.declareDefault(bondId);
 
         // Predeploy IS present (mock deployed in setUp)
         address predeploy = WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS;
@@ -133,14 +104,13 @@ contract EIP7002PredeployHazardTest is BaseTest {
         }
         assertGt(codeSize, 0, "Predeploy must have code");
 
-        // Get current fee
         uint256 fee = getWithdrawalFee();
 
-        // With predeploy present, the call should work
-        vm.prank(holder1);
-        coffer.holderWithdrawFromConsensus{value: fee}(bondId);
+        vm.expectEmit(true, false, false, true, cofferAddr);
+        emit Coffer.ValidatorExitRequested(address(this));
+        coffer.exitValidator{value: fee}();
 
-        (,,, bool closedAfter) = coffer.sHolderConditions(bondId);
-        assertTrue(closedAfter, "Bond should be closed normally with predeploy");
+        (, uint256 count,,) = getQueueState();
+        assertEq(count, 1, "exit request enqueued at the predeploy");
     }
 }

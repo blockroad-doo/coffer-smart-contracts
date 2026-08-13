@@ -54,7 +54,7 @@ contract VerifyVersionPhantomTest is BaseTest {
         vm.stopPrank();
 
         assertEq(bondId, 1);
-        (uint128 bondMaturityValue,,,) = coffer.sHolderConditions(bondId);
+        (uint128 bondMaturityValue,,) = coffer.sHolderConditions(bondId);
         assertGt(bondMaturityValue, 0, "Bond should have non-zero maturity value");
     }
 
@@ -78,12 +78,10 @@ contract VerifyVersionPhantomTest is BaseTest {
         assertEq(bondNft.cofferOf(phantomBondId), cofferAddr);
 
         // But sHolderConditions is all zeros (no entry was created in buyBond)
-        (uint128 bondMaturityValue, uint32 duration, uint32 startTimestamp, bool consensusClosed) =
-            coffer.sHolderConditions(phantomBondId);
+        (uint128 bondMaturityValue, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(phantomBondId);
         assertEq(bondMaturityValue, 0, "Phantom bond maturity value should be 0");
         assertEq(duration, 0, "Phantom bond duration should be 0");
         assertEq(startTimestamp, 0, "Phantom bond startTimestamp should be 0");
-        assertEq(consensusClosed, false);
     }
 
     function test_V6_PhantomBond_HolderWithdrawFromExecutionReverts() public {
@@ -99,22 +97,6 @@ contract VerifyVersionPhantomTest is BaseTest {
         bytes memory err = abi.encodeWithSelector(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
         vm.expectRevert(err);
         coffer.holderWithdrawFromExecution(phantomBondId);
-        vm.stopPrank();
-    }
-
-    function test_V6_PhantomBond_HolderWithdrawFromConsensusReverts() public {
-        // Create phantom bond
-        vm.prank(cofferAddr);
-        uint256 phantomBondId = bondNft.mintCofferBond(holder1);
-
-        // Advance time
-        vm.warp(block.timestamp + ONE_YEAR);
-
-        // Holder tries to withdraw from consensus -- should revert
-        vm.startPrank(holder1);
-        bytes memory err = abi.encodeWithSelector(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
-        vm.expectRevert(err);
-        coffer.holderWithdrawFromConsensus{value: 1 ether}(phantomBondId);
         vm.stopPrank();
     }
 

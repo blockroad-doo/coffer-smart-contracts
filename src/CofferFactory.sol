@@ -46,7 +46,6 @@ contract CofferFactory {
     /// @param maximumDuration Maximum bond duration in seconds
     /// @param minimumValueToAccept Minimum value a holder must deposit
     /// @param issueSizeBufferBps Conservatism buffer applied to the starting balance. 1% = 100
-    /// @param exitAllowed Whether holders can initiate validator exits
     /// @param issueSize The initial issueSize derived by initialize (buffer-scaled starting balance)
     event CofferIssued(
         address indexed owner,
@@ -58,7 +57,6 @@ contract CofferFactory {
         uint32 maximumDuration,
         uint128 minimumValueToAccept,
         uint16 issueSizeBufferBps,
-        bool exitAllowed,
         uint128 issueSize
     );
 
@@ -91,7 +89,6 @@ contract CofferFactory {
     /// (BUFFER_DENOMINATOR - _issueSizeBufferBps) / BUFFER_DENOMINATOR to derive issueSize. 1% = 100.
     /// A higher value means more conservative provisioning (smaller issueSize). Holders must assess whether
     /// the chosen buffer is adequate for the bond durations offered.
-    /// @param _exitAllowed Whether holders can initiate validator exits
     /// @param _startingBalance Validator's starting balance used to seed the initial issueSize
     /// @return The address of the newly deployed Coffer contract
     function createCoffer(
@@ -102,7 +99,6 @@ contract CofferFactory {
         uint32 _maximumDuration,
         uint128 _minimumValueToAccept,
         uint16 _issueSizeBufferBps,
-        bool _exitAllowed,
         uint128 _startingBalance
     ) external returns (address) {
         require(_minimumDuration != 0, InvalidDuration());
@@ -117,19 +113,17 @@ contract CofferFactory {
         require(_issueSizeBufferBps < BUFFER_DENOMINATOR, InvalidIssueSizeBufferBps());
         require(_startingBalance != 0, InvalidStartingBalance());
 
+        // minimumValueToAccept must not exceed the buffer-scaled starting balance (the initial issueSize)
+        uint256 maxMinimumValueToAccept =
+            uint256(_startingBalance) * (BUFFER_DENOMINATOR - _issueSizeBufferBps) / BUFFER_DENOMINATOR;
+
         require(_minimumValueToAccept != 0, InvalidMinimumValueToAccept());
-        // minimumValueToAccept must not exceed the buffer-scaled starting balance (the initial issueSize).
-        // Inlined rather than held in a local: the 11-argument CofferIssued emit below needs the stack room.
-        require(
-            // solhint-disable-next-line gas-strict-inequalities
-            _minimumValueToAccept
-                <= uint256(_startingBalance) * (BUFFER_DENOMINATOR - _issueSizeBufferBps) / BUFFER_DENOMINATOR,
-            InvalidMinimumValueToAccept()
-        );
+        // solhint-disable-next-line gas-strict-inequalities
+        require(_minimumValueToAccept <= maxMinimumValueToAccept, InvalidMinimumValueToAccept());
 
         // Deploy deterministic clone with immutable args (CREATE2). Scoped so the CWIA
         // data and salt are released before the emit — legacy codegen holds locals to
-        // function end, and the 11-argument event would otherwise go stack-too-deep.
+        // function end, and the 10-argument event would otherwise go stack-too-deep.
         address clone;
         {
             bytes memory data = _packCwiaData(_publicKeyPart1, _publicKeyPart2);
@@ -146,7 +140,6 @@ contract CofferFactory {
                 _maximumDuration,
                 _minimumValueToAccept,
                 _issueSizeBufferBps,
-                _exitAllowed,
                 _startingBalance
             );
 
@@ -162,7 +155,6 @@ contract CofferFactory {
             _maximumDuration,
             _minimumValueToAccept,
             _issueSizeBufferBps,
-            _exitAllowed,
             issueSize
         );
 

@@ -98,7 +98,6 @@ abstract contract BaseTest is Test {
     uint32 public defaultMaxDuration = ONE_YEAR;
     uint128 public defaultMinimumAmount = 1 ether;
     uint16 public defaultIssueSizeBufferBps = 250; // 2.5% (1% = 100, denominator = 10000)
-    bool public defaultExitAllowed = false;
     uint128 public defaultStartingBalance = 32 ether;
 
     // ========================================
@@ -140,7 +139,6 @@ abstract contract BaseTest is Test {
             defaultMaxDuration,
             defaultMinimumAmount,
             defaultIssueSizeBufferBps,
-            defaultExitAllowed,
             defaultStartingBalance
         );
     }
@@ -153,8 +151,7 @@ abstract contract BaseTest is Test {
         uint32 minDuration,
         uint32 maxDuration,
         uint128 minimumAmount,
-        uint16 issueSizeBufferBps,
-        bool exitAllowed
+        uint16 issueSizeBufferBps
     ) public returns (address) {
         return createCoffer(
             owner,
@@ -165,7 +162,6 @@ abstract contract BaseTest is Test {
             maxDuration,
             minimumAmount,
             issueSizeBufferBps,
-            exitAllowed,
             defaultStartingBalance
         );
     }
@@ -179,7 +175,6 @@ abstract contract BaseTest is Test {
         uint32 maxDuration,
         uint128 minimumAmount,
         uint16 issueSizeBufferBps,
-        bool exitAllowed,
         uint128 startingBalance
     ) public returns (address) {
         address predicted = factory.predictCofferAddress(owner, pubKeyPart1, pubKeyPart2);
@@ -192,7 +187,6 @@ abstract contract BaseTest is Test {
             maxDuration,
             minimumAmount,
             issueSizeBufferBps,
-            exitAllowed,
             startingBalance
         );
         return predicted;
@@ -286,7 +280,7 @@ abstract contract BaseTest is Test {
             uint32 outstandingBonds,
             uint16 issueSizeBufferBps,
             bool isActive,
-            bool exitAllowed
+            bool validatorDefaulted
         ) = targetCoffer.sValidatorConditions();
 
         assertEq(issueSize, expectedIssueSize, "Issue size mismatch");
@@ -298,7 +292,7 @@ abstract contract BaseTest is Test {
         public
     {
         Coffer targetCoffer = Coffer(payable(cofferAddr));
-        (uint128 amount, uint64 duration, uint64 startTimestamp,) = targetCoffer.sHolderConditions(bondId);
+        (uint128 amount, uint64 duration, uint64 startTimestamp) = targetCoffer.sHolderConditions(bondId);
 
         assertEq(amount, expectedAmount, "Holder amount mismatch");
         assertEq(duration, expectedDuration, "Holder duration mismatch");
@@ -487,7 +481,6 @@ interface CofferFactoryEvents {
         uint32 maximumDuration,
         uint128 minimumValueToAccept,
         uint16 issueSizeBufferBps,
-        bool exitAllowed,
         uint128 issueSize
     );
 }
@@ -509,17 +502,14 @@ interface CofferEvents {
         uint128 valueWithdrawn,
         uint128 remainingBondMaturityValue
     );
-    event HolderWithdrawFromConsensusClosed(
-        address indexed holderAddress, uint256 indexed bondId, uint128 value, bool indexed isFullExit
-    );
     event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId);
     event ValidatorWithdrawFromExecution(uint128 indexed amount);
     event ValidatorWithdrawFromConsensus(uint128 indexed amount);
     event ValidatorFundsAdded(uint128 indexed amount);
     event CofferActivated();
     event CofferDeactivated();
-    event CofferAllowsHolderToExit();
-    event CofferForbidsHolderToExit();
+    event ValidatorDefaulted(uint256 indexed bondId, address indexed caller);
+    event ValidatorExitRequested(address indexed caller);
     event InterestRateChanged(uint32 indexed oldRate, uint32 indexed newRate);
     event DurationRangeChanged(uint32 indexed minimumDuration, uint32 indexed maximumDuration);
     event IssueSizeChanged(uint128 indexed newIssueSize);

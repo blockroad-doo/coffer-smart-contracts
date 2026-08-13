@@ -6,15 +6,15 @@ import {Coffer} from "../../src/Coffer.sol";
 
 contract GasComparisonTest is BaseTest {
     address public cofferAddr;
-    address public cofferAddrExit;
+    address public cofferAddrSecond;
 
     function setUp() public override {
         super.setUp();
         cofferAddr = createDefaultCoffer();
         coffer = Coffer(payable(cofferAddr));
 
-        // Create a second coffer with exitAllowed = true (different pubkey for CREATE2 uniqueness)
-        cofferAddrExit = createCoffer(
+        // Create a second coffer (different pubkey for CREATE2 uniqueness)
+        cofferAddrSecond = createCoffer(
             validator,
             bytes32(uint256(10)),
             bytes16(uint128(20)),
@@ -22,8 +22,7 @@ contract GasComparisonTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            true
+            defaultIssueSizeBufferBps
         );
 
         // Setup: set issueSize so we can buy bonds
@@ -41,8 +40,7 @@ contract GasComparisonTest is BaseTest {
             defaultMinDuration,
             defaultMaxDuration,
             defaultMinimumAmount,
-            defaultIssueSizeBufferBps,
-            false
+            defaultIssueSizeBufferBps
         );
         uint256 gasUsed = gasBefore - gasleft();
         emit log_named_uint("createCoffer", gasUsed);
