@@ -110,6 +110,12 @@ contract CofferInvariantExtTest is BaseTest {
     // ══════════════════════════════════════════════════════════════════════
     // INVARIANT 6: CROSS-LAYER SOLVENCY
     // ghost issueSize + sum(bondMaturityValues) <= consensusBalance + balance
+    // On-chain this is the README's Cross-Layer Solvency Condition, not an
+    // invariant: consensus penalties can shrink the right side with no contract
+    // transition. It IS a true invariant of this model, because the model
+    // excludes penalties by construction (the honest-staking device raises the
+    // modeled stake to back every capacity assertion), so the condition's
+    // environmental assumption always holds here.
     // ══════════════════════════════════════════════════════════════════════
 
     function invariant_crossLayerSolvency() public view {
@@ -292,9 +298,9 @@ contract CofferInvariantExtTest is BaseTest {
         assertEq(validatorDefaulted, handler.ghostValidatorDefaulted(), "on-chain default flag must mirror the ghost");
     }
 
-    /// @dev C3: a solvent validator can never be defaulted. The handler records a violation if a
+    /// @dev C3: a covered bond can never trigger a default. The handler records a violation if a
     /// declare ever succeeded while the bond was covered.
-    function invariant_solventValidatorNeverDefaulted() public view {
+    function invariant_coveredBondNeverDefaulted() public view {
         assertFalse(handler.ghostDefaultViolation(), "declareDefault must never succeed against a covered bond");
     }
 

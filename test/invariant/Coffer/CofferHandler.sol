@@ -37,7 +37,7 @@ contract CofferHandler is Test {
     bool public ghostValidatorDefaulted;
     // Set if a declare ever SUCCEEDS while the pre-call balance covered the bond. Handler-side
     // asserts would be masked under fail_on_revert = false, so violations are recorded here and
-    // asserted by invariant_solventValidatorNeverDefaulted (C3).
+    // asserted by invariant_coveredBondNeverDefaulted (C3).
     bool public ghostDefaultViolation;
     // Epoch snapshots, re-baselined at every default flip (C8: the bond set only shrinks while
     // the epoch is open).

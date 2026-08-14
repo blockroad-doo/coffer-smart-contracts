@@ -153,9 +153,9 @@ contract CofferInvariantTest is BaseTest {
         assertEq(validatorDefaulted, handler.ghostValidatorDefaulted(), "on-chain default flag must mirror the ghost");
     }
 
-    /// @dev C3: a solvent validator can never be defaulted. The handler records a violation if a
+    /// @dev C3: a covered bond can never trigger a default. The handler records a violation if a
     /// declare ever succeeded while the bond was covered.
-    function invariant_solventValidatorNeverDefaulted() public view {
+    function invariant_coveredBondNeverDefaulted() public view {
         assertFalse(handler.ghostDefaultViolation(), "declareDefault must never succeed against a covered bond");
     }
 
