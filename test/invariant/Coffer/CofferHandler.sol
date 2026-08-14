@@ -32,16 +32,19 @@ contract CofferHandler is Test {
     uint256 public ghostTotalBondsWithdrawnExecution;
 
     // ── Ghost state: default machine ───────────────────────────────────────
-    // Latched true by handlerDeclareDefault on a successful declare, never unset (C1 mirror).
+    // Mirrors the on-chain flag both ways: set by handlerDeclareDefault on a successful declare,
+    // cleared by handlerClearDefault on a successful clear (C1 mirror).
     bool public ghostValidatorDefaulted;
     // Set if a declare ever SUCCEEDS while the pre-call balance covered the bond. Handler-side
     // asserts would be masked under fail_on_revert = false, so violations are recorded here and
     // asserted by invariant_solventValidatorNeverDefaulted (C3).
     bool public ghostDefaultViolation;
-    // Snapshots taken at the default flip (C8: the bond set only shrinks afterwards).
+    // Epoch snapshots, re-baselined at every default flip (C8: the bond set only shrinks while
+    // the epoch is open).
     uint256 public ghostBondsAtDefault;
     uint256 public ghostBoughtAtDefault;
     uint256 public ghostTotalDefaultsDeclared;
+    uint256 public ghostTotalDefaultsCleared;
 
     // ── Per-function call counters ─────────────────────────────────────────
     uint256 public callsBuyBond;
@@ -55,6 +58,7 @@ contract CofferHandler is Test {
     uint256 public callsAdvanceTime;
     uint256 public callsSendEthToCoffer;
     uint256 public callsDeclareDefault;
+    uint256 public callsClearDefault;
 
     // ── Constructor ────────────────────────────────────────────────────────
     constructor(Coffer _coffer, FeeCurve _feeCurve) {
@@ -459,6 +463,24 @@ contract CofferHandler is Test {
             ++ghostTotalDefaultsDeclared;
             return;
         }
+    }
+
+    /// @dev Owner-only exit from a default, callable exactly when every bond has settled at its
+    /// full maturity value. Strict-safe: pre-checks the flag and the on-chain outstandingBonds
+    /// gate, so the handler never reverts by construction. The next declare re-baselines the
+    /// epoch snapshots.
+    function handlerClearDefault(uint256) external {
+        ++callsClearDefault;
+
+        if (!ghostValidatorDefaulted) return;
+        (,,,,,, uint32 outstandingBonds,,,) = coffer.sValidatorConditions();
+        if (outstandingBonds != 0) return;
+
+        vm.prank(validator);
+        coffer.clearDefault();
+
+        ghostValidatorDefaulted = false;
+        ++ghostTotalDefaultsCleared;
     }
 
     // ══════════════════════════════════════════════════════════════════════

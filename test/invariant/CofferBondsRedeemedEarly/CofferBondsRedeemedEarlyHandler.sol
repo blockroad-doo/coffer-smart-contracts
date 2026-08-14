@@ -100,8 +100,12 @@ contract CofferBondsRedeemedEarlyHandler is Test {
         if (ghostHasActiveClaim[actor]) return;
 
         vm.prank(actor);
-        // Will revert with NoPendingClaim(): absorbed by fail_on_revert = false
-        escrow.claim(payable(actor));
+        // Absorb the expected NoPendingClaim() revert so the strict
+        // profile (fail_on_revert = true) stays green
+        try escrow.claim(payable(actor)) {
+        // Unexpected success: nothing to record
+        }
+            catch {}
     }
 
     function handlerDepositInvalid(uint256 actorSeed) external {
@@ -117,8 +121,12 @@ contract CofferBondsRedeemedEarlyHandler is Test {
         amounts[0] = 1 ether;
 
         vm.prank(depositor);
-        // Will revert with DepositArrayLengthMismatch(): absorbed by fail_on_revert = false
-        escrow.deposit{value: 1 ether}(holders, amounts);
+        // Absorb the expected DepositArrayLengthMismatch() revert so the strict
+        // profile (fail_on_revert = true) stays green
+        try escrow.deposit{value: 1 ether}(holders, amounts) {
+        // Unexpected success: nothing to record
+        }
+            catch {}
     }
 
     // View helpers

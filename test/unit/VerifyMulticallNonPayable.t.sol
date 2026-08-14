@@ -139,7 +139,7 @@ contract VerifyMulticallNonPayable is BaseTest {
         assertEq(ret.length, 0, "bare non-payable dispatcher revert, no reason string");
 
         // POSITIVE CONTROL: the identical bytes at value 0 pass the dispatcher and reach buyBond, whose
-        // first failing guard is `msg.value >= minimumValueToAccept` (src/Coffer.sol:373; 0 < 1 ether).
+        // first failing guard is `msg.value >= minimumValueToAccept` (src/Coffer.sol:371; 0 < 1 ether).
         // Address.functionDelegateCall bubbles that custom error verbatim via LowLevelCall.bubbleRevert
         // (Errors.FailedCall is used only when returndata is empty), so non-empty ValueTooSmallToAccept
         // data here proves `callData` is a well-formed multicall(bytes[]) whose subcalls hit buyBond.

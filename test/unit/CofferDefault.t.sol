@@ -4,12 +4,14 @@ pragma solidity 0.8.34;
 import {BaseTest, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS} from "./BaseTest.sol";
 import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
 import {Coffer} from "../../src/Coffer.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title CofferDefaultTest
- * @notice Serve-or-default state machine: declareDefault predicate matrix, irreversibility, the five
- * ValidatorInDefault freezes, acceleration (maturity waiver, FCFS, partial payouts), and exitValidator
- * (gating, 56-byte full-exit payload, fee handling, permanent re-callability)
+ * @notice Serve-or-default state machine: declareDefault predicate matrix, the five ValidatorInDefault
+ * freezes, acceleration (maturity waiver, FCFS, partial payouts), exitValidator (gating, 56-byte
+ * full-exit payload, fee handling, re-callability while bonds are outstanding), and clearDefault
+ * (the settlement-gated exit from a default)
  * @dev Scenario walkthroughs A1 (cure at the door), A2 (top-up/re-extract yo-yo), and A8 (pre-default
  * mint ordering) from docs/fixing-frontruning-partial-withdraws.md are pinned at the bottom
  */
@@ -37,6 +39,20 @@ contract CofferDefaultTest is BaseTest {
 
     function _isDefaulted() internal view returns (bool defaulted) {
         (,,,,,,,,, defaulted) = coffer.sValidatorConditions();
+    }
+
+    function _version() internal view returns (uint32 version) {
+        (,,,,, version,,,,) = coffer.sValidatorConditions();
+    }
+
+    /// @dev Drives the coffer into the settle-to-clear window: defaulted with every bond settled at
+    ///      its full maturity value, so outstandingBonds == 0 while the flag still stands
+    function _defaultAndSettleAllBonds() internal {
+        (uint256 bondId, uint128 bmv) = _maturedUnpaidBond();
+        coffer.declareDefault(bondId);
+        vm.deal(cofferAddr, bmv);
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
     }
 
     // ========================================
@@ -345,17 +361,157 @@ contract CofferDefaultTest is BaseTest {
         coffer.exitValidator{value: fee}();
     }
 
-    function test_ExitValidator_RecallableForever_EachCallEnqueues() public {
+    function test_ExitValidator_RecallableWhileBondsOutstanding_EachCallEnqueues() public {
         (uint256 bondId,) = _maturedUnpaidBond();
         coffer.declareDefault(bondId);
 
         // A CL-side drop is off-chain silence — the EL predeploy accepts repeat requests, so
-        // re-calling after a dropped request just enqueues again. Nothing is one-shot.
+        // re-calling after a dropped request just enqueues again. Retries stay open for as long
+        // as any bond is outstanding.
         coffer.exitValidator{value: getWithdrawalFee()}();
         coffer.exitValidator{value: getWithdrawalFee()}();
 
         (, uint256 count,,) = getQueueState();
         assertEq(count, 2, "every retry lands a fresh request");
+    }
+
+    function test_ExitValidator_RevertsIfNoOutstandingBonds() public {
+        _defaultAndSettleAllBonds();
+
+        // The settle-to-clear window: nothing is left to recover, so the exit weapon disarms and a
+        // griefer cannot front-run the owner's clearDefault with a last exit request
+        vm.expectRevert(Coffer.NoOutstandingBonds.selector);
+        coffer.exitValidator{value: 1 ether}();
+    }
+
+    // ========================================
+    // clearDefault: the settlement-gated exit from a default
+    // ========================================
+
+    function test_ClearDefault_RevertsIfNotDefaulted() public {
+        vm.prank(validator);
+        vm.expectRevert(Coffer.ValidatorNotInDefault.selector);
+        coffer.clearDefault();
+    }
+
+    function test_ClearDefault_RevertsIfBondsOutstanding() public {
+        (uint256 bondId,) = _maturedUnpaidBond();
+        coffer.declareDefault(bondId);
+
+        vm.prank(validator);
+        vm.expectRevert(Coffer.OutstandingBondsExist.selector);
+        coffer.clearDefault();
+    }
+
+    function test_ClearDefault_RevertsIfNotOwner() public {
+        _defaultAndSettleAllBonds();
+
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));
+        coffer.clearDefault();
+    }
+
+    function test_ClearDefault_ClearsFlagBumpsVersionAndEmits() public {
+        _defaultAndSettleAllBonds();
+        uint32 versionBefore = _version();
+
+        vm.expectEmit(true, false, false, true, cofferAddr);
+        emit Coffer.VersionChanged(versionBefore + 1);
+        vm.expectEmit(false, false, false, true, cofferAddr);
+        emit Coffer.ValidatorDefaultCleared();
+        vm.prank(validator);
+        coffer.clearDefault();
+
+        assertFalse(_isDefaulted(), "flag cleared");
+        assertEq(_version(), versionBefore + 1, "version bumped exactly once");
+    }
+
+    function test_ClearDefault_UnfreezesValidatorFunctions() public {
+        _defaultAndSettleAllBonds();
+        vm.prank(validator);
+        coffer.clearDefault();
+
+        // Surplus leaves through the normal zero-bond branch of validatorWithdrawFromExecution
+        vm.deal(cofferAddr, 3 ether);
+        uint256 balBefore = validator.balance;
+        vm.prank(validator);
+        coffer.validatorWithdrawFromExecution(3 ether);
+        assertEq(validator.balance, balBefore + 3 ether, "surplus recovered post-clear");
+
+        // Consensus-side functions no longer revert ValidatorInDefault
+        vm.prank(validator);
+        coffer.validatorWithdrawFromConsensus{value: 1 ether}(1);
+
+        // Bond sales reopen at the current version
+        uint256 bondId = buyBond(cofferAddr, holder2, 5 ether, ONE_MONTH, _version());
+        (uint128 bmv,,) = coffer.sHolderConditions(bondId);
+        assertGt(bmv, 0, "new epoch bond minted");
+    }
+
+    function test_ClearDefault_StaleVersionBuyBondReverts() public {
+        uint32 preDefaultVersion = _version();
+        _defaultAndSettleAllBonds();
+        vm.prank(validator);
+        coffer.clearDefault();
+
+        // A buyBond broadcast before the default cannot land against the cleared coffer
+        vm.prank(holder2);
+        vm.expectRevert(Coffer.ValidatorConditionsVersionMismatch.selector);
+        coffer.buyBond{value: 5 ether}(ONE_MONTH, preDefaultVersion);
+    }
+
+    /// @dev The full lifecycle: default, settle every bond at full maturity value, clear, re-attest
+    ///      issueSize, sell into the new epoch, and the default machine re-arms
+    function test_Scenario_FullCycle_DefaultSettleClearResellRedefault() public {
+        _defaultAndSettleAllBonds();
+
+        vm.prank(validator);
+        coffer.clearDefault();
+        assertFalse(_isDefaulted(), "first epoch closed");
+
+        // Re-attest capacity for the new epoch (changeIssueSize bumps the version again)
+        vm.prank(validator);
+        coffer.changeIssueSize(20 ether);
+        uint256 bondId = buyBond(cofferAddr, holder2, 5 ether, ONE_MONTH, _version());
+
+        // The new bond matures unpaid: the machine re-arms exactly as on a fresh coffer
+        advanceTime(ONE_MONTH + 1);
+        assertEq(cofferAddr.balance, 0, "principal forwarded, bond unpayable");
+        coffer.declareDefault(bondId);
+        assertTrue(_isDefaulted(), "second epoch opened");
+    }
+
+    /// @dev Settlement via the escrow path: redeemBondsEarly drops outstandingBonds to zero while the
+    ///      holder's claim is still pending in CofferBondsRedeemedEarly. Pins the cure gate's
+    ///      definition of "paid in full" — escrowed at full maturity value counts — and that a
+    ///      pending escrow claim survives the clear untouched.
+    function test_ClearDefault_AfterEscrowSettlement_EscrowClaimStillPays() public {
+        (uint256 bondId, uint128 bmv) = _maturedUnpaidBond();
+        coffer.declareDefault(bondId);
+        assertTrue(_isDefaulted(), "default declared");
+
+        // The validator funds the shortfall via msg.value and settles through the escrow path
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = bondId;
+        vm.prank(validator);
+        coffer.redeemBondsEarly{value: bmv}(ids);
+
+        (,,,,,, uint32 outstanding,,,) = coffer.sValidatorConditions();
+        assertEq(outstanding, 0, "settlement reached through the escrow path");
+        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), bmv, "full maturity value escrowed");
+
+        // The settle-to-clear window is open despite the pending claim
+        vm.prank(validator);
+        coffer.clearDefault();
+        assertFalse(_isDefaulted(), "default cleared on escrow settlement");
+
+        // The pending escrow claim is unaffected and pays in full
+        uint256 balBefore = holder1.balance;
+        vm.prank(holder1);
+        bondsRedeemedEarly.claim(payable(holder1));
+        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), 0, "claim consumed");
+        assertEq(holder1.balance, balBefore + bmv, "escrow paid the full maturity value");
     }
 
     // ========================================
@@ -378,7 +534,7 @@ contract CofferDefaultTest is BaseTest {
     // ========================================
 
     /// @dev A2: the top-up/re-extract yo-yo is bounded — each dodge re-arms declareDefault, and one
-    ///      slip ends the game permanently
+    ///      slip freezes the validator until every bond is paid in full
     function test_Scenario_A2_TopUpReExtractYoYo_OneSlipEndsIt() public {
         (uint256 bondId, uint128 bmv) = _maturedUnpaidBond();
 
@@ -397,11 +553,19 @@ contract CofferDefaultTest is BaseTest {
         coffer.declareDefault(bondId);
         assertTrue(_isDefaulted());
 
-        // Permanently: no further extraction, ever
+        // While the default stands: no extraction
         vm.deal(cofferAddr, bmv);
         vm.prank(validator);
         vm.expectRevert(Coffer.ValidatorInDefault.selector);
         coffer.validatorWithdrawFromExecution(bmv);
+
+        // The only exit is full payment: the holder collects, then the validator clears the default and the
+        // yo-yo may start again in a fresh epoch
+        vm.prank(holder1);
+        coffer.holderWithdrawFromExecution(bondId);
+        vm.prank(validator);
+        coffer.clearDefault();
+        assertFalse(_isDefaulted(), "full payment discharged the default");
     }
 
     /// @dev A6: aggregate-insolvent but per-bond-covered is not a deadlock. With the balance
@@ -455,9 +619,11 @@ contract CofferDefaultTest is BaseTest {
         assertEq(holder3.balance, balBefore + bmv, "claim follows the NFT owner");
     }
 
-    /// @dev A22: Ownable2Step stays live during default. The owner role carries only payment
-    ///      powers, so transferring it (e.g. to a rescuer settling via escrow) is harmless.
-    function test_Defaulted_OwnershipTransferCarriesOnlyPaymentPowers() public {
+    /// @dev A22: Ownable2Step stays live during default. The owner role carries the payment powers
+    ///      and the clear power, so a transferee (e.g. a rescuer) can settle every holder via
+    ///      escrow and then clear the default. The extraction freezes bind the new owner while the
+    ///      default stands, exactly as they bound the old one.
+    function test_Defaulted_OwnershipTransferCarriesPaymentAndClearPowers() public {
         (uint256 bondId, uint128 bmv) = _maturedUnpaidBond();
         coffer.declareDefault(bondId);
 
@@ -481,6 +647,11 @@ contract CofferDefaultTest is BaseTest {
         vm.prank(rescuer);
         coffer.redeemBondsEarly{value: bmv}(ids);
         assertEq(bondsRedeemedEarly.sPendingClaims(holder1), bmv, "rescuer settled the holder in full");
+
+        // Settlement zeroed outstandingBonds, so the clear power is live for the new owner
+        vm.prank(rescuer);
+        coffer.clearDefault();
+        assertFalse(_isDefaulted(), "rescuer cleared the default after settling in full");
     }
 
     /// @dev A24: maturity arithmetic is widened to uint256, so a maturity past the uint32

@@ -41,6 +41,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     error AlreadyDefaulted();
     error ValidatorNotInDefault();
     error ValidatorNotDefaultable();
+    error NoOutstandingBonds();
+    error OutstandingBondsExist();
 
     error HolderDoesNotExistOrAlreadyWithdrawnValue();
     error HoldersTimeHasNotExpiredYet();
@@ -74,11 +76,11 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// issueSize). Can always be increased and can be decreased only when no unmatured bonds exist.
     /// @param outstandingBonds - Counter for bonds not redeemed yet. Those bonds may or may not have matured.
     /// @param isActive - Represents if validator is willing to issue a bond or not. Can switch on/off at own will.
-    /// @param validatorDefaulted - Set once, by declareDefault, when a matured bond cannot be paid from the
-    /// contract balance. Irreversible: no code path writes it back to false. While set, bond sales and every
-    /// validator extraction path revert with ValidatorInDefault, all bonds accelerate to claimable at full
-    /// maturity value via holderWithdrawFromExecution, and anyone can request the validator's full exit via
-    /// exitValidator. See README "Exit Mechanics".
+    /// @param validatorDefaulted - Set by declareDefault when a matured bond cannot be paid from the contract
+    /// balance. Cleared only by clearDefault, by the owner, once outstandingBonds == 0. While set, bond sales
+    /// and every validator extraction path revert with ValidatorInDefault, all bonds accelerate to claimable at
+    /// full maturity value via holderWithdrawFromExecution, and anyone can request the validator's full exit via
+    /// exitValidator while any bond is outstanding. See README "Exit Mechanics".
 
     struct ValidatorConditions {
         uint128 issueSize;
@@ -185,6 +187,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Emitted on every exitValidator call, retries included
     /// @param caller The address that requested the exit
     event ValidatorExitRequested(address indexed caller);
+    /// @notice Emitted when the validator clears the default after settling every bond in full
+    event ValidatorDefaultCleared();
     /// @notice Emitted when interest rate changes
     /// @param oldRate The previous interest rate
     /// @param newRate The new interest rate
@@ -316,8 +320,11 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Topping up the balance is how a validator serves bonds from the execution layer, and how an
     /// imminent default is cured: while the ETH sits here, matured bonds are claimable in full via
     /// holderWithdrawFromExecution and declareDefault's predicate fails. The function stays open after a default
-    /// (cure of the pool, donations; consensus-layer sweeps bypass code anyway) — the issueSize bump below then
-    /// mutates dead state, since every issueSize consumer is frozen while defaulted.
+    /// (cure of the pool, donations; consensus-layer sweeps bypass code anyway). The issueSize bump below stays
+    /// honest across a declare-and-clear cycle: buyBond consumed issueSize that settlement never restores, and
+    /// the cure top-up credits it back, the same accounting as serving a bond in normal operation. Overshoot from
+    /// donations or over-cure matches the existing zero-bond staleness class, because withdrawals with no
+    /// outstanding bonds never decrement issueSize either.
     /// @notice The contributor set is unrestricted by design. Funds from any sender are pooled into the Coffer
     /// balance and credited to issueSize, and any AML or sanctions filtering is performed off-chain. This is an
     /// inherent property of every ETH-accepting Ethereum address, including the validator's own 0x01 or 0x02
@@ -656,13 +663,14 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     }
 
     /// @notice Declares the validator in default: a matured bond exists that the contract balance cannot pay
-    /// @notice Callable by anyone. Irreversible — no code path writes the flag back. The only way to prevent the
-    /// declaration is to pay: top up the balance via receive() or settle the bond via redeemBondsEarly before
-    /// this call lands, so the only useful front-run of this function is paying the holder.
-    /// @notice Once defaulted: bond sales and every validator extraction path revert with ValidatorInDefault,
+    /// @notice Callable by anyone. The only way to prevent the declaration is to pay: top up the balance via
+    /// receive() or settle the bond via redeemBondsEarly before this call lands, so the only useful front-run of
+    /// this function is paying the holder. The only way out of a declared default is also to pay: once every
+    /// outstanding bond is settled at its full maturity value, the owner can clear the flag via clearDefault.
+    /// @notice While defaulted: bond sales and every validator extraction path revert with ValidatorInDefault,
     /// all bonds accelerate to claimable at full maturity value (first come first served, via
     /// holderWithdrawFromExecution), and anyone can repeatedly request the validator's full exit via
-    /// exitValidator to sweep the remaining stake into this contract.
+    /// exitValidator while any bond is outstanding, sweeping the remaining stake into this contract.
     /// @param _bondId A bond satisfying the default predicate: it exists, it is matured, and it cannot be paid
     function declareDefault(uint256 _bondId) external {
         ValidatorConditions storage vc = sValidatorConditions;
@@ -687,17 +695,20 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         emit ValidatorDefaulted(_bondId, msg.sender);
     }
 
-    /// @notice Requests the defaulted validator's full exit via EIP-7002, sweeping the entire remaining stake —
-    /// 32 ETH floor included — to this contract, where it backs the holders' claims
-    /// @notice Callable by anyone, repeatedly. The consensus layer silently drops an exit request while a
-    /// pre-default partial withdrawal is still pending (a pending's existence blocks exits, not its size). No new
-    /// pending can be created after the default freeze, so a retry after the pending tail (~28 hours) lands.
-    /// A dropped request burns nothing.
+    /// @notice Requests the defaulted validator's full exit via EIP-7002, sweeping the entire remaining stake,
+    /// 32 ETH floor included, to this contract, where it backs the holders' claims
+    /// @notice Callable by anyone, repeatedly, while any bond is outstanding. Once every bond settles there is
+    /// nothing left to recover, so the request gate closes. This also shuts the settle-to-clear window: a
+    /// griefer cannot slip an exit request in front of the owner's clearDefault transaction. The consensus
+    /// layer silently drops an exit request while a pre-default partial withdrawal is still pending (a pending's
+    /// existence blocks exits, not its size). No new pending can be created during the default epoch, so a retry
+    /// after the pending tail (~28 hours) lands. A dropped request burns nothing.
     /// @notice msg.value must cover the EIP-7002 withdrawal fee read from WITHDRAWAL_CONTRACT via staticcall.
     /// Callers should pre-size msg.value off-chain as (fee + small_buffer). Any surplus (msg.value - fee) is NOT
-    /// refunded and accrues to the contract balance — post-default, that balance is the holders' pool.
+    /// refunded and accrues to the contract balance, which is the holders' pool while the default stands.
     function exitValidator() external payable {
         require(sValidatorConditions.validatorDefaulted, ValidatorNotInDefault());
+        require(sValidatorConditions.outstandingBonds > 0, NoOutstandingBonds());
 
         (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
         // A codeless predeploy answers (true, ""), which would decode to fee 0 and no-op silently; the length
@@ -717,6 +728,32 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
         (bool writeOk,) = WITHDRAWAL_CONTRACT.call{value: fee}(data);
         require(writeOk, WithdrawalContractCallFailed());
+    }
+
+    /// @notice Clears the default once every bond is settled: the only exit from a default is to pay in full
+    /// @notice Callable only by the validator, and only when outstandingBonds == 0, which holds exactly when
+    /// every bond was paid at its full maturity value (full claims and early redemptions are the only paths
+    /// that decrement the counter). No holder can therefore ever cross this transition. Clearing the flag
+    /// unfreezes bond sales and every validator function, so surplus above the settled claims leaves through
+    /// the normal zero-bond branch of validatorWithdrawFromExecution.
+    /// @notice The version bump invalidates any buyBond transaction still in flight from before the default,
+    /// so no stale purchase can land against the cleared coffer.
+    /// @notice Clearing the default does NOT cancel an EIP-7002 exit request already submitted via
+    /// exitValidator: such a request lands days later regardless, and an exited public key cannot be reused.
+    /// If ValidatorExitRequested fired during the default epoch, assume the exit will complete, drain this
+    /// coffer, and start over with a new coffer and a new validator key. Check the validator's beacon-chain
+    /// status before reusing this one.
+    function clearDefault() external onlyOwner {
+        ValidatorConditions storage vc = sValidatorConditions;
+
+        require(vc.validatorDefaulted, ValidatorNotInDefault());
+        require(vc.outstandingBonds == 0, OutstandingBondsExist());
+
+        vc.validatorDefaulted = false;
+        ++vc.version;
+
+        emit VersionChanged(vc.version);
+        emit ValidatorDefaultCleared();
     }
 
     /// @notice Validator withdraws from execution layer
@@ -766,16 +803,19 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// MIN_ACTIVATION_BALANCE, WITHDRAWAL_CONTRACT won't revert; the beacon chain would withdraw a smaller amount
     /// to keep the balance at MIN_ACTIVATION_BALANCE.
     /// @dev This function is called using gwei, not wei, since the beacon chain operates in gwei
-    /// @dev Reverts while defaulted — the security boundary of the default machine: only this contract can create
-    /// pending partials for this pubkey (EIP-7002 checks the request's source address against the withdrawal
-    /// credential), so freezing this function guarantees no new pending can ever re-block the exit requested by
-    /// exitValidator
+    /// @dev Reverts while defaulted, which is the security boundary of the default machine: only this contract
+    /// can create pending partials for this pubkey (EIP-7002 checks the request's source address against the
+    /// withdrawal credential), so the freeze guarantees no new pending is created during a default epoch, and a
+    /// blocked exit request only ever waits out the pre-epoch pending tail (~28 hours) before a retry lands.
+    /// The argument re-applies unchanged to every later epoch after a clearDefault.
+    /// @dev A codeless predeploy answers (true, ""), which would decode to fee 0 and no-op silently; the length
+    /// check turns that chain misconfiguration into a loud failure instead (parity with exitValidator)
     /// @param _amount The amount to withdraw in gwei
     function validatorWithdrawFromConsensus(uint64 _amount) external payable onlyOwner {
         require(!sValidatorConditions.validatorDefaulted, ValidatorInDefault());
 
         (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
-        require(readOk, WithdrawalContractCallFailed());
+        require(readOk && feeData.length == 32, WithdrawalContractCallFailed());
         // forge-lint: disable-next-line(unsafe-typecast) fee data is always 32 bytes
         uint256 fee = uint256(bytes32(feeData));
 
@@ -828,11 +868,13 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// the same bounds as above (issueSize cap while outstandingBonds > 0).
     /// @dev Only needed for validators using the legacy 0x00 → 0x01 setup flow. Validators deposited with 0x02
     /// credentials directly can skip this.
+    /// @dev A codeless predeploy answers (true, ""), which would decode to fee 0 and no-op silently; the length
+    /// check turns that chain misconfiguration into a loud failure instead (parity with exitValidator)
     function convertToCompounding() external payable onlyOwner {
         require(!sValidatorConditions.validatorDefaulted, ValidatorInDefault());
 
         (bool readOk, bytes memory feeData) = CONSOLIDATION_CONTRACT.staticcall("");
-        require(readOk, ConsolidationContractCallFailed());
+        require(readOk && feeData.length == 32, ConsolidationContractCallFailed());
         // forge-lint: disable-next-line(unsafe-typecast) fee data is always 32 bytes
         uint256 fee = uint256(bytes32(feeData));
 

@@ -7,7 +7,6 @@ import {CofferFactory} from "../../src/CofferFactory.sol";
 import {CofferBondNft} from "../../src/CofferBondNft.sol";
 import {CofferBondsRedeemedEarly} from "../../src/CofferBondsRedeemedEarly.sol";
 import {FeeCurve} from "../../src/FeeCurve.sol";
-import {Interest} from "../../src/libraries/Interest.sol";
 import {EIP7002Mock, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, SYSTEM_ADDRESS} from "../mock/EIP7002Mock.sol";
 import {EIP7251Mock, CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS} from "../mock/EIP7251Mock.sol";
 
@@ -43,32 +42,6 @@ abstract contract BaseTest is Test {
     uint32 constant LOW_RATE = 3e6; // 3%
     uint32 constant MEDIUM_RATE = 5e6; // 5%
     uint32 constant HIGH_RATE = 1e8; // 100%
-
-    // ========================================
-    // ERROR MESSAGES
-    // ========================================
-
-    // Coffer errors
-    string constant ERROR_ZERO_VALUE = "ZeroValue()";
-    string constant ERROR_VALUE_TOO_SMALL = "ValueTooSmallToAccept()";
-    string constant ERROR_INVALID_DURATION = "InvalidDuration()";
-    string constant ERROR_INVALID_RATE = "InvalidRate()";
-    string constant ERROR_VALIDATOR_NOT_ACTIVE = "ValidatorIsNotActive()";
-    string constant ERROR_VERSION_MISMATCH = "ValidatorConditionsVersionMismatch()";
-    string constant ERROR_HOLDER_DOES_NOT_EXIST = "HolderDoesNotExistOrAlreadyWithdrawnValue()";
-    string constant ERROR_TIME_NOT_EXPIRED = "HoldersTimeHasNotExpiredYet()";
-    string constant ERROR_HOLDER_CANNOT_BE_VALIDATOR = "HolderCannotBeValidator()";
-    string constant ERROR_NOT_HOLDER = "CallerIsNotHolder()";
-    string constant ERROR_INSUFFICIENT_BALANCE = "ContractBalanceLessThanValue()";
-
-    // CofferFactory errors
-    string constant ERROR_FACTORY_INVALID_DURATION = "InvalidDuration()";
-    string constant ERROR_FACTORY_INVALID_RATE = "InvalidInterestRate()";
-    string constant ERROR_FACTORY_INVALID_MIN_AMOUNT = "InvalidMinimumValueToAccept()";
-
-    // CofferBondNft errors
-    string constant ERROR_TOKEN_DOES_NOT_EXIST = "TokenDoesNotExist()";
-    string constant ERROR_UNAUTHORIZED_MINTER = "UnauthorizedMinter()";
 
     // ========================================
     // TEST CONTRACTS AND ACCOUNTS
@@ -218,22 +191,6 @@ abstract contract BaseTest is Test {
         return currentSupply;
     }
 
-    function buyBondExpectRevert(
-        address cofferAddr,
-        address buyer,
-        uint128 amount,
-        uint32 duration,
-        uint32 version,
-        bytes memory expectedError
-    ) public {
-        Coffer targetCoffer = Coffer(payable(cofferAddr));
-
-        vm.startPrank(buyer);
-        vm.expectRevert(expectedError);
-        targetCoffer.buyBond{value: amount}(duration, version);
-        vm.stopPrank();
-    }
-
     // ========================================
     // HELPER FUNCTIONS - TIME MANIPULATION
     // ========================================
@@ -242,73 +199,8 @@ abstract contract BaseTest is Test {
         vm.warp(block.timestamp + seconds_);
     }
 
-    function advanceTimeAndBlock(uint256 seconds_) public {
-        advanceTime(seconds_);
-        vm.roll(block.number + 1);
-    }
-
     // ========================================
-    // HELPER FUNCTIONS - BALANCE CHECKS
-    // ========================================
-
-    function getBalance(address account) public view returns (uint256) {
-        return account.balance;
-    }
-
-    function assertBalance(address account, uint256 expected) public {
-        assertEq(account.balance, expected, "Balance mismatch");
-    }
-
-    // ========================================
-    // HELPER FUNCTIONS - STATE ASSERTIONS
-    // ========================================
-
-    function assertValidatorConditions(
-        address cofferAddr,
-        uint128 expectedIssueSize,
-        uint32 expectedOutstandingBonds,
-        bool expectedActive
-    ) public {
-        Coffer targetCoffer = Coffer(payable(cofferAddr));
-        (
-            uint128 issueSize,
-            uint32 interestRate,
-            uint32 minimumDuration,
-            uint32 maximumDuration,
-            uint128 minimumValueToAccept,
-            uint32 version,
-            uint32 outstandingBonds,
-            uint16 issueSizeBufferBps,
-            bool isActive,
-            bool validatorDefaulted
-        ) = targetCoffer.sValidatorConditions();
-
-        assertEq(issueSize, expectedIssueSize, "Issue size mismatch");
-        assertEq(outstandingBonds, expectedOutstandingBonds, "Outstanding bonds mismatch");
-        assertEq(isActive, expectedActive, "Active status mismatch");
-    }
-
-    function assertHolderConditions(address cofferAddr, uint256 bondId, uint128 expectedAmount, uint32 expectedDuration)
-        public
-    {
-        Coffer targetCoffer = Coffer(payable(cofferAddr));
-        (uint128 amount, uint64 duration, uint64 startTimestamp) = targetCoffer.sHolderConditions(bondId);
-
-        assertEq(amount, expectedAmount, "Holder amount mismatch");
-        assertEq(duration, expectedDuration, "Holder duration mismatch");
-        assertTrue(startTimestamp > 0, "Start timestamp not set");
-    }
-
-    // ========================================
-    // HELPER FUNCTIONS - INTEREST CALCULATION
-    // ========================================
-
-    function calculateExpectedInterest(uint256 amount, uint256 duration, uint256 rate) public pure returns (uint256) {
-        return Interest.calculateInterest(amount, duration, rate);
-    }
-
-    // ========================================
-    // HELPER FUNCTIONS - PENALTY CALCULATION
+    // HELPER FUNCTIONS - ISSUE SIZE CALCULATION
     // ========================================
 
     function calculateExpectedIssueSize(uint256 startingBalance, uint256 issueSizeBufferBps)

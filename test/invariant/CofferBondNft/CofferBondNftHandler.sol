@@ -59,8 +59,12 @@ contract CofferBondNftHandler is Test {
 
     function handlerBurnInvalid(uint256 rawId) external {
         if (ghostIsActive[rawId]) return;
-        // Will revert: absorbed by fail_on_revert = false
-        nft.burnCofferBond(rawId);
+        // Absorb the expected OnlyCofferCanBurn() revert so the strict
+        // profile (fail_on_revert = true) stays green
+        try nft.burnCofferBond(rawId) {
+        // Unexpected success: nothing to record
+        }
+            catch {}
     }
 
     function handlerTransfer(uint256 idSeed, uint256 actorSeed) external {

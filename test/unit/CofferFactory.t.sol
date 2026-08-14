@@ -505,8 +505,8 @@ contract CofferFactoryTest is BaseTest {
     }
 
     function test_CreateCoffer_Boundary_ExactMaxDuration() public {
-        // Use MAX_DURATION for both max and min (min must be > 0 and <= max)
-        // With very long duration, penalty is large, so use a very small minimumAmount
+        // Use MAX_DURATION for both max and min (min must be > 0 and <= max).
+        // A very long duration needs a small minimumAmount to stay under the initial issueSize.
         uint256 maxAllowed = _maxMinimumAmount(DEFAULT_STARTING_BALANCE, defaultIssueSizeBufferBps);
         // If maxAllowed is 0, the only way to create would fail on minAmount validation.
         // Use a small minAmount if possible, otherwise skip boundary check.

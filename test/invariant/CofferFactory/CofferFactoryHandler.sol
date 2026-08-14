@@ -84,7 +84,12 @@ contract CofferFactoryHandler is Test {
         address actor = actors[actorSeed % actors.length];
         // Pass raw unclamped inputs: expected to revert
         vm.prank(actor);
-        factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, issueSizeBufferBps, startingBalance);
+        try factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, issueSizeBufferBps, startingBalance) {
+        // Unexpected success: inputs were raw, so record nothing
+        }
+            catch {
+            // Expected revert path
+        }
         // Ghost state NOT updated
     }
 

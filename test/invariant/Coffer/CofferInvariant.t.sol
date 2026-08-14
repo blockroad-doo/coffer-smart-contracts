@@ -144,10 +144,11 @@ contract CofferInvariantTest is BaseTest {
     // 5. DEFAULT STATE MACHINE (serve-or-default, doc invariants C1/C3/C8)
     // ══════════════════════════════════════════════════════════════════════
 
-    /// @dev C1: the default flag is monotone and only our handler flips it. The ghost only ever
-    /// latches true, so two-way equality proves the on-chain flag never unsets and never flips
-    /// without a handler-observed declareDefault.
-    function invariant_defaultMonotoneAndMirrored() public view {
+    /// @dev C1: only our handler flips the default flag, in either direction. The ghost is set on a
+    /// handler-observed declareDefault and cleared on a handler-observed clearDefault (which the
+    /// handler only attempts at outstandingBonds == 0), so two-way equality proves the on-chain
+    /// flag never rises without a declare and never clears without a settlement-gated clearDefault.
+    function invariant_defaultMirrored() public view {
         (,,,,,,,,, bool validatorDefaulted) = coffer.sValidatorConditions();
         assertEq(validatorDefaulted, handler.ghostValidatorDefaulted(), "on-chain default flag must mirror the ghost");
     }
@@ -158,8 +159,9 @@ contract CofferInvariantTest is BaseTest {
         assertFalse(handler.ghostDefaultViolation(), "declareDefault must never succeed against a covered bond");
     }
 
-    /// @dev C8: post-default the bond set only shrinks (buyBond is frozen, bonds leave via
-    /// payment or redemption only).
+    /// @dev C8: while a default epoch is open, the bond set only shrinks (buyBond is frozen, bonds
+    /// leave via payment or redemption only). The snapshots re-baseline at every declare, so the
+    /// property holds per epoch across declare-and-clear cycles.
     function invariant_bondSetOnlyShrinksPostDefault() public view {
         if (!handler.ghostValidatorDefaulted()) return;
         assertLe(
@@ -187,12 +189,14 @@ contract CofferInvariantTest is BaseTest {
         console2.log("advanceTime:                ", handler.callsAdvanceTime());
         console2.log("sendEthToCoffer:            ", handler.callsSendEthToCoffer());
         console2.log("declareDefault:             ", handler.callsDeclareDefault());
+        console2.log("clearDefault:               ", handler.callsClearDefault());
         console2.log("--- Ghost Totals ---");
         console2.log("totalBought:                ", handler.ghostTotalBondsBought());
         console2.log("totalWithdrawnExecution:     ", handler.ghostTotalBondsWithdrawnExecution());
         console2.log("totalRedeemed:              ", handler.ghostTotalBondsRedeemed());
         console2.log("activeBonds:                ", handler.getActiveBondIdsLength());
         console2.log("defaultsDeclared:           ", handler.ghostTotalDefaultsDeclared());
+        console2.log("defaultsCleared:            ", handler.ghostTotalDefaultsCleared());
         console2.log("validatorDefaulted:         ", handler.ghostValidatorDefaulted() ? uint256(1) : uint256(0));
     }
 }

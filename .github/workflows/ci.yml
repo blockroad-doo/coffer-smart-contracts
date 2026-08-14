@@ -99,7 +99,6 @@ jobs:
       - name: Run local tests
         run: >
           FOUNDRY_PROFILE=ci forge test
-          --no-match-contract RefundMarginalGasTest
           --isolate
           -vvv
           --show-progress
@@ -108,7 +107,6 @@ jobs:
         if: env.HOODI_RPC_URL != ''
         run: >
           HOODI_RPC_URL=${{ secrets.HOODI_RPC_URL }} forge test
-          --no-match-contract RefundMarginalGasTest
           --match-path "test/integration/hoodi/*"
           -vvv
 
@@ -116,5 +114,4 @@ jobs:
         run: >
           forge coverage
           --no-match-coverage "^test/|^script/"
-          --no-match-test "MarginalRefundBranchGas"
           --report summary

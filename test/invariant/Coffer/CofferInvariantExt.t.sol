@@ -41,7 +41,8 @@ contract CofferInvariantExtTest is BaseTest {
     // already raised it to 100 ether), then tracks: +msg.value on receive, +buffer*msg.value on
     // validatorAddFundsToConsensus, -bondMaturityValue on buyBond, -amount on validator withdraw
     // with bonds outstanding, reset on changeIssueSize. Post-default the on-chain bumps continue
-    // through receive() (dead state, every consumer frozen) and the ghost keeps mirroring them.
+    // through receive() and the ghost keeps mirroring them; since clearDefault the consumers wake
+    // up again after the default clears, so the mirror matters across the whole declare-and-clear cycle.
     // ══════════════════════════════════════════════════════════════════════
 
     function invariant_issueSizeGhostMatchesOnChain() public {
@@ -282,10 +283,11 @@ contract CofferInvariantExtTest is BaseTest {
     // INVARIANT 16-18: DEFAULT STATE MACHINE (serve-or-default, doc invariants C1/C2/C3/C8 + C4)
     // ══════════════════════════════════════════════════════════════════════
 
-    /// @dev C1: the default flag is monotone and only our handler flips it. The ghost only ever
-    /// latches true, so two-way equality proves the on-chain flag never unsets and never flips
-    /// without a handler-observed declareDefault.
-    function invariant_defaultMonotoneAndMirrored() public view {
+    /// @dev C1: only our handler flips the default flag, in either direction. The ghost is set on a
+    /// handler-observed declareDefault and cleared on a handler-observed clearDefault (which the
+    /// handler only attempts at outstandingBonds == 0), so two-way equality proves the on-chain
+    /// flag never rises without a declare and never clears without a settlement-gated clearDefault.
+    function invariant_defaultMirrored() public view {
         (,,,,,,,,, bool validatorDefaulted) = coffer.sValidatorConditions();
         assertEq(validatorDefaulted, handler.ghostValidatorDefaulted(), "on-chain default flag must mirror the ghost");
     }
@@ -296,8 +298,9 @@ contract CofferInvariantExtTest is BaseTest {
         assertFalse(handler.ghostDefaultViolation(), "declareDefault must never succeed against a covered bond");
     }
 
-    /// @dev C8: post-default the bond set only shrinks (buyBond is frozen, bonds leave via
-    /// payment or redemption only).
+    /// @dev C8: while a default epoch is open, the bond set only shrinks (buyBond is frozen, bonds
+    /// leave via payment or redemption only). The snapshots re-baseline at every declare, so the
+    /// property holds per epoch across declare-and-clear cycles.
     function invariant_bondSetOnlyShrinksPostDefault() public view {
         if (!handler.ghostValidatorDefaulted()) return;
         assertLe(
@@ -308,9 +311,11 @@ contract CofferInvariantExtTest is BaseTest {
         assertEq(handler.ghostTotalBondsBought(), handler.ghostBoughtAtDefault(), "no bond can be minted after default");
     }
 
-    /// @dev C2: once defaulted, ETH leaves the pool only toward bond owners. Every modeled flow is
-    /// attributed in the handler's ledger, so the balance must reconcile exactly: any wei leaking
-    /// to the validator (or anywhere else) breaks the equality.
+    /// @dev C2: while a default epoch is open, ETH leaves the pool only toward bond owners. Every
+    /// modeled flow is attributed in the handler's per-epoch ledger (balance snapshot and counters
+    /// re-baselined at each declare), so the balance must reconcile exactly: any wei leaking to the
+    /// validator (or anywhere else) inside the epoch breaks the equality. Validator extraction
+    /// between epochs is legal and deliberately unattributed.
     function invariant_postDefaultOutflowOnlyToHolders() public view {
         if (!handler.ghostValidatorDefaulted()) return;
         assertEq(
@@ -321,9 +326,11 @@ contract CofferInvariantExtTest is BaseTest {
         );
     }
 
-    /// @dev C4 shadow: post-default the recovery estate only migrates toward the pool. The modeled
-    /// consensus stake never grows again (deposits are frozen), it only drains into in-transit
-    /// (exit sweep, pre-default partials) and from there into the contract balance.
+    /// @dev C4 shadow: while a default epoch is open, the recovery estate only migrates toward the
+    /// pool. The modeled consensus stake never grows inside the epoch (deposits are frozen), it
+    /// only drains into in-transit (exit sweep, pre-default partials) and from there into the
+    /// contract balance. The stake snapshot re-baselines at each declare, so post-clear deposits
+    /// belong to the next epoch.
     function invariant_consensusEstateMonotonePostDefault() public view {
         if (!handler.ghostValidatorDefaulted()) return;
         assertLe(
@@ -397,6 +404,7 @@ contract CofferInvariantExtTest is BaseTest {
         console2.log("sendEthToCoffer:            ", handler.callsSendEthToCoffer());
         console2.log("declareDefault:             ", handler.callsDeclareDefault());
         console2.log("exitValidator:              ", handler.callsExitValidator());
+        console2.log("clearDefault:               ", handler.callsClearDefault());
         console2.log("--- Ghost Totals ---");
         console2.log("totalBought:                ", handler.ghostTotalBondsBought());
         console2.log("totalWithdrawnExecution:     ", handler.ghostTotalBondsWithdrawnExecution());
@@ -407,6 +415,7 @@ contract CofferInvariantExtTest is BaseTest {
         console2.log("ghostIssueSize:             ", handler.ghostIssueSize());
         console2.log("ghostConsensusBalance:      ", handler.ghostConsensusBalance());
         console2.log("defaultsDeclared:           ", handler.ghostTotalDefaultsDeclared());
+        console2.log("defaultsCleared:            ", handler.ghostTotalDefaultsCleared());
         console2.log("validatorDefaulted:         ", handler.ghostValidatorDefaulted() ? uint256(1) : uint256(0));
     }
 }

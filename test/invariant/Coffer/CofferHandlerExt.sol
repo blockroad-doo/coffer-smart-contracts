@@ -51,24 +51,30 @@ contract CofferHandlerExt is Test {
     uint256 public ghostTotalEthArrivedFromConsensus;
 
     // ── Ghost state: default machine ───────────────────────────────────────
-    // Latched true by handlerDeclareDefault on a successful declare, never unset (C1 mirror).
+    // Mirrors the on-chain flag both ways: set by handlerDeclareDefault on a successful declare,
+    // cleared by handlerClearDefault on a successful clear (C1 mirror). A default epoch is the
+    // span between one flip to true and the matching clear.
     bool public ghostValidatorDefaulted;
     // Set if a declare ever SUCCEEDS while the pre-call balance covered the bond. Handler-side
     // asserts would be masked under fail_on_revert = false, so violations are recorded here and
     // asserted by invariant_solventValidatorNeverDefaulted (C3).
     bool public ghostDefaultViolation;
-    // Snapshots taken at the default flip.
+    // Epoch snapshots, re-baselined by handlerDeclareDefault at every flip to true. The post-default
+    // invariants early-out while the flag is down, so between-epoch flows need no attribution.
     uint256 public ghostBondsAtDefault;
     uint256 public ghostBoughtAtDefault;
     uint256 public ghostBalanceAtDefault;
     uint128 public ghostConsensusAtDefault;
     uint256 public ghostTotalDefaultsDeclared;
-    // C2 ledger: every wei entering/leaving the pool after the flip, attributed by cause.
+    uint256 public ghostTotalDefaultsCleared;
+    // C2 ledger: every wei entering/leaving the pool within the current default epoch, attributed
+    // by cause and zeroed at each flip to true.
     // Inflows: receive() tops, consensus arrivals, exit-fee surpluses (none: exact fee).
     // Outflows: holder claim payouts and redeemBondsEarly net escrow spend.
     uint256 public ghostPoolInflowsSinceDefault;
     uint256 public ghostPoolOutflowsSinceDefault;
-    // Exit-sweep model: the stake moves into in-transit exactly once.
+    // Exit-sweep model: the stake moves into in-transit at most once per default epoch; the latch
+    // resets when the default clears so a later epoch can sweep whatever stake the model has accrued since.
     bool public ghostExitSweepQueued;
 
     uint256 public callsBuyBond;
@@ -89,6 +95,7 @@ contract CofferHandlerExt is Test {
     uint256 public callsSendEthToCoffer;
     uint256 public callsDeclareDefault;
     uint256 public callsExitValidator;
+    uint256 public callsClearDefault;
 
     constructor(Coffer _coffer, FeeCurve _feeCurve) {
         coffer = _coffer;
@@ -666,6 +673,9 @@ contract CofferHandlerExt is Test {
             ghostBoughtAtDefault = ghostTotalBondsBought;
             ghostBalanceAtDefault = address(coffer).balance;
             ghostConsensusAtDefault = ghostConsensusBalance;
+            // Fresh epoch: the C2 ledger restarts from the balance snapshot above
+            ghostPoolInflowsSinceDefault = 0;
+            ghostPoolOutflowsSinceDefault = 0;
             ++ghostTotalDefaultsDeclared;
             return;
         }
@@ -674,14 +684,17 @@ contract CofferHandlerExt is Test {
     // ══════════════════════════════════════════════════════════════════════
     // HANDLER: exitValidator
     // ══════════════════════════════════════════════════════════════════════
-    /// @dev Anyone-callable, repeatable exit request. Pays the exact fee (no surplus, keeping the
-    /// C2 ledger simple). The sweep model moves the whole remaining modeled stake into in-transit
-    /// exactly once; it lands at the coffer via handlerSimulateEthArrival after the queue delay.
-    /// Repeat calls exercise on-chain re-callability with nothing further to move.
+    /// @dev Anyone-callable exit request, repeatable while any bond is outstanding (the on-chain
+    /// NoOutstandingBonds gate closes at full settlement, so the handler pre-checks it to stay
+    /// revert-free). Pays the exact fee (no surplus, keeping the C2 ledger simple). The sweep model
+    /// moves the whole remaining modeled stake into in-transit at most once per epoch; it lands at
+    /// the coffer via handlerSimulateEthArrival after the queue delay. Repeat calls exercise
+    /// on-chain re-callability with nothing further to move.
     function handlerExitValidator(uint256 seed) external {
         ++callsExitValidator;
 
         if (!ghostValidatorDefaulted) return;
+        if (_readVc().outstandingBonds == 0) return;
 
         (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
         if (!readOk || feeData.length != 32) return;
@@ -701,6 +714,36 @@ contract CofferHandlerExt is Test {
             );
             ghostConsensusBalance = 0;
             ghostExitSweepQueued = true;
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // HANDLER: clearDefault
+    // ══════════════════════════════════════════════════════════════════════
+    /// @dev Owner-only exit from a default, callable exactly when every bond has settled at its
+    /// full maturity value. Strict-safe: pre-checks the flag and the on-chain outstandingBonds
+    /// gate, so the handler never reverts by construction. Closing the epoch clears the mirror
+    /// flag and re-arms the sweep latch; the next declare re-baselines every epoch snapshot.
+    function handlerClearDefault(uint256) external {
+        ++callsClearDefault;
+
+        if (!ghostValidatorDefaulted) return;
+        if (_readVc().outstandingBonds != 0) return;
+
+        vm.prank(validator);
+        coffer.clearDefault();
+
+        ghostValidatorDefaulted = false;
+        ghostExitSweepQueued = false;
+        ++ghostTotalDefaultsCleared;
+
+        // Emerging with a standing issueSize is the validator re-asserting that issuance
+        // capacity for the new epoch (the README instructs re-attesting via changeIssueSize).
+        // Mirror handlerChangeIssueSize's honest-staking device: raise the modeled stake so
+        // cross-layer solvency reflects an honest, adequately-backed validator rather than
+        // the stale-attestation seller the trust model excludes.
+        if (ghostConsensusBalance < ghostIssueSize) {
+            ghostConsensusBalance = ghostIssueSize;
         }
     }
 
