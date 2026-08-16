@@ -101,12 +101,12 @@ contract CofferBondNftTokenUriTest is BaseTest {
         uint32 version = _enableBonding(cofferAddr, validator, 10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
-        // Warp past maturity and fund coffer so holder can withdraw (which burns the NFT)
+        // Warp past maturity and fund coffer so holder can redeem (which burns the NFT)
         advanceTime(ONE_MONTH + 1);
         vm.deal(cofferAddr, 2 ether);
 
         vm.prank(holder1);
-        testCoffer.holderWithdrawFromExecution(bondId);
+        testCoffer.redeemBondOrDefault(bondId);
 
         vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, bondId));
         bondNft.tokenURI(bondId);

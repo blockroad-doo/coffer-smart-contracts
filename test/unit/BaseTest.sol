@@ -387,8 +387,8 @@ interface CofferEvents {
         uint32 interestRate
     );
     event BondFeePaid(uint256 indexed bondId, address indexed feeRecipient, uint128 indexed feeAmount, uint256 feeBps);
-    event HolderWithdrawFromExecutionSuccess(address indexed holderAddress, uint256 indexed bondId);
-    event HolderPartialWithdrawFromExecutionSuccess(
+    event BondRedeemed(address indexed holderAddress, uint256 indexed bondId);
+    event BondRedeemedPartially(
         address indexed holderAddress,
         uint256 indexed bondId,
         uint128 valueWithdrawn,

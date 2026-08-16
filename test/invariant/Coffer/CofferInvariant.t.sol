@@ -141,10 +141,10 @@ contract CofferInvariantTest is BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // 5. DEFAULT STATE MACHINE (serve-or-default, doc invariants C1/C3/C8)
+    // 5. DEFAULT STATE MACHINE (serve-or-default)
     // ══════════════════════════════════════════════════════════════════════
 
-    /// @dev C1: only our handler flips the default flag, in either direction. The ghost is set on a
+    /// @dev Only our handler flips the default flag, in either direction. The ghost is set on a
     /// handler-observed declareDefault and cleared on a handler-observed clearDefault (which the
     /// handler only attempts at outstandingBonds == 0), so two-way equality proves the on-chain
     /// flag never rises without a declare and never clears without a settlement-gated clearDefault.
@@ -153,13 +153,13 @@ contract CofferInvariantTest is BaseTest {
         assertEq(validatorDefaulted, handler.ghostValidatorDefaulted(), "on-chain default flag must mirror the ghost");
     }
 
-    /// @dev C3: a covered bond can never trigger a default. The handler records a violation if a
+    /// @dev A covered bond can never trigger a default. The handler records a violation if a
     /// declare ever succeeded while the bond was covered.
     function invariant_coveredBondNeverDefaulted() public view {
         assertFalse(handler.ghostDefaultViolation(), "declareDefault must never succeed against a covered bond");
     }
 
-    /// @dev C8: while a default epoch is open, the bond set only shrinks (buyBond is frozen, bonds
+    /// @dev While a default epoch is open, the bond set only shrinks (buyBond is frozen, bonds
     /// leave via payment or redemption only). The snapshots re-baseline at every declare, so the
     /// property holds per epoch across declare-and-clear cycles.
     function invariant_bondSetOnlyShrinksPostDefault() public view {
@@ -179,7 +179,8 @@ contract CofferInvariantTest is BaseTest {
     function invariant_callSummary() public view {
         console2.log("--- Call Summary ---");
         console2.log("buyBond:                    ", handler.callsBuyBond());
-        console2.log("holderWithdrawFromExecution: ", handler.callsHolderWithdrawFromExecution());
+        console2.log("redeemBondOrDefault: ", handler.callsRedeemBondOrDefault());
+        console2.log("redeemBondInDefault: ", handler.callsRedeemBondInDefault());
         console2.log("redeemBondsEarly:           ", handler.callsRedeemBondsEarly());
         console2.log("validatorWithdrawExecution:  ", handler.callsValidatorWithdrawFromExecution());
         console2.log("validatorAddFundsConsensus:  ", handler.callsValidatorAddFundsToConsensus());

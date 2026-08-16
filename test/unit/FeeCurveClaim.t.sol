@@ -4,7 +4,7 @@ pragma solidity 0.8.34;
 import {Test} from "forge-std/Test.sol";
 import {FeeCurve} from "../../src/FeeCurve.sol";
 
-/// @dev Unit tests for the pull-based protocol-fee mechanism added to fix F-01
+/// @dev Unit tests for the pull-based protocol-fee mechanism
 /// (collectFee / claim / renounceOwnership override).
 contract _GoodRecipient {
     receive() external payable {}

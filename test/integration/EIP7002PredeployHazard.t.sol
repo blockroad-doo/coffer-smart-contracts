@@ -7,12 +7,13 @@ import {Coffer} from "../../src/Coffer.sol";
 
 /**
  * @title EIP7002PredeployHazardTest
- * @notice EP-1: on a chain without the EIP-7002 predeploy, staticcall("") answers (true, "") and the write
- * call is a successful no-op. The old design burned the holder's one-shot consensus flag on that silent
- * no-op; under serve-or-default nothing is one-shot, and all three fee-bearing predeploy calls now fail
- * loud on the 32-byte fee-length check (L-01 parity fix), so the hazard's damage model collapses to gas.
- * @dev Pins the A14 delta for exitValidator and the L-01 parity for validatorWithdrawFromConsensus and
- * convertToCompounding: a codeless predeploy can never pretend to have enqueued a consensus-layer request.
+ * @notice On a chain without the EIP-7002 predeploy, staticcall("") answers (true, "") and the write
+ * call is a successful no-op. Nothing on such a chain can be trusted to have enqueued a
+ * consensus-layer request. All three fee-bearing predeploy calls fail loud on the 32-byte
+ * fee-length check, so a codeless predeploy can never pretend to have enqueued a withdrawal, an
+ * exit, or a consolidation. The damage model collapses to gas.
+ * @dev Pins the fail-loud behavior for exitValidator, validatorWithdrawFromConsensus, and
+ * convertToCompounding when the predeploy has no code.
  */
 contract EIP7002PredeployHazardTest is BaseTest {
     address public cofferAddr;
@@ -34,7 +35,7 @@ contract EIP7002PredeployHazardTest is BaseTest {
     }
 
     // ========================================================================
-    // A14 delta: codeless predeploy fails loud, burns nothing
+    // Codeless predeploy: exitValidator fails loud, burns nothing
     // ========================================================================
 
     function test_PredeployAbsent_ExitValidator_FailsLoud() public {
@@ -54,9 +55,8 @@ contract EIP7002PredeployHazardTest is BaseTest {
         }
         assertEq(codeSizeBefore, 0, "Predeploy code must be absent");
 
-        // 3. A codeless predeploy answers staticcall("") with (true, ""). The old design decoded that to
-        //    fee 0 and burned the holder's one-shot flag on a silent no-op; exitValidator's
-        //    feeData.length == 32 check fails loud instead.
+        // 3. A codeless predeploy answers staticcall("") with (true, ""). Decoding that to fee 0
+        //    would enqueue nothing, so exitValidator's feeData.length == 32 check fails loud instead.
         vm.expectRevert(abi.encodeWithSignature("WithdrawalContractCallFailed()"));
         coffer.exitValidator{value: 0}();
 
@@ -69,7 +69,7 @@ contract EIP7002PredeployHazardTest is BaseTest {
     }
 
     // ========================================================================
-    // L-01 parity: the validator-only fee-bearing calls also fail loud
+    // The validator-only fee-bearing calls also fail loud
     // ========================================================================
 
     function test_PredeployAbsent_ValidatorWithdrawFromConsensus_FailsLoud() public {
@@ -84,7 +84,7 @@ contract EIP7002PredeployHazardTest is BaseTest {
         assertEq(codeSizeBefore, 0, "Predeploy code must be absent");
 
         // 2. A codeless predeploy answers (true, "") -> the 32-byte fee-length check fails loud instead of
-        //    decoding fee 0 and silently no-oping (the old DEFENDER LOST behavior, flipped by the L-01 fix)
+        //    decoding fee 0 and silently no-oping
         vm.prank(validator);
         vm.expectRevert(abi.encodeWithSignature("WithdrawalContractCallFailed()"));
         coffer.validatorWithdrawFromConsensus{value: 0}(0);
@@ -102,33 +102,9 @@ contract EIP7002PredeployHazardTest is BaseTest {
         assertEq(codeSizeBefore, 0, "Predeploy code must be absent");
 
         // 2. A codeless predeploy answers (true, "") -> the 32-byte fee-length check fails loud instead of
-        //    decoding fee 0 and silently no-oping (L-01 parity; this twin test did not exist before the fix)
+        //    decoding fee 0 and silently no-oping
         vm.prank(validator);
         vm.expectRevert(abi.encodeWithSignature("ConsolidationContractCallFailed()"));
         coffer.convertToCompounding{value: 0}();
-    }
-
-    function test_PredeployPresent_ExitValidator_WorksNormally() public {
-        // CONTROL: with the predeploy present, a defaulted coffer's exit request enqueues normally
-        uint256 bondId = buyBond(cofferAddr, holder1, 5 ether, ONE_MONTH, 1);
-        advanceTime(ONE_MONTH + 1);
-        coffer.declareDefault(bondId);
-
-        // Predeploy IS present (mock deployed in setUp)
-        address predeploy = WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS;
-        uint256 codeSize;
-        assembly {
-            codeSize := extcodesize(predeploy)
-        }
-        assertGt(codeSize, 0, "Predeploy must have code");
-
-        uint256 fee = getWithdrawalFee();
-
-        vm.expectEmit(true, false, false, true, cofferAddr);
-        emit Coffer.ValidatorExitRequested(address(this));
-        coffer.exitValidator{value: fee}();
-
-        (, uint256 count,,) = getQueueState();
-        assertEq(count, 1, "exit request enqueued at the predeploy");
     }
 }

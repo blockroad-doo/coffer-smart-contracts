@@ -819,6 +819,47 @@ contract EIP7002MockTest is BaseTest {
     }
 
     // ========================================
+    // A pending partial blocks exits (CL-side drop)
+    // ========================================
+
+    function test_PendingPartialBlocksExits_DropsExit_ThenPassesAfterClear() public {
+        uint256 fee = getWithdrawalFee();
+        EIP7002Mock mock = EIP7002Mock(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS);
+
+        // Baseline: no pending, both a partial and an exit survive the dequeuing
+        addWithdrawalRequest(TEST_PUBKEY_PART1, TEST_PUBKEY_PART2, 1 gwei, fee);
+        addWithdrawalRequest(TEST_PUBKEY_PART1, TEST_PUBKEY_PART2, 0, fee);
+
+        bytes memory returned = triggerSystemCall();
+        assertEq(returned.length, 2 * 76, "both requests returned while no pending exists");
+        assertWithdrawalRequest(returned, 0, address(this), TEST_PUBKEY_PART1, TEST_PUBKEY_PART2, 1 gwei);
+        assertWithdrawalRequest(returned, 1, address(this), TEST_PUBKEY_PART1, TEST_PUBKEY_PART2, 0);
+
+        // A pending partial now exists: the exit is dequeued but silently dropped
+        mock.setPendingPartialBlocksExits(true);
+        assertTrue(mock.pendingPartialBlocksExits(), "flag set");
+
+        addWithdrawalRequest(TEST_PUBKEY_PART1, TEST_PUBKEY_PART2, 1 gwei, fee);
+        addWithdrawalRequest(TEST_PUBKEY_PART1, TEST_PUBKEY_PART2, 0, fee);
+
+        returned = triggerSystemCall();
+        assertEq(returned.length, 76, "only the partial returned; the exit was dropped");
+        assertWithdrawalRequest(returned, 0, address(this), TEST_PUBKEY_PART1, TEST_PUBKEY_PART2, 1 gwei);
+
+        // The queue still drained both entries (the drop happens CL-side, after the dequeue)
+        (,, uint256 head, uint256 tail) = getQueueState();
+        assertEq(head, tail, "queue fully drained despite the drop");
+
+        // After the pending tail clears, the exit request passes again
+        mock.setPendingPartialBlocksExits(false);
+        addWithdrawalRequest(TEST_PUBKEY_PART1, TEST_PUBKEY_PART2, 0, fee);
+
+        returned = triggerSystemCall();
+        assertEq(returned.length, 76, "exit returned once the pending cleared");
+        assertWithdrawalRequest(returned, 0, address(this), TEST_PUBKEY_PART1, TEST_PUBKEY_PART2, 0);
+    }
+
+    // ========================================
     // GAS OPTIMIZATION TESTS
     // ========================================
 

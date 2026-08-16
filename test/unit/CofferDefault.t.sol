@@ -2,7 +2,7 @@
 pragma solidity 0.8.34;
 
 import {BaseTest, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS} from "./BaseTest.sol";
-import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
+import {EIP7002Mock, EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -12,8 +12,9 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  * freezes, acceleration (maturity waiver, FCFS, partial payouts), exitValidator (gating, 56-byte
  * full-exit payload, fee handling, re-callability while bonds are outstanding), and clearDefault
  * (the settlement-gated exit from a default)
- * @dev Scenario walkthroughs A1 (cure at the door), A2 (top-up/re-extract yo-yo), and A8 (pre-default
- * mint ordering) from docs/fixing-frontruning-partial-withdraws.md are pinned at the bottom
+ * @dev Scenario walkthroughs: cure at the door, the top-up/re-extract yo-yo resolved by the atomic
+ * redeemBondOrDefault, the pre-default dust partial that drops the first exit and the retry after the
+ * pending tail, pre-default mint ordering, and the in-flight exit request that survives the clear.
  */
 contract CofferDefaultTest is BaseTest {
     address public cofferAddr;
@@ -52,7 +53,7 @@ contract CofferDefaultTest is BaseTest {
         coffer.declareDefault(bondId);
         vm.deal(cofferAddr, bmv);
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(bondId);
+        coffer.redeemBondInDefault(bondId);
     }
 
     // ========================================
@@ -120,7 +121,7 @@ contract CofferDefaultTest is BaseTest {
     }
 
     // ========================================
-    // A1 — cure at the door: the only useful front-run is paying
+    // Cure at the door: the only useful front-run is paying
     // ========================================
 
     function test_DeclareDefault_CureByTopUp_ThenHolderClaimsInFull() public {
@@ -136,7 +137,7 @@ contract CofferDefaultTest is BaseTest {
 
         uint256 balBefore = holder1.balance;
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(bondId);
+        coffer.redeemBondOrDefault(bondId);
         assertEq(holder1.balance, balBefore + bmv, "holder collects in full");
     }
 
@@ -226,7 +227,7 @@ contract CofferDefaultTest is BaseTest {
         vm.prank(validator);
         (bool ok,) = cofferAddr.call{value: 3 ether}("");
         require(ok, "cure/donation path must stay open");
-        assertEq(cofferAddr.balance, 3 ether, "pool grew");
+        assertEq(cofferAddr.balance, 3 ether, "contract balance grew");
     }
 
     // ========================================
@@ -244,7 +245,7 @@ contract CofferDefaultTest is BaseTest {
         vm.deal(cofferAddr, bmv2);
         uint256 balBefore = holder2.balance;
         vm.prank(holder2);
-        coffer.holderWithdrawFromExecution(b2);
+        coffer.redeemBondInDefault(b2);
         assertEq(holder2.balance, balBefore + bmv2, "immature bond claims full maturity value post-default");
     }
 
@@ -254,15 +255,15 @@ contract CofferDefaultTest is BaseTest {
 
         vm.deal(cofferAddr, bmv - 1 ether);
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(bondId);
+        coffer.redeemBondInDefault(bondId);
 
         (uint128 remaining,,) = coffer.sHolderConditions(bondId);
         assertEq(remaining, 1 ether, "partial payout tracked");
 
-        // Pool is drained: the partial branch's balance gate fails closed
+        // Balance is drained: the zero-balance gate fails closed
         vm.prank(holder1);
-        vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
-        coffer.holderWithdrawFromExecution(bondId);
+        vm.expectRevert(Coffer.NothingToRedeem.selector);
+        coffer.redeemBondInDefault(bondId);
     }
 
     function test_Defaulted_ClaimsAreFCFS() public {
@@ -272,14 +273,14 @@ contract CofferDefaultTest is BaseTest {
         advanceTime(ONE_MONTH + 1);
         coffer.declareDefault(b1);
 
-        // Pool covers exactly one bond: first come, first served
+        // The contract balance covers exactly one bond: first come, first served
         vm.deal(cofferAddr, bmv1);
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(b1);
+        coffer.redeemBondInDefault(b1);
 
         vm.prank(holder2);
-        vm.expectRevert(Coffer.ContractBalanceLessThanValue.selector);
-        coffer.holderWithdrawFromExecution(b2);
+        vm.expectRevert(Coffer.NothingToRedeem.selector);
+        coffer.redeemBondInDefault(b2);
     }
 
     // ========================================
@@ -326,15 +327,15 @@ contract CofferDefaultTest is BaseTest {
         coffer.exitValidator{value: fee - 1}();
     }
 
-    function test_ExitValidator_SurplusNotRefunded_AccruesToPool() public {
+    function test_ExitValidator_SurplusNotRefunded_AccruesToContractBalance() public {
         (uint256 bondId,) = _maturedUnpaidBond();
         coffer.declareDefault(bondId);
 
         uint256 fee = getWithdrawalFee();
-        uint256 poolBefore = cofferAddr.balance;
+        uint256 balanceBefore = cofferAddr.balance;
         coffer.exitValidator{value: fee + 1 ether}();
 
-        assertEq(cofferAddr.balance, poolBefore + 1 ether, "surplus stays in the holders' pool");
+        assertEq(cofferAddr.balance, balanceBefore + 1 ether, "surplus stays in the contract balance");
     }
 
     function test_ExitValidator_RevertsIfFeeGetterFails() public {
@@ -530,48 +531,57 @@ contract CofferDefaultTest is BaseTest {
     }
 
     // ========================================
-    // Scenario walkthroughs (doc §9)
+    // Scenario walkthroughs
     // ========================================
 
-    /// @dev A2: the top-up/re-extract yo-yo is bounded — each dodge re-arms declareDefault, and one
-    ///      slip freezes the validator until every bond is paid in full
-    function test_Scenario_A2_TopUpReExtractYoYo_OneSlipEndsIt() public {
+    /// @dev The top-up/re-extract yo-yo is dead. The holder's redeemBondOrDefault
+    ///      declares the default in the same transaction as a failed redeem, so the validator can
+    ///      no longer dodge declareDefault with a top-up and re-extract it: the moment the balance
+    ///      fails to cover the bond, the default lands and every extraction path freezes. A top-up
+    ///      can still buy the validator a paid-out bond, but that is paying, not a dodge.
+    function test_Scenario_TopUpReExtractYoYo_AtomicDefaultEndsIt() public {
         (uint256 bondId, uint128 bmv) = _maturedUnpaidBond();
 
-        // Dodge: top-up covers the bond, default is not declarable
+        // The permissionless declareDefault can still be dodged by paying: a top-up covers
+        // the bond, so the declaration reverts...
         vm.prank(validator);
         (bool ok,) = cofferAddr.call{value: bmv}("");
         require(ok, "top-up");
         vm.expectRevert(Coffer.ValidatorNotDefaultable.selector);
         coffer.declareDefault(bondId);
 
-        // Re-extract: the receive() bump restored issueSize headroom, so V can pull the ETH back out
+        // ...and the validator re-extracts the cure via the receive() issueSize bump
         vm.prank(validator);
         coffer.validatorWithdrawFromExecution(bmv);
+        assertEq(cofferAddr.balance, 0, "drained again");
 
-        // The slip: the moment the balance is out, anyone lands the default
-        coffer.declareDefault(bondId);
-        assertTrue(_isDefaulted());
+        // The holder's redeem lands against the drained balance: the shortfall declares the default
+        // atomically — no second top-up/re-extract round is possible
+        vm.expectEmit(true, true, false, true, cofferAddr);
+        emit Coffer.ValidatorDefaulted(bondId, holder1);
+        vm.prank(holder1);
+        bool paidInFull = coffer.redeemBondOrDefault(bondId);
+        assertFalse(paidInFull, "shortfall, not a payout");
+        assertTrue(_isDefaulted(), "default declared in the same transaction");
 
-        // While the default stands: no extraction
+        // The re-extract leg of the yo-yo is frozen: a fresh top-up can no longer be pulled back out
         vm.deal(cofferAddr, bmv);
         vm.prank(validator);
         vm.expectRevert(Coffer.ValidatorInDefault.selector);
         coffer.validatorWithdrawFromExecution(bmv);
 
-        // The only exit is full payment: the holder collects, then the validator clears the default and the
-        // yo-yo may start again in a fresh epoch
+        // The only exit is full payment: the holder claims, then the validator clears the default
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(bondId);
+        coffer.redeemBondInDefault(bondId);
         vm.prank(validator);
         coffer.clearDefault();
         assertFalse(_isDefaulted(), "full payment discharged the default");
     }
 
-    /// @dev A6: aggregate-insolvent but per-bond-covered is not a deadlock. With the balance
+    /// @dev Aggregate-insolvent but per-bond-covered is not a deadlock. With the balance
     ///      covering each bond individually, no default is declarable, but FCFS lets the first
-    ///      claim drain the pool, after which the second bond's default fires.
-    function test_Scenario_A6_AggregateInsolvent_NoDeadlock() public {
+    ///      claim drain the contract balance, after which the second bond's default fires.
+    function test_Scenario_AggregateInsolvent_NoDeadlock() public {
         uint256 b1 = buyBond(cofferAddr, holder1, 5 ether, ONE_MONTH, 1);
         uint256 b2 = buyBond(cofferAddr, holder2, 5 ether, ONE_MONTH, 1);
         (uint128 bmv1,,) = coffer.sHolderConditions(b1);
@@ -587,16 +597,16 @@ contract CofferDefaultTest is BaseTest {
         vm.expectRevert(Coffer.ValidatorNotDefaultable.selector);
         coffer.declareDefault(b2);
 
-        // FCFS: H1 drains the pool in full
+        // FCFS: H1 drains the contract balance in full
         vm.prank(holder1);
-        coffer.holderWithdrawFromExecution(b1);
+        coffer.redeemBondOrDefault(b1);
 
         // Now B2 is matured and unpayable: the default fires. No deadlock state exists.
         coffer.declareDefault(b2);
         assertTrue(_isDefaulted());
     }
 
-    /// @dev A16: NFTs stay transferable during default and the claim follows ownerOf, moved
+    /// @dev NFTs stay transferable during default and the claim follows ownerOf, moved
     ///      never duplicated
     function test_Defaulted_TransferredBondClaimFollowsNewOwner() public {
         (uint256 bondId, uint128 bmv) = _maturedUnpaidBond();
@@ -610,16 +620,16 @@ contract CofferDefaultTest is BaseTest {
         // The seller has no claim left
         vm.prank(holder1);
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.holderWithdrawFromExecution(bondId);
+        coffer.redeemBondInDefault(bondId);
 
         // The buyer collects in full
         uint256 balBefore = holder3.balance;
         vm.prank(holder3);
-        coffer.holderWithdrawFromExecution(bondId);
+        coffer.redeemBondInDefault(bondId);
         assertEq(holder3.balance, balBefore + bmv, "claim follows the NFT owner");
     }
 
-    /// @dev A22: Ownable2Step stays live during default. The owner role carries the payment powers
+    /// @dev Ownable2Step stays live during default. The owner role carries the payment powers
     ///      and the clear power, so a transferee (e.g. a rescuer) can settle every holder via
     ///      escrow and then clear the default. The extraction freezes bind the new owner while the
     ///      default stands, exactly as they bound the old one.
@@ -654,11 +664,74 @@ contract CofferDefaultTest is BaseTest {
         assertFalse(_isDefaulted(), "rescuer cleared the default after settling in full");
     }
 
-    /// @dev A24: maturity arithmetic is widened to uint256, so a maturity past the uint32
+    /// @dev A pre-default dust partial blocks the first exit request and the retry after
+    ///      the pending tail lands. Pinned end to end with the mock's pending-partial modeling:
+    ///      the dust partial becomes a pending, the exit request is silently dropped, and a retry
+    ///      after the tail clears enqueues a working request.
+    function test_Scenario_PreDefaultDustPartial_DropsExit_RetryAfterTailLands() public {
+        (uint256 bondId,) = _maturedUnpaidBond();
+
+        // The dust partial fired just before the flip: enqueued, then processed into a pending
+        uint256 fee = getWithdrawalFee();
+        vm.prank(validator);
+        coffer.validatorWithdrawFromConsensus{value: fee}(1);
+        bytes memory returned = triggerSystemCall();
+        assertEq(returned.length, 76, "dust partial dequeued into a pending");
+
+        // The pending now exists (modeled by the mock's pending-partial flag)
+        EIP7002Mock(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS).setPendingPartialBlocksExits(true);
+
+        coffer.declareDefault(bondId);
+
+        // First exit request: silently dropped by the CL, nothing burned
+        coffer.exitValidator{value: getWithdrawalFee()}();
+        returned = triggerSystemCall();
+        assertEq(returned.length, 0, "exit request dropped while the pending exists");
+
+        // The pending tail drains (~28 h): the retry lands
+        EIP7002Mock(WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS).setPendingPartialBlocksExits(false);
+        coffer.exitValidator{value: getWithdrawalFee()}();
+        returned = triggerSystemCall();
+        assertWithdrawalRequest(returned, 0, cofferAddr, validPublicKeyPart1, validPublicKeyPart2, 0);
+    }
+
+    /// @dev An exit request already enqueued cannot be cancelled. The validator settles every
+    ///      bond and clears the default while the request is still in flight — the clear does not
+    ///      block on it, the EL queue still carries the request, and the new epoch operates.
+    function test_Scenario_InFlightExitRequest_SurvivesClear() public {
+        (uint256 bondId, uint128 bmv) = _maturedUnpaidBond();
+        coffer.declareDefault(bondId);
+
+        coffer.exitValidator{value: getWithdrawalFee()}();
+
+        // Settle every bond at full maturity value while the request sits in the queue
+        vm.deal(cofferAddr, bmv);
+        vm.prank(holder1);
+        coffer.redeemBondInDefault(bondId);
+
+        // The settle-to-clear window: the in-flight request does not block the clear
+        vm.prank(validator);
+        coffer.clearDefault();
+        assertFalse(_isDefaulted(), "clear succeeded with the request still in flight");
+
+        // The request is still enqueued EL-side (nothing can cancel it)
+        (, uint256 count,, uint256 queueTail) = getQueueState();
+        assertEq(count, 1, "one request pending in the block queue");
+        assertEq(queueTail, 1, "request still enqueued after the clear");
+
+        // The new epoch operates while the request is in flight
+        vm.prank(validator);
+        coffer.changeIssueSize(20 ether);
+        uint256 newBondId = buyBond(cofferAddr, holder2, 5 ether, ONE_MONTH, _version());
+        (uint128 newBmv,,) = coffer.sHolderConditions(newBondId);
+        assertGt(newBmv, 0, "new epoch sells bonds while the request is in flight");
+    }
+
+    /// @dev Maturity arithmetic is widened to uint256, so a maturity past the uint32
     ///      timestamp ceiling (year ~2106) can neither panic nor read as already-matured. The
     ///      unwidened uint32 addition would overflow-revert and brick both withdrawal and default
     ///      for the bond.
-    function test_Scenario_A24_WidenedMaturityPastUint32Ceiling() public {
+    function test_Scenario_WidenedMaturityPastUint32Ceiling() public {
         // A coffer offering 50-year durations (the protocol maximum)
         address longCofferAddr = createCoffer(
             validator,
@@ -683,7 +756,7 @@ contract CofferDefaultTest is BaseTest {
         vm.deal(longCofferAddr, 0);
         vm.prank(holder1);
         vm.expectRevert(Coffer.HoldersTimeHasNotExpiredYet.selector);
-        longCoffer.holderWithdrawFromExecution(bondId);
+        longCoffer.redeemBondOrDefault(bondId);
         vm.expectRevert(Coffer.HoldersTimeHasNotExpiredYet.selector);
         longCoffer.declareDefault(bondId);
 
@@ -693,23 +766,23 @@ contract CofferDefaultTest is BaseTest {
         vm.deal(longCofferAddr, bmv);
         uint256 balBefore = holder1.balance;
         vm.prank(holder1);
-        longCoffer.holderWithdrawFromExecution(bondId);
+        longCoffer.redeemBondInDefault(bondId);
         assertEq(holder1.balance, balBefore + bmv, "widened maturity math settles the bond");
     }
 
-    /// @dev A8: mint ordering around the default flip
-    function test_Scenario_A8_MintOrdering() public {
+    /// @dev Mint ordering around the default flip
+    function test_Scenario_MintOrderingAroundDefaultFlip() public {
         uint256 b1 = buyBond(cofferAddr, holder1, 5 ether, ONE_MONTH, 1);
         advanceTime(ONE_MONTH + 1);
 
-        // [buy, default]: a same-block mint before the flip joins the frozen FCFS pool, accelerated
+        // [buy, default]: a same-block mint before the flip joins the frozen FCFS queue, accelerated
         uint256 b2 = buyBond(cofferAddr, holder2, 5 ether, ONE_YEAR, 1);
         (uint128 bmv2,,) = coffer.sHolderConditions(b2);
         coffer.declareDefault(b1);
 
         vm.deal(cofferAddr, bmv2);
         vm.prank(holder2);
-        coffer.holderWithdrawFromExecution(b2);
+        coffer.redeemBondInDefault(b2);
 
         // [default, buy]: after the flip, minting is frozen
         vm.prank(holder3);

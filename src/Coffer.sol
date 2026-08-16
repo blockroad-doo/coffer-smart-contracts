@@ -50,6 +50,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
     error CallerIsNotHolder();
     error ContractBalanceLessThanValue();
+    error NothingToRedeem();
 
     error WithdrawalContractCallFailed();
     error ConsolidationContractCallFailed();
@@ -76,11 +77,11 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// issueSize). Can always be increased and can be decreased only when no unmatured bonds exist.
     /// @param outstandingBonds - Counter for bonds not redeemed yet. Those bonds may or may not have matured.
     /// @param isActive - Represents if validator is willing to issue a bond or not. Can switch on/off at own will.
-    /// @param validatorDefaulted - Set by declareDefault when a matured bond cannot be paid from the contract
-    /// balance. Cleared only by clearDefault, by the owner, once outstandingBonds == 0. While set, bond sales
-    /// and every validator extraction path revert with ValidatorInDefault, all bonds accelerate to claimable at
-    /// full maturity value via holderWithdrawFromExecution, and anyone can request the validator's full exit via
-    /// exitValidator while any bond is outstanding. See README "Exit Mechanics".
+    /// @param validatorDefaulted - Set by declareDefault (or atomically by the holder's redeemBondOrDefault)
+    /// when a matured bond cannot be paid from the contract balance. Cleared only by clearDefault, by the owner,
+    /// once outstandingBonds == 0. While set, bond sales and every validator extraction path revert with
+    /// ValidatorInDefault, all bonds accelerate to claimable at full maturity value via redeemBondInDefault,
+    /// and anyone can request the validator's full exit via exitValidator while any bond is outstanding.
 
     struct ValidatorConditions {
         uint128 issueSize;
@@ -145,17 +146,17 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @param feeAmount The fee paid, in wei
     /// @param feeBps The fee rate applied, in basis points
     event BondFeePaid(uint256 indexed bondId, address indexed feeRecipient, uint128 indexed feeAmount, uint256 feeBps);
-    /// @notice Emitted when a holder withdraws from execution layer
+    /// @notice Emitted when a holder redeems a bond in full, from either state
     /// @param holderAddress The address of the bond holder
     /// @param bondId The ID of the bond NFT
-    event HolderWithdrawFromExecutionSuccess(address indexed holderAddress, uint256 indexed bondId);
+    event BondRedeemed(address indexed holderAddress, uint256 indexed bondId);
     /* solhint-disable gas-indexed-events */
-    /// @notice Emitted when a holder does a partial withdrawal from execution layer
+    /// @notice Emitted when a holder redeems a bond partially — only ever fires while the validator is defaulted
     /// @param holderAddress The address of the bond holder
     /// @param bondId The ID of the bond NFT
     /// @param valueWithdrawn The amount withdrawn
     /// @param remainingBondMaturityValue The remaining bond maturity value
-    event HolderPartialWithdrawFromExecutionSuccess(
+    event BondRedeemedPartially(
         address indexed holderAddress,
         uint256 indexed bondId,
         uint128 valueWithdrawn,
@@ -180,7 +181,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     event CofferActivated();
     /// @notice Emitted when Coffer is deactivated
     event CofferDeactivated();
-    /// @notice Emitted when the validator is declared in default
+    /// @notice Emitted when the validator is declared in default, either by declareDefault or atomically by
+    /// the holder's redeemBondOrDefault
     /// @param bondId The matured, unpayable bond that triggered the default
     /// @param caller The address that declared the default
     event ValidatorDefaulted(uint256 indexed bondId, address indexed caller);
@@ -319,13 +321,14 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// issueSize.
     /// @notice Topping up the balance is how a validator serves bonds from the execution layer, and how an
     /// imminent default is cured: while the ETH sits here, matured bonds are claimable in full via
-    /// holderWithdrawFromExecution and declareDefault's predicate fails. The function stays open after a default
-    /// (cure of the pool, donations; consensus-layer sweeps bypass code anyway). The issueSize bump below stays
-    /// honest across a declare-and-clear cycle: buyBond consumed issueSize that settlement never restores, and
-    /// the cure top-up credits it back, the same accounting as serving a bond in normal operation. Overshoot from
+    /// redeemBondOrDefault and declareDefault's predicate fails. The function stays open after a default
+    /// (cure of the contract balance, donations; consensus-layer sweeps bypass code anyway). The issueSize
+    /// bump below stays honest across a declare-and-clear cycle: buyBond consumed issueSize that settlement
+    /// never restores, and the cure top-up credits it back, the same accounting as serving a bond in normal
+    /// operation. Overshoot from
     /// donations or over-cure matches the existing zero-bond staleness class, because withdrawals with no
     /// outstanding bonds never decrement issueSize either.
-    /// @notice The contributor set is unrestricted by design. Funds from any sender are pooled into the Coffer
+    /// @notice The contributor set is unrestricted by design. Funds from any sender are added to the contract
     /// balance and credited to issueSize, and any AML or sanctions filtering is performed off-chain. This is an
     /// inherent property of every ETH-accepting Ethereum address, including the validator's own 0x01 or 0x02
     /// withdrawal credential, and is not a Coffer-specific weakness.
@@ -603,76 +606,118 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         emit IssueSizeBufferBpsChanged(oldBuffer, _issueSizeBufferBps);
     }
 
-    /// @notice Holder withdraws matured bond from execution layer
-    /// @notice Should be called when the contract has enough balance to cover the holder's bond value
-    /// @notice The validator sources that balance at their own discretion: consensus partials via
-    /// validatorWithdrawFromConsensus (~2 days of lead time), direct transfers via receive(), third-party top-ups
-    /// @notice While the validator is defaulted, maturity is waived (acceleration): every bond claims its full
-    /// maturity value, first come first served, partial payouts included
-    /// @notice The BondNft owner can withdraw using their bondId
-    /// @param _bondId The ID of the bond NFT to withdraw
-    function holderWithdrawFromExecution(uint256 _bondId) external {
+    /// @notice Holder redeems a matured bond while the validator is serving (not defaulted)
+    /// @notice Two outcomes, never a partial: pays the full bondMaturityValue, or declares the validator in
+    /// default. The shortfall path is atomic with the default declaration, so a validator cannot front-run
+    /// the redeem with a withdrawal and then re-extract the cure top-up: once defaulted, every validator
+    /// extraction path is frozen. The only useful front-run of this function is paying the bond.
+    /// @notice Returns true when the full bondMaturityValue was paid. Returns false when the bond was not
+    /// paid and the validator was declared in default instead: the bond stays alive and becomes claimable
+    /// through redeemBondInDefault. The false path never reverts and moves no ETH.
+    /// @notice Reverts while the validator is defaulted (ValidatorInDefault): in that state bonds are claimed
+    /// through redeemBondInDefault, which has no maturity check.
+    /// @notice Composition warning: batching [redeemBondOrDefault, redeemBondInDefault] on the same bond
+    /// through multicall (or any all-or-nothing batcher) lands only when 0 < contract balance <
+    /// bondMaturityValue. Outside that window the second subcall reverts and unwinds the whole batch: the
+    /// payment on a funded coffer (ValidatorNotInDefault), the default declaration on an empty one
+    /// (NothingToRedeem). When unsure of the balance at execution time, call this function alone; a contract
+    /// caller branches on paidInFull instead.
+    /// @param _bondId The ID of the bond NFT to redeem
+    /// @return paidInFull True if the full bondMaturityValue was paid to the holder
+    function redeemBondOrDefault(uint256 _bondId) external returns (bool paidInFull) {
+        ValidatorConditions storage vc = sValidatorConditions;
+
+        require(!vc.validatorDefaulted, ValidatorInDefault());
+
         HolderConditions storage holder = sHolderConditions[_bondId];
 
         require(holder.bondMaturityValue != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
-
         require(msg.sender == ICofferBondNft(iCofferBondNftAddress()).ownerOf(_bondId), CallerIsNotHolder());
 
-        ValidatorConditions storage vc = sValidatorConditions;
-
-        // Has time passed so holder can withdraw; maturity is waived while defaulted. Widened arithmetic so a
-        // far-future uint32 maturity cannot overflow-brick the check.
+        // Widened arithmetic so a far-future uint32 maturity cannot overflow-brick the check
         // solhint-disable gas-strict-inequalities
         require(
             // forge-lint: disable-next-line(block-timestamp)
-            vc.validatorDefaulted || uint256(holder.duration) + holder.startTimestamp <= block.timestamp,
+            uint256(holder.duration) + holder.startTimestamp <= block.timestamp,
             HoldersTimeHasNotExpiredYet()
         );
         // solhint-enable gas-strict-inequalities
 
-        uint128 valueToWithdraw;
-
         // solhint-disable-next-line gas-strict-inequalities
         if (address(this).balance >= holder.bondMaturityValue) {
-            // Full withdrawal: existing behavior
-            valueToWithdraw = holder.bondMaturityValue;
+            uint128 value = holder.bondMaturityValue;
 
             --vc.outstandingBonds;
             delete sHolderConditions[_bondId];
             ICofferBondNft(iCofferBondNftAddress()).burnCofferBond(_bondId);
 
-            emit HolderWithdrawFromExecutionSuccess(msg.sender, _bondId);
-        } else {
-            require(address(this).balance > 0, ContractBalanceLessThanValue());
+            emit BondRedeemed(msg.sender, _bondId);
 
-            // Partial withdrawal: withdraw whatever is available
-            // forge-lint: disable-next-line(unsafe-typecast)
-            // balance < holder.bondMaturityValue (uint128), so fits uint128
-            valueToWithdraw = uint128(address(this).balance);
+            Address.sendValue(payable(msg.sender), value);
+            return true;
+        }
 
+        // Shortfall: declare the default atomically and leave the bond alive. Every predicate of
+        // _declareDefault was established above (not defaulted, exists, matured, balance < value),
+        // so this cannot revert: the transaction succeeds with zero ETH moved.
+        _declareDefault(_bondId);
+        return false;
+    }
+
+    /// @notice Holder redeems a bond while the validator is defaulted
+    /// @notice No maturity check: a declared default accelerates every bond to claimable at its full maturity
+    /// value, first come first served. Pays min(contract balance, remaining bondMaturityValue): whatever the
+    /// contract holds, up to the bond's remaining value. A full payout burns the bond and decrements
+    /// outstandingBonds, so a sequence of partial claims converges to settlement through this one function and
+    /// clearDefault's outstandingBonds == 0 gate stays reachable.
+    /// @notice Reverts while the validator is serving (ValidatorNotInDefault) and when the contract balance is
+    /// zero (NothingToRedeem). In an all-or-nothing batch the zero-balance revert unwinds every earlier
+    /// subcall, a default freshly declared by redeemBondOrDefault included; see redeemBondOrDefault's
+    /// composition warning.
+    /// @param _bondId The ID of the bond NFT to redeem
+    function redeemBondInDefault(uint256 _bondId) external {
+        ValidatorConditions storage vc = sValidatorConditions;
+
+        require(vc.validatorDefaulted, ValidatorNotInDefault());
+
+        HolderConditions storage holder = sHolderConditions[_bondId];
+
+        require(holder.bondMaturityValue != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
+        require(msg.sender == ICofferBondNft(iCofferBondNftAddress()).ownerOf(_bondId), CallerIsNotHolder());
+        require(address(this).balance > 0, NothingToRedeem());
+
+        uint128 remaining = holder.bondMaturityValue;
+        uint256 balance = address(this).balance;
+
+        uint128 valueToWithdraw = remaining;
+        if (balance < remaining) {
+            // forge-lint: disable-next-line(unsafe-typecast) min-cap: only cast when balance < remaining (uint128)
+            valueToWithdraw = uint128(balance);
+        }
+
+        if (valueToWithdraw < remaining) {
             holder.bondMaturityValue -= valueToWithdraw;
 
-            emit HolderPartialWithdrawFromExecutionSuccess(
-                msg.sender, _bondId, valueToWithdraw, holder.bondMaturityValue
-            );
+            emit BondRedeemedPartially(msg.sender, _bondId, valueToWithdraw, holder.bondMaturityValue);
 
             ICofferBondNft(iCofferBondNftAddress()).emitMetadataUpdate(_bondId);
+        } else {
+            // Full settlement: min(contract balance, remaining) reached the bond's remaining value
+            --vc.outstandingBonds;
+            delete sHolderConditions[_bondId];
+            ICofferBondNft(iCofferBondNftAddress()).burnCofferBond(_bondId);
+
+            emit BondRedeemed(msg.sender, _bondId);
         }
 
         Address.sendValue(payable(msg.sender), valueToWithdraw);
     }
 
-    /// @notice Declares the validator in default: a matured bond exists that the contract balance cannot pay
-    /// @notice Callable by anyone. The only way to prevent the declaration is to pay: top up the balance via
-    /// receive() or settle the bond via redeemBondsEarly before this call lands, so the only useful front-run of
-    /// this function is paying the holder. The only way out of a declared default is also to pay: once every
-    /// outstanding bond is settled at its full maturity value, the owner can clear the flag via clearDefault.
-    /// @notice While defaulted: bond sales and every validator extraction path revert with ValidatorInDefault,
-    /// all bonds accelerate to claimable at full maturity value (first come first served, via
-    /// holderWithdrawFromExecution), and anyone can repeatedly request the validator's full exit via
-    /// exitValidator while any bond is outstanding, sweeping the remaining stake into this contract.
-    /// @param _bondId A bond satisfying the default predicate: it exists, it is matured, and it cannot be paid
-    function declareDefault(uint256 _bondId) external {
+    /// @dev Internal default predicate shared by declareDefault and redeemBondOrDefault. The redundancy
+    /// between the call sites and these checks is deliberate: the predicate exists in exactly one place,
+    /// so the two entry points can never drift apart. Internal calls preserve msg.sender, so the
+    /// ValidatorDefaulted caller field is correct from both entry points.
+    function _declareDefault(uint256 _bondId) internal {
         ValidatorConditions storage vc = sValidatorConditions;
 
         require(!vc.validatorDefaulted, AlreadyDefaulted());
@@ -695,6 +740,22 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         emit ValidatorDefaulted(_bondId, msg.sender);
     }
 
+    /// @notice Declares the validator in default: a matured bond exists that the contract balance cannot pay
+    /// @notice Callable by anyone. The holder's own atomic path is redeemBondOrDefault, which declares the
+    /// default through the same predicate in the same transaction as the failed redeem. The only way to
+    /// prevent the declaration is to pay: top up the balance via receive() or settle the bond via
+    /// redeemBondsEarly before this call lands, so the only useful front-run of this function is paying the
+    /// holder. The only way out of a declared default is also to pay: once every outstanding bond is settled
+    /// at its full maturity value, the owner can clear the flag via clearDefault.
+    /// @notice While defaulted: bond sales and every validator extraction path revert with ValidatorInDefault,
+    /// all bonds accelerate to claimable at full maturity value (first come first served, via
+    /// redeemBondInDefault), and anyone can repeatedly request the validator's full exit via exitValidator
+    /// while any bond is outstanding, sweeping the remaining stake into this contract.
+    /// @param _bondId A bond satisfying the default predicate: it exists, it is matured, and it cannot be paid
+    function declareDefault(uint256 _bondId) external {
+        _declareDefault(_bondId);
+    }
+
     /// @notice Requests the defaulted validator's full exit via EIP-7002, sweeping the entire remaining stake,
     /// 32 ETH floor included, to this contract, where it backs the holders' claims
     /// @notice Callable by anyone, repeatedly, while any bond is outstanding. Once every bond settles there is
@@ -705,7 +766,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// after the pending tail (~28 hours) lands. A dropped request burns nothing.
     /// @notice msg.value must cover the EIP-7002 withdrawal fee read from WITHDRAWAL_CONTRACT via staticcall.
     /// Callers should pre-size msg.value off-chain as (fee + small_buffer). Any surplus (msg.value - fee) is NOT
-    /// refunded and accrues to the contract balance, which is the holders' pool while the default stands.
+    /// refunded and accrues to the contract balance, which backs the holders' claims while the default stands.
     function exitValidator() external payable {
         require(sValidatorConditions.validatorDefaulted, ValidatorNotInDefault());
         require(sValidatorConditions.outstandingBonds > 0, NoOutstandingBonds());
@@ -760,7 +821,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice When outstanding bonds exist, withdrawal is bounded: the validator can only withdraw up to issueSize
     /// (unbonded capacity). When no bonds exist, the validator can withdraw freely.
     /// @notice Version of validator conditions must be updated to avoid the validator front-running the holder
-    /// @notice Reverts while defaulted: post-default the contract balance is the holders' recovery pool
+    /// @notice Reverts while defaulted: post-default the contract balance backs the holders' claims
     /// @param _amount The amount to withdraw
     function validatorWithdrawFromExecution(uint128 _amount) external onlyOwner {
         ValidatorConditions storage vc = sValidatorConditions;

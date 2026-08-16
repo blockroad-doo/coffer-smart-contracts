@@ -17,17 +17,14 @@ contract GoodFeeRecipient {
 }
 
 /**
- * @title VerifyFeeRecipientPullPattern
- * @notice Audit-regression guard for finding F-01 (shared-FeeCurve SPOF), now FIXED via pull-based fees.
+ * @title FeeRecipientPullPatternTest
+ * @notice Tests for the pull-based protocol-fee mechanism.
  *
- * F-01a: a reverting/non-payable feeRecipient must NOT brick buyBond. buyBond deposits the fee via
- *        FeeCurve.collectFee{value: fee}() (revert-free accrual), so issuance is decoupled from the recipient.
- * F-01b: FeeCurve.renounceOwnership() is disabled (reverts), so the recipient is always fixable and accrued
- *        fees are never permanently stranded.
- *
- * Permanent home (test/unit, Verify* convention) so this survives deletion of test/audit-poc/.
+ * A reverting or non-payable feeRecipient must NOT brick buyBond. buyBond deposits the fee via
+ * FeeCurve.collectFee{value: fee}(), a revert-free accrual, so issuance is decoupled from the
+ * recipient. Only the later claim() to a broken recipient fails, and only for that payout.
  */
-contract VerifyFeeRecipientPullPattern is BaseTest {
+contract FeeRecipientPullPatternTest is BaseTest {
     address internal protocolAdmin; // FeeCurve owner = CofferFactory deployer = the test contract in BaseTest
 
     function setUp() public override {
@@ -56,7 +53,7 @@ contract VerifyFeeRecipientPullPattern is BaseTest {
         version = 2;
     }
 
-    // F-01a - a reverting feeRecipient does NOT brick buyBond (fees pool in FeeCurve)
+    // A reverting feeRecipient does NOT brick buyBond (fees pool in FeeCurve)
     function test_BuyBond_NotBrickedByRevertingFeeRecipient() public {
         assertEq(feeCurve.owner(), protocolAdmin, "FeeCurve owner is the factory deployer");
         (uint256 feeBps,) = feeCurve.getFee();
@@ -95,29 +92,5 @@ contract VerifyFeeRecipientPullPattern is BaseTest {
         feeCurve.claim();
         assertEq(address(good).balance, pool, "recipient paid full accrued pool after fix");
         assertEq(feeCurve.sAccruedFees(), 0, "accrued pool zeroed after claim");
-    }
-
-    // F-01b - FeeCurve.renounceOwnership is disabled; recipient always fixable
-    function test_FeeCurveRenounceDisabled_RecipientAlwaysFixable() public {
-        vm.prank(protocolAdmin);
-        vm.expectRevert(abi.encodeWithSignature("RenounceDisabled()"));
-        feeCurve.renounceOwnership();
-        assertEq(feeCurve.owner(), protocolAdmin, "owner retained -> recipient always fixable");
-
-        RevertingFeeRecipient bad = new RevertingFeeRecipient();
-        vm.prank(protocolAdmin);
-        feeCurve.setFeeRecipient(address(bad));
-
-        (address cofferA, uint32 vA) = _makeCofferWithIssueSize(bytes32(uint256(11)), bytes16(uint128(12)), 100 ether);
-        vm.prank(holder1);
-        Coffer(payable(cofferA)).buyBond{value: 10 ether}(ONE_YEAR, vA); // succeeds; fee pooled
-
-        GoodFeeRecipient good = new GoodFeeRecipient();
-        vm.prank(protocolAdmin);
-        feeCurve.setFeeRecipient(address(good));
-        uint256 pool = feeCurve.sAccruedFees();
-        assertGt(pool, 0);
-        feeCurve.claim();
-        assertEq(address(good).balance, pool, "fees recovered after fixing the recipient");
     }
 }

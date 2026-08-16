@@ -51,13 +51,13 @@ contract CofferHandlerExt is Test {
     uint256 public ghostTotalEthArrivedFromConsensus;
 
     // ── Ghost state: default machine ───────────────────────────────────────
-    // Mirrors the on-chain flag both ways: set by handlerDeclareDefault on a successful declare,
-    // cleared by handlerClearDefault on a successful clear (C1 mirror). A default epoch is the
-    // span between one flip to true and the matching clear.
+    // Mirrors the on-chain flag both ways: set by handlerDeclareDefault or handlerRedeemBondOrDefault
+    // on a successful declare, cleared by handlerClearDefault on a successful clear.
+    // A default epoch is the span between one flip to true and the matching clear.
     bool public ghostValidatorDefaulted;
     // Set if a declare ever SUCCEEDS while the pre-call balance covered the bond. Handler-side
     // asserts would be masked under fail_on_revert = false, so violations are recorded here and
-    // asserted by invariant_coveredBondNeverDefaulted (C3).
+    // asserted by invariant_coveredBondNeverDefaulted.
     bool public ghostDefaultViolation;
     // Epoch snapshots, re-baselined by handlerDeclareDefault at every flip to true. The post-default
     // invariants early-out while the flag is down, so between-epoch flows need no attribution.
@@ -67,18 +67,19 @@ contract CofferHandlerExt is Test {
     uint128 public ghostConsensusAtDefault;
     uint256 public ghostTotalDefaultsDeclared;
     uint256 public ghostTotalDefaultsCleared;
-    // C2 ledger: every wei entering/leaving the pool within the current default epoch, attributed
-    // by cause and zeroed at each flip to true.
+    // Epoch ledger: every wei entering/leaving the contract balance within the current default epoch,
+    // attributed by cause and zeroed at each flip to true.
     // Inflows: receive() tops, consensus arrivals, exit-fee surpluses (none: exact fee).
     // Outflows: holder claim payouts and redeemBondsEarly net escrow spend.
-    uint256 public ghostPoolInflowsSinceDefault;
-    uint256 public ghostPoolOutflowsSinceDefault;
+    uint256 public ghostBalanceInflowsSinceDefault;
+    uint256 public ghostBalanceOutflowsSinceDefault;
     // Exit-sweep model: the stake moves into in-transit at most once per default epoch; the latch
     // resets when the default clears so a later epoch can sweep whatever stake the model has accrued since.
     bool public ghostExitSweepQueued;
 
     uint256 public callsBuyBond;
-    uint256 public callsHolderWithdrawFromExecution;
+    uint256 public callsRedeemBondOrDefault;
+    uint256 public callsRedeemBondInDefault;
     uint256 public callsSimulateEthArrival;
     uint256 public callsRedeemBondsEarly;
     uint256 public callsValidatorWithdrawFromExecution;
@@ -237,10 +238,13 @@ contract CofferHandlerExt is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // HANDLER: holderWithdrawFromExecution
+    // HANDLER: redeemBondOrDefault (serving-state: full payout or atomic default)
     // ══════════════════════════════════════════════════════════════════════
-    function handlerHolderWithdrawFromExecution(uint256 idSeed) external {
-        ++callsHolderWithdrawFromExecution;
+    function handlerRedeemBondOrDefault(uint256 idSeed) external {
+        ++callsRedeemBondOrDefault;
+
+        if (ghostValidatorDefaulted) return;
+
         uint256 len = ghostActiveBondIds.length;
         if (len == 0) return;
 
@@ -250,17 +254,63 @@ contract CofferHandlerExt is Test {
 
         (uint128 amount, uint32 _duration, uint32 startTimestamp) = coffer.sHolderConditions(bondId);
         if (amount == 0) return;
-        // Check maturity; waived while defaulted (acceleration, R5)
+        // Maturity is required while serving
         // forge-lint: disable-next-line
-        if (!ghostValidatorDefaulted && uint256(_duration) + uint256(startTimestamp) > block.timestamp) return;
+        if (uint256(_duration) + uint256(startTimestamp) > block.timestamp) return;
+
+        vm.prank(holder);
+        bool paidInFull = coffer.redeemBondOrDefault(bondId);
+
+        if (paidInFull) {
+            ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
+            ghostActiveBondIds.pop();
+            ghostIsBondActive[bondId] = false;
+            delete ghostBondHolder[bondId];
+            delete ghostBondMaturityValue[bondId];
+            delete ghostPrincipal[bondId];
+            delete ghostExecutionWithdrawn[bondId];
+            ++ghostTotalBondsWithdrawnExecution;
+        } else {
+            // Shortfall: the default was declared atomically in the same transaction.
+            // Re-baseline every epoch snapshot exactly as handlerDeclareDefault does.
+            ghostValidatorDefaulted = true;
+            ghostBondsAtDefault = ghostActiveBondIds.length;
+            ghostBoughtAtDefault = ghostTotalBondsBought;
+            ghostBalanceAtDefault = address(coffer).balance;
+            ghostConsensusAtDefault = ghostConsensusBalance;
+            // Fresh epoch: the epoch ledger restarts from the balance snapshot above
+            ghostBalanceInflowsSinceDefault = 0;
+            ghostBalanceOutflowsSinceDefault = 0;
+            ++ghostTotalDefaultsDeclared;
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // HANDLER: redeemBondInDefault (defaulted-state claim, no maturity check)
+    // ══════════════════════════════════════════════════════════════════════
+    function handlerRedeemBondInDefault(uint256 idSeed) external {
+        ++callsRedeemBondInDefault;
+
+        if (!ghostValidatorDefaulted) return;
+
+        uint256 len = ghostActiveBondIds.length;
+        if (len == 0) return;
+
+        uint256 idx = idSeed % len;
+        uint256 bondId = ghostActiveBondIds[idx];
+        address holder = ghostBondHolder[bondId];
+
+        (uint128 amount,,) = coffer.sHolderConditions(bondId);
+        if (amount == 0) return;
+        // The zero balance reverts (NothingToRedeem)
         if (address(coffer).balance == 0) return;
 
         vm.prank(holder);
-        coffer.holderWithdrawFromExecution(bondId);
+        coffer.redeemBondInDefault(bondId);
 
         (uint128 amountAfter,,) = coffer.sHolderConditions(bondId);
         uint128 paidOut = amount - amountAfter;
-        if (ghostValidatorDefaulted) ghostPoolOutflowsSinceDefault += paidOut;
+        ghostBalanceOutflowsSinceDefault += paidOut;
 
         if (amountAfter == 0) {
             ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
@@ -291,7 +341,7 @@ contract CofferHandlerExt is Test {
             if (block.timestamp >= pw.arrivalTime) {
                 vm.deal(address(coffer), address(coffer).balance + pw.amount);
                 ghostTotalEthArrivedFromConsensus += pw.amount;
-                if (ghostValidatorDefaulted) ghostPoolInflowsSinceDefault += pw.amount;
+                if (ghostValidatorDefaulted) ghostBalanceInflowsSinceDefault += pw.amount;
                 ghostPendingWithdrawals[idx] = ghostPendingWithdrawals[ghostPendingWithdrawals.length - 1];
                 ghostPendingWithdrawals.pop();
             }
@@ -322,11 +372,11 @@ contract CofferHandlerExt is Test {
         vm.prank(validator);
         coffer.redeemBondsEarly{value: topUp}(bondIds);
 
-        // C2 ledger: the pool's net change is (topUp in, amount out to escrow). Track both sides
+        // Epoch ledger: the contract balance's net change is (topUp in, amount out to escrow). Track both sides
         // exactly via the balance delta so the outflow attribution stays wei-precise.
         if (ghostValidatorDefaulted) {
-            ghostPoolInflowsSinceDefault += topUp;
-            ghostPoolOutflowsSinceDefault += balanceBefore + topUp - address(coffer).balance;
+            ghostBalanceInflowsSinceDefault += topUp;
+            ghostBalanceOutflowsSinceDefault += balanceBefore + topUp - address(coffer).balance;
         }
 
         ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
@@ -382,7 +432,7 @@ contract CofferHandlerExt is Test {
 
         // Frozen while defaulted (ValidatorInDefault) -- the security boundary: no new pending
         // partial can ever be created post-default. Pre-default pendings still arrive later,
-        // which mirrors scenario A3 (a dust partial fired just before the flip).
+        // which mirrors a dust partial fired just before the flip.
         if (ghostValidatorDefaulted) return;
 
         (bool readOk, bytes memory feeData) = WITHDRAWAL_CONTRACT.staticcall("");
@@ -501,7 +551,7 @@ contract CofferHandlerExt is Test {
         // The on-chain issueSize bump still happens post-default (dead state, every consumer is
         // frozen), so the ghost keeps mirroring it either way.
         ghostIssueSize += amt;
-        if (ghostValidatorDefaulted) ghostPoolInflowsSinceDefault += amt;
+        if (ghostValidatorDefaulted) ghostBalanceInflowsSinceDefault += amt;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -547,7 +597,7 @@ contract CofferHandlerExt is Test {
         // stake so cross-layer solvency reflects an honest, adequately-staked validator. We only
         // raise (never lower) the modeled stake; a lower issueSize keeps the prior stake. Post
         // default the honest-staking assumption no longer applies (deposits are frozen), so the
-        // modeled stake never grows there (C4: the recovery estate only shrinks toward the pool).
+        // modeled stake never grows there. The recovery estate only shrinks toward the contract.
         if (!ghostValidatorDefaulted && ghostConsensusBalance < newIssueSize) {
             ghostConsensusBalance = newIssueSize;
         }
@@ -658,7 +708,7 @@ contract CofferHandlerExt is Test {
         {
             uint256 bondId = targetBondId;
 
-            // C3 evidence: if this declare succeeds although the bond was covered, record the
+            // If this declare succeeds although the bond was covered, record the
             // violation instead of asserting (asserts would be masked under fail_on_revert=false)
             (uint128 amount,,) = coffer.sHolderConditions(bondId);
             bool coveredBeforeCall = address(coffer).balance >= amount;
@@ -673,9 +723,9 @@ contract CofferHandlerExt is Test {
             ghostBoughtAtDefault = ghostTotalBondsBought;
             ghostBalanceAtDefault = address(coffer).balance;
             ghostConsensusAtDefault = ghostConsensusBalance;
-            // Fresh epoch: the C2 ledger restarts from the balance snapshot above
-            ghostPoolInflowsSinceDefault = 0;
-            ghostPoolOutflowsSinceDefault = 0;
+            // Fresh epoch: the epoch ledger restarts from the balance snapshot above
+            ghostBalanceInflowsSinceDefault = 0;
+            ghostBalanceOutflowsSinceDefault = 0;
             ++ghostTotalDefaultsDeclared;
             return;
         }
@@ -686,7 +736,7 @@ contract CofferHandlerExt is Test {
     // ══════════════════════════════════════════════════════════════════════
     /// @dev Anyone-callable exit request, repeatable while any bond is outstanding (the on-chain
     /// NoOutstandingBonds gate closes at full settlement, so the handler pre-checks it to stay
-    /// revert-free). Pays the exact fee (no surplus, keeping the C2 ledger simple). The sweep model
+    /// revert-free). Pays the exact fee (no surplus, keeping the epoch ledger simple). The sweep model
     /// moves the whole remaining modeled stake into in-transit at most once per epoch; it lands at
     /// the coffer via handlerSimulateEthArrival after the queue delay. Repeat calls exercise
     /// on-chain re-callability with nothing further to move.
@@ -738,7 +788,7 @@ contract CofferHandlerExt is Test {
         ++ghostTotalDefaultsCleared;
 
         // Emerging with a standing issueSize is the validator re-asserting that issuance
-        // capacity for the new epoch (the README instructs re-attesting via changeIssueSize).
+        // capacity for the new epoch (the validator re-attests via changeIssueSize).
         // Mirror handlerChangeIssueSize's honest-staking device: raise the modeled stake so
         // cross-layer solvency reflects an honest, adequately-backed validator rather than
         // the stale-attestation seller the trust model excludes.

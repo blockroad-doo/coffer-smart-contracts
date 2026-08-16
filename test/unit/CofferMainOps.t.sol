@@ -64,7 +64,7 @@ contract CofferMainOpsTest is BaseTest {
         (uint128 issueSize,,,,,,,,,) = largeCoffer.sValidatorConditions();
 
         uint256 base = calculateExpectedIssueSize(largeStartingBalance, defaultIssueSizeBufferBps);
-        // The initial issueSize is the buffer-scaled starting balance (the 32 ETH floor deduction was removed).
+        // The initial issueSize is the buffer-scaled starting balance.
         assertEq(issueSize, base);
     }
 
@@ -274,7 +274,7 @@ contract CofferMainOpsTest is BaseTest {
 
         vm.prank(holder2); // not the NFT owner
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.holderWithdrawFromExecution(bondId);
+        coffer.redeemBondOrDefault(bondId);
     }
 
     function test_HolderIsCaller_SucceedsAfterNftTransfer() public {
@@ -290,10 +290,10 @@ contract CofferMainOpsTest is BaseTest {
         vm.deal(cofferAddr, 10 ether);
         advanceTime(ONE_MONTH + 1);
 
-        // holder2 can now withdraw
+        // holder2 can now redeem
         uint256 balBefore = holder2.balance;
         vm.prank(holder2);
-        coffer.holderWithdrawFromExecution(bondId);
+        coffer.redeemBondOrDefault(bondId);
 
         assertGt(holder2.balance, balBefore);
     }

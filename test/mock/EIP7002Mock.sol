@@ -121,6 +121,27 @@ contract EIP7002Mock {
     // We use raw assembly for storage to match the exact slot layout.
     // But we also provide Solidity-level helpers for readability.
 
+    // ── CL-behavior simulation (test-only) ──────────────────────────────────
+    // A pending partial withdrawal blocks full exits at the CL. The EL predeploy still
+    // dequeues the exit request, but the CL silently discards it. This flag lets tests model
+    // that drop: while set, amount == 0 entries leave the queue but are excluded from the
+    // system call's returned request data. Stored at a high fixed slot, far from the raw
+    // queue layout (slots 0-3 + entries from slot 4).
+    bytes32 private constant PENDING_BLOCKS_EXITS_SLOT =
+        0x0000000000000000000000000000000000000000000000000000000000001000;
+
+    function setPendingPartialBlocksExits(bool _blocked) external {
+        assembly {
+            sstore(PENDING_BLOCKS_EXITS_SLOT, _blocked)
+        }
+    }
+
+    function pendingPartialBlocksExits() external view returns (bool blocked) {
+        assembly {
+            blocked := sload(PENDING_BLOCKS_EXITS_SLOT)
+        }
+    }
+
     // ── Fallback: routes all calls exactly like the bytecode ────────────────
     fallback() external payable {
         // Path 1: System call
@@ -291,13 +312,21 @@ contract EIP7002Mock {
         uint256 numDequeued =
             numInQueue < MAX_WITHDRAWAL_REQUESTS_PER_BLOCK ? numInQueue : MAX_WITHDRAWAL_REQUESTS_PER_BLOCK;
 
-        // Build return data: each request is 76 bytes (0x4c)
+        // Pending-partial modeling: while a pending partial exists, the CL silently drops full-exit requests
+        // (amount == 0). They are dequeued here (the EL queue drains) but excluded from the
+        // returned request data — exactly the drop the CL performs.
+        bool blocksExits;
+        assembly {
+            blocksExits := sload(PENDING_BLOCKS_EXITS_SLOT)
+        }
+
+        // Build return data: each surviving request is 76 bytes (0x4c)
         // Layout per request: source_address(20) ++ pubkey(32) ++ pubkey_rest(16) ++ amount_le(8)
         bytes memory returnData = new bytes(numDequeued * QUEUE_ENTRY_SIZE);
+        uint256 written = 0;
 
         for (uint256 i = 0; i < numDequeued; i++) {
             uint256 queueSlot = WITHDRAWAL_REQUEST_QUEUE_STORAGE_OFFSET + (queueHeadIndex + i) * 3;
-            uint256 offset = i * QUEUE_ENTRY_SIZE;
 
             address sourceAddr;
             bytes32 pubkeyFirst;
@@ -323,6 +352,11 @@ contract EIP7002Mock {
                 // Then shift right by 192 bits to get the 8 bytes we want as uint64
                 amountBe := shr(192, shl(128, slot2Val))
             }
+
+            // Pending-partial drop: a full exit while a pending partial exists never reaches the CL
+            if (blocksExits && amountBe == 0) continue;
+
+            uint256 offset = written * QUEUE_ENTRY_SIZE;
 
             // We'll write this amount in little-endian byte order
             // No need to swap - we'll just write the bytes in reverse order
@@ -364,6 +398,7 @@ contract EIP7002Mock {
                 mstore8(add(ptr, 74), and(shr(48, amountBe), 0xff))
                 mstore8(add(ptr, 75), and(shr(56, amountBe), 0xff))
             }
+            ++written;
         }
 
         // Update queue head
@@ -408,8 +443,8 @@ contract EIP7002Mock {
             sstore(WITHDRAWAL_REQUEST_COUNT_STORAGE_SLOT, 0)
         }
 
-        // Return dequeued data
-        uint256 retSize = numDequeued * QUEUE_ENTRY_SIZE;
+        // Return dequeued data (dropped exits excluded)
+        uint256 retSize = written * QUEUE_ENTRY_SIZE;
         assembly {
             return(add(returnData, 32), retSize)
         }

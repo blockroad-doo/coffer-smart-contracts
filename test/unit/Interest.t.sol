@@ -363,7 +363,6 @@ contract InterestTest is BaseTest {
 
     /// @notice Interest math does not overflow at the uint128 input maximum (bond amounts are uint128;
     /// 100%/yr over the 50-year max duration = 50x principal, computed in uint256 without reverting).
-    /// Salvaged from VerifyGweiCastBoundary.t.sol when the holder consensus path (F-04 guard) was removed.
     function test_Interest_NoOverflow_AtUint128Max() public pure {
         uint256 maxInterest = Interest.calculateInterest(type(uint128).max, 1_576_800_000, 1e8);
         assertGt(maxInterest, 0, "interest computed at max inputs without overflow");

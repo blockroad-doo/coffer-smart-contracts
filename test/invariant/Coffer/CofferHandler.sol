@@ -32,15 +32,15 @@ contract CofferHandler is Test {
     uint256 public ghostTotalBondsWithdrawnExecution;
 
     // ── Ghost state: default machine ───────────────────────────────────────
-    // Mirrors the on-chain flag both ways: set by handlerDeclareDefault on a successful declare,
-    // cleared by handlerClearDefault on a successful clear (C1 mirror).
+    // Mirrors the on-chain flag both ways: set by handlerDeclareDefault or handlerRedeemBondOrDefault
+    // on a successful declare, cleared by handlerClearDefault on a successful clear.
     bool public ghostValidatorDefaulted;
     // Set if a declare ever SUCCEEDS while the pre-call balance covered the bond. Handler-side
     // asserts would be masked under fail_on_revert = false, so violations are recorded here and
-    // asserted by invariant_coveredBondNeverDefaulted (C3).
+    // asserted by invariant_coveredBondNeverDefaulted.
     bool public ghostDefaultViolation;
-    // Epoch snapshots, re-baselined at every default flip (C8: the bond set only shrinks while
-    // the epoch is open).
+    // Epoch snapshots, re-baselined at every default flip. While the epoch is open the bond set
+    // only shrinks.
     uint256 public ghostBondsAtDefault;
     uint256 public ghostBoughtAtDefault;
     uint256 public ghostTotalDefaultsDeclared;
@@ -48,7 +48,8 @@ contract CofferHandler is Test {
 
     // ── Per-function call counters ─────────────────────────────────────────
     uint256 public callsBuyBond;
-    uint256 public callsHolderWithdrawFromExecution;
+    uint256 public callsRedeemBondOrDefault;
+    uint256 public callsRedeemBondInDefault;
     uint256 public callsRedeemBondsEarly;
     uint256 public callsValidatorWithdrawFromExecution;
     uint256 public callsValidatorAddFundsToConsensus;
@@ -190,8 +191,11 @@ contract CofferHandler is Test {
         ++ghostTotalBondsBought;
     }
 
-    function handlerHolderWithdrawFromExecution(uint256 idSeed) external {
-        ++callsHolderWithdrawFromExecution;
+    function handlerRedeemBondOrDefault(uint256 idSeed) external {
+        ++callsRedeemBondOrDefault;
+
+        // Serving-state entry point: pays in full or flips the default atomically
+        if (ghostValidatorDefaulted) return;
 
         uint256 len = ghostActiveBondIds.length;
         if (len == 0) return;
@@ -204,22 +208,15 @@ contract CofferHandler is Test {
         (uint128 amount, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(bondId);
         if (amount == 0) return;
 
-        // Check maturity; waived while defaulted (acceleration, R5)
+        // Maturity is required while serving
         // forge-lint: disable-next-line
-        if (!ghostValidatorDefaulted && uint256(duration) + uint256(startTimestamp) > block.timestamp) return;
-
-        // Allow both full and partial paths
-        uint256 balance = address(coffer).balance;
-        if (balance == 0) return;
+        if (uint256(duration) + uint256(startTimestamp) > block.timestamp) return;
 
         vm.prank(holder);
-        coffer.holderWithdrawFromExecution(bondId);
+        bool paidInFull = coffer.redeemBondOrDefault(bondId);
 
-        // Re-read on-chain amount after withdrawal to determine what happened
-        (uint128 amountAfter,,) = coffer.sHolderConditions(bondId);
-
-        if (amountAfter == 0) {
-            // Full withdrawal: remove from active
+        if (paidInFull) {
+            // Full payout: remove from active
             ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
             ghostActiveBondIds.pop();
             ghostIsBondActive[bondId] = false;
@@ -227,7 +224,51 @@ contract CofferHandler is Test {
             delete ghostBondAmount[bondId];
             ++ghostTotalBondsWithdrawnExecution;
         } else {
-            // Partial withdrawal: update ghost amount, keep active
+            // Shortfall: the default was declared atomically in the same transaction
+            ghostValidatorDefaulted = true;
+            ghostBondsAtDefault = ghostActiveBondIds.length;
+            ghostBoughtAtDefault = ghostTotalBondsBought;
+            ++ghostTotalDefaultsDeclared;
+        }
+    }
+
+    function handlerRedeemBondInDefault(uint256 idSeed) external {
+        ++callsRedeemBondInDefault;
+
+        // Defaulted-state claim: pays min(contract balance, remaining), no maturity check (acceleration, R5)
+        if (!ghostValidatorDefaulted) return;
+
+        uint256 len = ghostActiveBondIds.length;
+        if (len == 0) return;
+
+        uint256 idx = idSeed % len;
+        uint256 bondId = ghostActiveBondIds[idx];
+        address holder = ghostBondHolder[bondId];
+
+        // Read on-chain holder conditions
+        (uint128 amount,,) = coffer.sHolderConditions(bondId);
+        if (amount == 0) return;
+
+        // The zero balance reverts (NothingToRedeem)
+        uint256 balance = address(coffer).balance;
+        if (balance == 0) return;
+
+        vm.prank(holder);
+        coffer.redeemBondInDefault(bondId);
+
+        // Re-read on-chain amount after the redeem to determine what happened
+        (uint128 amountAfter,,) = coffer.sHolderConditions(bondId);
+
+        if (amountAfter == 0) {
+            // Full redeem: remove from active
+            ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
+            ghostActiveBondIds.pop();
+            ghostIsBondActive[bondId] = false;
+            delete ghostBondHolder[bondId];
+            delete ghostBondAmount[bondId];
+            ++ghostTotalBondsWithdrawnExecution;
+        } else {
+            // Partial redeem: update ghost amount, keep active
             uint128 withdrawn = amount - amountAfter;
             ghostBondAmount[bondId] -= withdrawn;
         }
@@ -447,7 +488,7 @@ contract CofferHandler is Test {
         {
             uint256 bondId = targetBondId;
 
-            // C3 evidence: if this declare succeeds although the bond was covered, record the
+            // If this declare succeeds although the bond was covered, record the
             // violation instead of asserting (asserts would be masked under fail_on_revert=false)
             (uint128 amount,,) = coffer.sHolderConditions(bondId);
             bool coveredBeforeCall = address(coffer).balance >= amount;

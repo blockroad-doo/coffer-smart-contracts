@@ -94,18 +94,32 @@ contract GasComparisonTest is BaseTest {
         emit log_named_uint("receive", gasUsed);
     }
 
-    function test_GAS_holderWithdrawFromExecution() public {
+    function test_GAS_redeemBondOrDefault() public {
         // Buy bond and mature it
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
         vm.warp(block.timestamp + ONE_MONTH + 1);
-        // Fund coffer for full withdrawal
+        // Fund coffer for full redemption
         vm.deal(cofferAddr, 10 ether);
 
         vm.prank(holder1);
         uint256 gasBefore = gasleft();
-        Coffer(payable(cofferAddr)).holderWithdrawFromExecution(bondId);
+        Coffer(payable(cofferAddr)).redeemBondOrDefault(bondId);
         uint256 gasUsed = gasBefore - gasleft();
-        emit log_named_uint("holderWithdrawFromExecution", gasUsed);
+        emit log_named_uint("redeemBondOrDefault", gasUsed);
+    }
+
+    function test_GAS_redeemBondInDefault() public {
+        // Buy bond, default it, then redeem from the contract balance
+        uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
+        vm.warp(block.timestamp + ONE_MONTH + 1);
+        coffer.declareDefault(bondId);
+        vm.deal(cofferAddr, 10 ether);
+
+        vm.prank(holder1);
+        uint256 gasBefore = gasleft();
+        Coffer(payable(cofferAddr)).redeemBondInDefault(bondId);
+        uint256 gasUsed = gasBefore - gasleft();
+        emit log_named_uint("redeemBondInDefault", gasUsed);
     }
 
     function test_GAS_redeemBondsEarly() public {

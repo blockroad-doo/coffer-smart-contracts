@@ -139,7 +139,7 @@ contract CofferValidatorOpsTest is BaseTest {
 
         (uint128 issueSizeAfter,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 0);
-        // C-1: issueSize is not restored on bond settlement.
+        // issueSize is not restored on bond settlement.
         assertEq(issueSizeAfter, issueSizeBefore);
     }
 
@@ -1090,11 +1090,10 @@ contract CofferValidatorOpsTest is BaseTest {
     }
 
     // ========================================
-    // V-4 / BSA-1: issueSize and issueSizeBufferBps independently settable
-    // (salvaged from VerifyExitAllowed.t.sol when the exitAllowed regime was removed)
+    // issueSize and issueSizeBufferBps are independently settable
     // ========================================
 
-    function test_BSA1_HighBufferHighIssueSize_Inconsistent() public {
+    function test_BufferIssueSize_HighBufferHighIssueSize_Inconsistent() public {
         uint128 startingBalance = 100 ether;
         address bsa1CofferAddr = createCoffer(
             validator,
@@ -1128,7 +1127,7 @@ contract CofferValidatorOpsTest is BaseTest {
         assertGt(issueSize, maxAllowed, "BUG: issueSize exceeds buffer-capped limit - inconsistent state");
     }
 
-    function test_BSA1_BufferIncrease_IssueSizeNotReduced() public {
+    function test_BufferIssueSize_BufferIncrease_IssueSizeNotReduced() public {
         uint128 startingBalance = 100 ether;
         address bsa1CofferAddr = createCoffer(
             validator,
@@ -1162,7 +1161,7 @@ contract CofferValidatorOpsTest is BaseTest {
         }
     }
 
-    function test_BSA1_IssueSizeNotCheckedAgainstBuffer() public {
+    function test_BufferIssueSize_IssueSizeNotCheckedAgainstBuffer() public {
         address bsa1CofferAddr = createCoffer(
             validator,
             bytes32(uint256(0xB5A1)),
@@ -1188,7 +1187,7 @@ contract CofferValidatorOpsTest is BaseTest {
         assertGt(issueSize, maxAllowed, "BUG: changeIssueSize accepts values exceeding buffer-capped maximum");
     }
 
-    function testFuzz_BSA1_FuzzBufferAndIssueSize(uint16 bufferBps, uint128 issueSizeVal) public {
+    function testFuzz_BufferIssueSize_FuzzBufferAndIssueSize(uint16 bufferBps, uint128 issueSizeVal) public {
         bufferBps = uint16(bound(bufferBps, 0, 5000));
         uint128 startingBalance = 100 ether;
 

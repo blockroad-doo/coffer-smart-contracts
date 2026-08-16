@@ -6,40 +6,34 @@ import {Coffer} from "../../src/Coffer.sol";
 import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
 
 /**
- * @title VerifyMulticallNonPayable
- * @notice Audit-regression guard for the msg.value-reuse class (registry 2020-08-Opyn / 2021-09-Sushimiso),
- * REFUTED for Coffer as deployed, plus the batching-equivalence counter-checks that back the refutation.
+ * @title CofferMulticallTest
+ * @notice Tests pinning that msg.value cannot enter a multicall batch, plus the batching-equivalence
+ * counter-checks.
  *
  * Coffer inherits OpenZeppelin `Multicall` (src/Coffer.sol:5,24) and declares no other batching entry point.
  * OZ v5.6.1 `Multicall.multicall` (lib/openzeppelin-contracts/contracts/utils/Multicall.sol:26) is
  * `public virtual` WITHOUT `payable`, so the Solidity dispatcher rejects every value-bearing call before a
  * single subcall runs, and the only reachable batch gives each subcall msg.value == 0. The pre-existing
- * coffer float can therefore never be observed as msg.value. That refutation rests entirely on a dependency
+ * coffer float can therefore never be observed as msg.value. That property rests entirely on a dependency
  * detail: an OpenZeppelin bump that makes `multicall` payable revives the whole attack class. These tests
- * are the tripwire for exactly that regression; a new payable batching entry point added under a different
+ * are the tripwire for exactly that change; a new payable batching entry point added under a different
  * name cannot be caught here and must be caught in review.
  *
  * Coverage:
- *  - Leg A1: a value-bearing `multicall` dies at the non-payable dispatcher with empty revert data, while
- *    the IDENTICAL byte stream at value 0 gets through the dispatcher and is rejected inside `buyBond` by
- *    its `minimumValueToAccept` gate. The second call is the positive control: it proves the hand-encoded
- *    calldata is a well-formed `multicall(bytes[])` encoding whose subcalls really dispatch to `buyBond`, so
- *    the value-bearing failure is provably about msg.value rather than about malformed calldata.
- *  - Leg A3: batched `redeemBondsEarly` is never looser than the same calls made sequentially, because the
+ *  - Value cannot enter the batch: a value-bearing `multicall` dies at the non-payable dispatcher with
+ *    empty revert data, while the IDENTICAL byte stream at value 0 gets through the dispatcher and is
+ *    rejected inside `buyBond` by its `minimumValueToAccept` gate. The second call is the positive control:
+ *    it proves the hand-encoded calldata is a well-formed `multicall(bytes[])` encoding whose subcalls
+ *    really dispatch to `buyBond`, so the value-bearing failure is provably about msg.value rather than
+ *    about malformed calldata.
+ *  - Batched `redeemBondsEarly` is never looser than the same calls made sequentially, because the
  *    per-subcall gate `balance >= totalValue` is re-evaluated against post-state on every subcall.
- *  - Leg A4: claim-then-declareDefault batch semantics (doc §9 A2/A7) — the single-bond batch unwinds
- *    atomically when the claim pays in full, works when the claim shortfalls, and the two-bond shape is
- *    the intended atomic drain-then-default.
- *
- * The PoC also validated the attack's value-reuse economics on a throwaway Coffer subclass that added a
- * payable batcher. That harness is intentionally NOT carried over: it proved a property of code Coffer
- * does not contain. The durable invariant this file pins is that `multicall(bytes[])` stays non-payable;
- * keeping Coffer free of any other payable batching entry point is a review-time invariant no runtime test
- * can enumerate.
- *
- * Permanent home (test/unit, Verify* convention) so this survives deletion of test/audit-poc/.
+ *  - Claim-then-default batch semantics: the single-bond [redeemBondOrDefault, redeemBondInDefault]
+ *    batch unwinds atomically when the redeem pays in full or when the contract balance is zero, and
+ *    pays the partial in the same tx when the redeem shortfalls. The two-bond
+ *    [redeemBondOrDefault, declareDefault] shape is the intended atomic drain-then-default.
  */
-contract VerifyMulticallNonPayable is BaseTest {
+contract CofferMulticallTest is BaseTest {
     address public attacker = makeAddr("attacker");
 
     function setUp() public override {
@@ -109,10 +103,10 @@ contract VerifyMulticallNonPayable is BaseTest {
     }
 
     // ════════════════════════════════════════════════════════════
-    // LEG A1 — value cannot enter the batch
+    // VALUE CANNOT ENTER THE BATCH
     // ════════════════════════════════════════════════════════════
 
-    /// @notice REFUTATION (real Coffer): a value-bearing `multicall` reverts at the Solidity
+    /// @notice A value-bearing `multicall` reverts at the Solidity
     ///         dispatcher because OZ 5.6.1 multicall is non-payable — even with float >= W sitting in the
     ///         contract, the described attack cannot deliver value into the batch. The zero-value replay of
     ///         the SAME byte stream is the positive control: it clears the dispatcher and dies inside
@@ -163,7 +157,7 @@ contract VerifyMulticallNonPayable is BaseTest {
         assertEq(attacker.balance, 100 ether, "attacker balance unchanged (value returned)");
     }
 
-    /// @notice REFUTATION (real Coffer): in a zero-value batch every subcall observes
+    /// @notice In a zero-value batch every subcall observes
     ///         msg.value == 0 — the coffer float is NOT visible as msg.value. buyBond's
     ///         minimumValueToAccept gate (1 ether) rejects it. Solidity-typed twin of the hand-encoded
     ///         control above; together they show the two call paths agree.
@@ -178,10 +172,10 @@ contract VerifyMulticallNonPayable is BaseTest {
     }
 
     // ════════════════════════════════════════════════════════════
-    // LEG A3 — batched redeemBondsEarly is never looser than sequential
+    // BATCHED REDEEMBONDS EARLY IS NEVER LOOSER THAN SEQUENTIAL
     // ════════════════════════════════════════════════════════════
 
-    /// @notice CONFIRMED (real Coffer): a zero-value batch of two redeemBondsEarly behaves
+    /// @notice A zero-value batch of two redeemBondsEarly behaves
     ///         IDENTICALLY to two sequential calls — the per-subcall balance gate
     ///         (`balance >= totalValue`) is re-evaluated post-state each time, so batching
     ///         extracts no extra value. (Note: attaching the shortfall as batch msg.value is
@@ -232,7 +226,7 @@ contract VerifyMulticallNonPayable is BaseTest {
         }
     }
 
-    /// @notice CONFIRMED (real Coffer): an underfunded batch reverts ATOMICALLY at the second
+    /// @notice An underfunded batch reverts ATOMICALLY at the second
     ///         subcall's balance gate — nothing is deposited. Sequentially, the first call
     ///         succeeds and only the second reverts. The batch is therefore strictly
     ///         all-or-nothing, never looser than sequential: no extra value extractable.
@@ -260,24 +254,24 @@ contract VerifyMulticallNonPayable is BaseTest {
     }
 
     // ════════════════════════════════════════════════════════════
-    // LEG A4 — claim-then-declareDefault batch semantics (doc §9 A2/A7)
+    // CLAIM-THEN-DEFAULT BATCH SEMANTICS
     // ════════════════════════════════════════════════════════════
 
-    /// @notice Single-bond batch, claim pays IN FULL: the claim deletes the bond, `declareDefault` then
-    ///         reverts on the existence check, and OZ Multicall bubbles the revert — unwinding the whole
-    ///         batch, the holder's own payment included. The naive "protect yourself" batch is worse than
-    ///         useless in the good case; conditional smart-wallet logic is the correct tool.
-    function test_Multicall_SingleBond_FullClaimThenDeclareDefault_RevertsAtomically() public {
+    /// @notice Single-bond batch, redeem pays IN FULL: the redeem deletes the bond, the second
+    ///         subcall then reverts on the state gate (the validator is still serving), and OZ
+    ///         Multicall bubbles the revert — unwinding the whole batch, the holder's own payment
+    ///         included. The naive "protect yourself" batch is worse than useless in the good case.
+    function test_Multicall_SingleBond_FullRedeemThenInDefault_RevertsAtomically() public {
         (address c, uint256 id1,, uint256 bmv1,) = _setupTwoBonds(0xA401, false);
         advanceTime(ONE_MONTH + 1);
 
         bytes[] memory batch = new bytes[](2);
-        batch[0] = abi.encodeWithSelector(Coffer.holderWithdrawFromExecution.selector, id1);
-        batch[1] = abi.encodeWithSelector(Coffer.declareDefault.selector, id1);
+        batch[0] = abi.encodeWithSelector(Coffer.redeemBondOrDefault.selector, id1);
+        batch[1] = abi.encodeWithSelector(Coffer.redeemBondInDefault.selector, id1);
 
         uint256 balBefore = holder1.balance;
         vm.prank(holder1);
-        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
+        vm.expectRevert(Coffer.ValidatorNotInDefault.selector);
         Coffer(payable(c)).multicall(batch);
 
         // Payment unwound, bond intact, no default
@@ -288,41 +282,77 @@ contract VerifyMulticallNonPayable is BaseTest {
         assertFalse(defaulted, "no default declared");
     }
 
-    /// @notice Single-bond batch, claim SHORTFALLS: the partial payout leaves the bond alive and the pool
-    ///         empty, so `declareDefault` fires in the same transaction. This is the case the batch is for.
-    function test_Multicall_SingleBond_PartialClaimThenDeclareDefault_FlipsDefault() public {
+    /// @notice Single-bond batch, redeem SHORTFALLS: the first subcall declares the default in the
+    ///         same transaction (returns false), and the second subcall pays min(contract balance, remaining).
+    ///         This is the case the batch is for: atomic flip + partial payout.
+    function test_Multicall_SingleBond_ShortfallBatch_FlipsDefaultAndPaysPartial() public {
         (address c, uint256 id1,, uint256 bmv1,) = _setupTwoBonds(0xA402, false);
         advanceTime(ONE_MONTH + 1);
-        vm.deal(c, bmv1 - 1 ether); // shortfall: partial branch pays what exists
+        vm.deal(c, bmv1 - 1 ether); // shortfall: the contract holds less than the bond
+
+        uint256 balBefore = holder1.balance;
 
         bytes[] memory batch = new bytes[](2);
-        batch[0] = abi.encodeWithSelector(Coffer.holderWithdrawFromExecution.selector, id1);
-        batch[1] = abi.encodeWithSelector(Coffer.declareDefault.selector, id1);
+        batch[0] = abi.encodeWithSelector(Coffer.redeemBondOrDefault.selector, id1);
+        batch[1] = abi.encodeWithSelector(Coffer.redeemBondInDefault.selector, id1);
 
         vm.prank(holder1);
         Coffer(payable(c)).multicall(batch);
 
+        assertEq(holder1.balance, balBefore + bmv1 - 1 ether, "partial payout landed in the same tx");
         (uint128 remaining,,) = Coffer(payable(c)).sHolderConditions(id1);
-        assertEq(remaining, 1 ether, "partial payout landed");
+        assertEq(remaining, 1 ether, "bond reduced by the partial payout");
         (,,,,,,,,, bool defaulted) = Coffer(payable(c)).sValidatorConditions();
         assertTrue(defaulted, "shortfall flips the default in the same tx");
     }
 
-    /// @notice Two-bond batch (A7): drain the pool through B1's claim, default on B2 — removes the
-    ///         validator's mempool reaction window between drain and default. Intended under the Σ-duty.
+    /// @notice Zero-balance batch nuance: with a zero contract balance the second subcall reverts
+    ///         (NothingToRedeem), which unwinds the WHOLE batch — the default declaration
+    ///         included. The correct flow for a zero balance is the standalone
+    ///         redeemBondOrDefault: the default sticks and the bond waits for the exit sweep.
+    function test_Multicall_SingleBond_ZeroBalanceBatch_RevertsAtomically_DefaultNotSet() public {
+        (address c, uint256 id1,, uint256 bmv1,) = _setupTwoBonds(0xA404, false);
+        advanceTime(ONE_MONTH + 1);
+        vm.deal(c, 0); // drained to zero
+
+        bytes[] memory batch = new bytes[](2);
+        batch[0] = abi.encodeWithSelector(Coffer.redeemBondOrDefault.selector, id1);
+        batch[1] = abi.encodeWithSelector(Coffer.redeemBondInDefault.selector, id1);
+
+        vm.prank(holder1);
+        vm.expectRevert(Coffer.NothingToRedeem.selector);
+        Coffer(payable(c)).multicall(batch);
+
+        // The whole batch unwound: the default declaration included
+        (,,,,,,,,, bool defaulted) = Coffer(payable(c)).sValidatorConditions();
+        assertFalse(defaulted, "atomic unwind rolls the default declaration back");
+        (uint128 remaining,,) = Coffer(payable(c)).sHolderConditions(id1);
+        assertEq(remaining, bmv1, "bond intact");
+
+        // The standalone call is the correct flow: the default sticks, nothing is paid
+        vm.prank(holder1);
+        bool paidInFull = Coffer(payable(c)).redeemBondOrDefault(id1);
+        assertFalse(paidInFull, "zero balance defaults, pays nothing");
+        (,,,,,,,,, defaulted) = Coffer(payable(c)).sValidatorConditions();
+        assertTrue(defaulted, "standalone shortfall declared the default");
+    }
+
+    /// @notice Two-bond batch: drain the contract balance through B1's redeem, default on B2 via the
+    ///         permissionless declareDefault — removes the validator's mempool reaction window
+    ///         between drain and default.
     function test_Multicall_TwoBonds_DrainThenDefault_Succeeds() public {
-        (address c, uint256 id1, uint256 id2,,) = _setupTwoBonds(0xA403, false); // pool covers bmv1 only
+        (address c, uint256 id1, uint256 id2,,) = _setupTwoBonds(0xA403, false); // balance covers bmv1 only
         advanceTime(ONE_MONTH + 1);
 
         bytes[] memory batch = new bytes[](2);
-        batch[0] = abi.encodeWithSelector(Coffer.holderWithdrawFromExecution.selector, id1);
+        batch[0] = abi.encodeWithSelector(Coffer.redeemBondOrDefault.selector, id1);
         batch[1] = abi.encodeWithSelector(Coffer.declareDefault.selector, id2);
 
         vm.prank(holder1);
         Coffer(payable(c)).multicall(batch);
 
         (uint128 remaining1,,) = Coffer(payable(c)).sHolderConditions(id1);
-        assertEq(remaining1, 0, "B1 drained the pool in full");
+        assertEq(remaining1, 0, "B1 drained the contract balance in full");
         (,,,,,,,,, bool defaulted) = Coffer(payable(c)).sValidatorConditions();
         assertTrue(defaulted, "B2's default landed atomically after the drain");
     }
