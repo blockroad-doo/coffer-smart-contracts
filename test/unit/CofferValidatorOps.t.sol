@@ -794,6 +794,46 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.validatorWithdrawFromExecution(issueSize + 1);
     }
 
+    function test_ValidatorWithdrawFromExecution_MultiRoundDrainStopsAtIssueSize() public {
+        _setupSingleBond(10 ether, 1 ether, ONE_MONTH);
+        vm.deal(cofferAddr, 100 ether);
+
+        (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
+        assertGt(issueSizeBefore, 0);
+
+        // First round takes two thirds, so the same amount cannot fit a second time
+        uint128 firstDrain = uint128((uint256(issueSizeBefore) * 2) / 3);
+
+        vm.prank(validator);
+        coffer.validatorWithdrawFromExecution(firstDrain);
+
+        (uint128 issueSizeMid,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeMid, issueSizeBefore - firstDrain);
+        assertLt(issueSizeMid, firstDrain, "second round must not fit");
+
+        // Second round with the same amount exceeds what remains
+        vm.prank(validator);
+        vm.expectRevert(Coffer.ValidatorDoesntCoverTheValue.selector);
+        coffer.validatorWithdrawFromExecution(firstDrain);
+
+        // The remainder is withdrawable, then the allowance is spent
+        vm.prank(validator);
+        coffer.validatorWithdrawFromExecution(issueSizeMid);
+
+        (uint128 issueSizeFinal,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSizeFinal, 0);
+
+        // Refilling is blocked while bonds are outstanding
+        vm.prank(validator);
+        vm.expectRevert(Coffer.ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist.selector);
+        coffer.changeIssueSize(10 ether);
+
+        // Balance is still available, but the spent allowance gates the withdraw
+        vm.prank(validator);
+        vm.expectRevert(Coffer.ValidatorDoesntCoverTheValue.selector);
+        coffer.validatorWithdrawFromExecution(1 ether);
+    }
+
     function test_ValidatorWithdrawFromExecution_NoBonds_WithdrawsContractBalance() public {
         // With no outstanding bonds, the validator can withdraw the full contract balance
         // regardless of issueSize.

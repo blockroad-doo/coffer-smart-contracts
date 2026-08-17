@@ -111,6 +111,22 @@ contract CofferReentrancyTest is BaseTest {
         assertEq(bondNft.balanceOf(address(this)), 0, "validator got no bond NFT");
     }
 
+    // ════════════════════════════════════════════════════════════════════
+    // buyBond mints with _mint, so no onERC721Received callback runs during
+    // the purchase and a contract without the hook can hold a bond.
+    // ════════════════════════════════════════════════════════════════════
+
+    function test_BuyBond_ReceiverlessContractHolderSucceeds() public {
+        ReceiverlessBuyer buyer = new ReceiverlessBuyer();
+        vm.deal(address(buyer), 10 ether);
+
+        vm.prank(address(buyer));
+        uint256 bondId = Coffer(payable(cofferAddr)).buyBond{value: 5 ether}(ONE_MONTH, 1);
+
+        assertEq(bondNft.ownerOf(bondId), address(buyer), "NFT minted to receiver-less contract");
+        assertGt(_bondMaturityValue(bondId), 5 ether, "maturity value recorded");
+    }
+
     receive() external payable {
         // Validator-contract reentry attempt: must revert with
         // HolderCannotBeValidator (msg.sender == owner) and leave no trace.
@@ -162,3 +178,7 @@ contract ReentrantClaimer {
         }
     }
 }
+
+/// @dev Deliberately empty. No onERC721Received and no receive(), because holding
+/// a bond must require neither.
+contract ReceiverlessBuyer {}

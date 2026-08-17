@@ -125,10 +125,11 @@ contract EIP7002Mock {
     // A pending partial withdrawal blocks full exits at the CL. The EL predeploy still
     // dequeues the exit request, but the CL silently discards it. This flag lets tests model
     // that drop: while set, amount == 0 entries leave the queue but are excluded from the
-    // system call's returned request data. Stored at a high fixed slot, far from the raw
-    // queue layout (slots 0-3 + entries from slot 4).
+    // system call's returned request data. Stored at keccak256("EIP7002Mock.pendingPartialBlocksExits"),
+    // which no queue entry (slots 4 + 3*i, unbounded) can ever alias. Inline assembly needs the
+    // precomputed literal.
     bytes32 private constant PENDING_BLOCKS_EXITS_SLOT =
-        0x0000000000000000000000000000000000000000000000000000000000001000;
+        0xc2d742061e2a9d2edb0e0e1bc5943abed34d271d70e8445956b31a969df3917e;
 
     function setPendingPartialBlocksExits(bool _blocked) external {
         assembly {

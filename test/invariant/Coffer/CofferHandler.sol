@@ -212,6 +212,10 @@ contract CofferHandler is Test {
         // forge-lint: disable-next-line
         if (uint256(duration) + uint256(startTimestamp) > block.timestamp) return;
 
+        // If the shortfall path defaults although the bond was covered, record the
+        // violation instead of asserting (asserts would be masked under fail_on_revert=false)
+        bool coveredBeforeCall = address(coffer).balance >= amount;
+
         vm.prank(holder);
         bool paidInFull = coffer.redeemBondOrDefault(bondId);
 
@@ -225,10 +229,7 @@ contract CofferHandler is Test {
             ++ghostTotalBondsWithdrawnExecution;
         } else {
             // Shortfall: the default was declared atomically in the same transaction
-            ghostValidatorDefaulted = true;
-            ghostBondsAtDefault = ghostActiveBondIds.length;
-            ghostBoughtAtDefault = ghostTotalBondsBought;
-            ++ghostTotalDefaultsDeclared;
+            _recordDefaultFlip(coveredBeforeCall);
         }
     }
 
@@ -496,14 +497,19 @@ contract CofferHandler is Test {
             vm.prank(holders[idSeed % holders.length]);
             coffer.declareDefault(bondId);
 
-            if (coveredBeforeCall) ghostDefaultViolation = true;
-
-            ghostValidatorDefaulted = true;
-            ghostBondsAtDefault = ghostActiveBondIds.length;
-            ghostBoughtAtDefault = ghostTotalBondsBought;
-            ++ghostTotalDefaultsDeclared;
+            _recordDefaultFlip(coveredBeforeCall);
             return;
         }
+    }
+
+    /// @dev Both default-flip sites (handlerDeclareDefault and handlerRedeemBondOrDefault's
+    /// shortfall) record the epoch ghosts through this single function, so they cannot drift apart.
+    function _recordDefaultFlip(bool coveredBeforeCall) private {
+        if (coveredBeforeCall) ghostDefaultViolation = true;
+        ghostValidatorDefaulted = true;
+        ghostBondsAtDefault = ghostActiveBondIds.length;
+        ghostBoughtAtDefault = ghostTotalBondsBought;
+        ++ghostTotalDefaultsDeclared;
     }
 
     /// @dev Owner-only exit from a default, callable exactly when every bond has settled at its

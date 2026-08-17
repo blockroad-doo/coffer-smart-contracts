@@ -1,4 +1,4 @@
-.PHONY: lint static-analysis
+.PHONY: lint static-analysis coverage build test
 
 lint:
 	@test -x node_modules/.bin/solhint || (echo "solhint 6.2.3 not installed - run 'npm ci' first" && exit 1)

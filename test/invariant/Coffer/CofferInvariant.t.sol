@@ -145,7 +145,8 @@ contract CofferInvariantTest is BaseTest {
     // ══════════════════════════════════════════════════════════════════════
 
     /// @dev Only our handler flips the default flag, in either direction. The ghost is set on a
-    /// handler-observed declareDefault and cleared on a handler-observed clearDefault (which the
+    /// handler-observed default declaration (declareDefault, or redeemBondOrDefault's shortfall) and
+    /// cleared on a handler-observed clearDefault (which the
     /// handler only attempts at outstandingBonds == 0), so two-way equality proves the on-chain
     /// flag never rises without a declare and never clears without a settlement-gated clearDefault.
     function invariant_defaultMirrored() public view {

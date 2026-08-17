@@ -608,20 +608,16 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
     /// @notice Holder redeems a matured bond while the validator is serving (not defaulted)
     /// @notice Two outcomes, never a partial: pays the full bondMaturityValue, or declares the validator in
-    /// default. The shortfall path is atomic with the default declaration, so a validator cannot front-run
-    /// the redeem with a withdrawal and then re-extract the cure top-up: once defaulted, every validator
-    /// extraction path is frozen. The only useful front-run of this function is paying the bond.
-    /// @notice Returns true when the full bondMaturityValue was paid. Returns false when the bond was not
-    /// paid and the validator was declared in default instead: the bond stays alive and becomes claimable
-    /// through redeemBondInDefault. The false path never reverts and moves no ETH.
-    /// @notice Reverts while the validator is defaulted (ValidatorInDefault): in that state bonds are claimed
-    /// through redeemBondInDefault, which has no maturity check.
-    /// @notice Composition warning: batching [redeemBondOrDefault, redeemBondInDefault] on the same bond
+    /// default. The shortfall path is atomic with the default declaration. Once defaulted, every validator
+    /// extraction path is frozen. The only useful validator front-run of this function is paying the bond.
+    /// @notice A successful call does not mean the holder was paid. When the contract cannot cover the
+    /// bond, it returns false and declares the validator in default without transferring anything; the
+    /// bond stays alive and is then claimed through redeemBondInDefault. Check the return value rather
+    /// than whether the call succeeded.
+    /// @notice Reverts while the validator is defaulted
+    /// @notice Batching [redeemBondOrDefault, redeemBondInDefault] on the same bond
     /// through multicall (or any all-or-nothing batcher) lands only when 0 < contract balance <
-    /// bondMaturityValue. Outside that window the second subcall reverts and unwinds the whole batch: the
-    /// payment on a funded coffer (ValidatorNotInDefault), the default declaration on an empty one
-    /// (NothingToRedeem). When unsure of the balance at execution time, call this function alone; a contract
-    /// caller branches on paidInFull instead.
+    /// bondMaturityValue. Outside that window the second subcall reverts and unwinds the whole batch.
     /// @param _bondId The ID of the bond NFT to redeem
     /// @return paidInFull True if the full bondMaturityValue was paid to the holder
     function redeemBondOrDefault(uint256 _bondId) external returns (bool paidInFull) {
@@ -631,10 +627,10 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
         HolderConditions storage holder = sHolderConditions[_bondId];
 
-        require(holder.bondMaturityValue != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
+        uint128 maturityValue = holder.bondMaturityValue;
+        require(maturityValue != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
         require(msg.sender == ICofferBondNft(iCofferBondNftAddress()).ownerOf(_bondId), CallerIsNotHolder());
 
-        // Widened arithmetic so a far-future uint32 maturity cannot overflow-brick the check
         // solhint-disable gas-strict-inequalities
         require(
             // forge-lint: disable-next-line(block-timestamp)
@@ -644,21 +640,13 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         // solhint-enable gas-strict-inequalities
 
         // solhint-disable-next-line gas-strict-inequalities
-        if (address(this).balance >= holder.bondMaturityValue) {
-            uint128 value = holder.bondMaturityValue;
-
-            --vc.outstandingBonds;
-            delete sHolderConditions[_bondId];
-            ICofferBondNft(iCofferBondNftAddress()).burnCofferBond(_bondId);
-
-            emit BondRedeemed(msg.sender, _bondId);
-
-            Address.sendValue(payable(msg.sender), value);
+        if (address(this).balance >= maturityValue) {
+            _settleBond(_bondId, maturityValue);
             return true;
         }
 
         // Shortfall: declare the default atomically and leave the bond alive. Every predicate of
-        // _declareDefault was established above (not defaulted, exists, matured, balance < value),
+        // _declareDefault was established above (not defaulted, exists, matured, balance < maturityValue),
         // so this cannot revert: the transaction succeeds with zero ETH moved.
         _declareDefault(_bondId);
         return false;
@@ -682,41 +670,48 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
         HolderConditions storage holder = sHolderConditions[_bondId];
 
-        require(holder.bondMaturityValue != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
-        require(msg.sender == ICofferBondNft(iCofferBondNftAddress()).ownerOf(_bondId), CallerIsNotHolder());
-        require(address(this).balance > 0, NothingToRedeem());
-
         uint128 remaining = holder.bondMaturityValue;
+        require(remaining != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
+        require(msg.sender == ICofferBondNft(iCofferBondNftAddress()).ownerOf(_bondId), CallerIsNotHolder());
+
         uint256 balance = address(this).balance;
+        require(balance > 0, NothingToRedeem());
 
-        uint128 valueToWithdraw = remaining;
         if (balance < remaining) {
-            // forge-lint: disable-next-line(unsafe-typecast) min-cap: only cast when balance < remaining (uint128)
-            valueToWithdraw = uint128(balance);
-        }
+            // forge-lint: disable-next-line(unsafe-typecast) balance < remaining (uint128), so it fits
+            uint128 pay = uint128(balance);
 
-        if (valueToWithdraw < remaining) {
-            holder.bondMaturityValue -= valueToWithdraw;
+            holder.bondMaturityValue -= pay;
 
-            emit BondRedeemedPartially(msg.sender, _bondId, valueToWithdraw, holder.bondMaturityValue);
+            emit BondRedeemedPartially(msg.sender, _bondId, pay, holder.bondMaturityValue);
 
             ICofferBondNft(iCofferBondNftAddress()).emitMetadataUpdate(_bondId);
+
+            Address.sendValue(payable(msg.sender), pay);
         } else {
-            // Full settlement: min(contract balance, remaining) reached the bond's remaining value
-            --vc.outstandingBonds;
-            delete sHolderConditions[_bondId];
-            ICofferBondNft(iCofferBondNftAddress()).burnCofferBond(_bondId);
-
-            emit BondRedeemed(msg.sender, _bondId);
+            // Full settlement: the balance covers the bond's remaining value
+            _settleBond(_bondId, remaining);
         }
-
-        Address.sendValue(payable(msg.sender), valueToWithdraw);
     }
 
-    /// @dev Internal default predicate shared by declareDefault and redeemBondOrDefault. The redundancy
-    /// between the call sites and these checks is deliberate: the predicate exists in exactly one place,
-    /// so the two entry points can never drift apart. Internal calls preserve msg.sender, so the
-    /// ValidatorDefaulted caller field is correct from both entry points.
+    /// @dev Settles a bond in full: state cleared and the NFT burned before the ETH leaves,
+    /// so a holder reentering from the send finds the bond already gone.
+    function _settleBond(uint256 _bondId, uint128 _value) private {
+        --sValidatorConditions.outstandingBonds;
+        delete sHolderConditions[_bondId];
+        ICofferBondNft(iCofferBondNftAddress()).burnCofferBond(_bondId);
+
+        emit BondRedeemed(msg.sender, _bondId);
+
+        Address.sendValue(payable(msg.sender), _value);
+    }
+
+    /// @dev Shared by declareDefault and redeemBondOrDefault. Checks the full predicate itself, so a
+    /// default can never be declared outside it regardless of what the entry points check.
+    /// redeemBondOrDefault re-implements these checks to pick its branch, so a change to this predicate
+    /// must be mirrored there or the shortfall path starts reverting instead of returning false.
+    /// Internal calls preserve msg.sender, so the ValidatorDefaulted caller field is correct from both
+    /// entry points.
     function _declareDefault(uint256 _bondId) internal {
         ValidatorConditions storage vc = sValidatorConditions;
 
@@ -725,7 +720,6 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         HolderConditions storage holder = sHolderConditions[_bondId];
 
         require(holder.bondMaturityValue != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
-        // Widened arithmetic so a far-future uint32 maturity cannot overflow-brick the predicate
         // solhint-disable gas-strict-inequalities
         require(
             // forge-lint: disable-next-line(block-timestamp)
