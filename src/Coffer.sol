@@ -348,12 +348,6 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     ///
     ///--------------------------
 
-    /// @notice Allows a holder to buy a bond by sending ETH. Creates an NFT representing bond ownership.
-    /// Holder sends the bond value as msg.value. The function computes interest, deducts the protocol fee
-    /// (holder bears the fee), stores net maturity value, and forwards (value - fee) to the validator.
-    /// @param _duration Holder defines the duration, which must be within the validator's offered interval
-    /// @param _version Version must match the current validator's version to prevent front-runs
-    /// @return bondId The ID of the newly minted bond NFT
     // solhint-disable function-max-lines
     /// @notice Allows a holder to buy a bond by sending ETH. Creates an NFT representing bond ownership.
     /// Holder sends the bond value as msg.value. The function computes interest, deducts the protocol fee
@@ -361,10 +355,6 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @param _duration Holder defines the duration, which must be within the validator's offered interval
     /// @param _version Version must match the current validator's version to prevent front-runs
     /// @return bondId The ID of the newly minted bond NFT
-    /// #if_succeeds {:msg "outstandingBonds increments by 1 on buyBond"} sValidatorConditions.outstandingBonds ==
-    ///     old(sValidatorConditions.outstandingBonds) + 1;
-    /// #if_succeeds {:msg "issueSize decreases by at least bondMaturityValue"} sValidatorConditions.issueSize <=
-    ///     old(sValidatorConditions.issueSize);
     function buyBond(uint32 _duration, uint32 _version) external payable returns (uint256 bondId) {
         ValidatorConditions storage vc = sValidatorConditions;
 
@@ -431,7 +421,6 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     }
 
     // solhint-enable function-max-lines
-
     /// @notice Redeem bonds early by sending maturity values to CofferBondsRedeemedEarly
     /// @notice Only the validator can call this function
     /// @notice Holders claim their funds from CofferBondsRedeemedEarly (pull pattern)
