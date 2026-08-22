@@ -20,7 +20,7 @@ contract CofferInvariantExtTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(100 ether);
 
-        // Fund validator for redeemBondsEarly top-ups + consensus deposits
+        // Fund validator for validatorRedeemBonds top-ups + consensus deposits
         vm.deal(validator, 10_000 ether);
 
         handler = new CofferHandlerExt(coffer, feeCurve);
@@ -152,14 +152,14 @@ contract CofferInvariantExtTest is BaseTest {
 
     // ══════════════════════════════════════════════════════════════════════
     // INVARIANT 7: ESCROW SELF-SOLVENCY
-    // CofferBondsRedeemedEarly.balance >= sum(sPendingClaims)
+    // CofferRedemptionEscrow.balance >= sum(sPendingClaims)
     // ══════════════════════════════════════════════════════════════════════
 
     function invariant_escrowSelfSolvency() public view {
         // The escrow is 1:1 backed by design: deposit requires msg.value == sum(amounts)
         // and claim zeroes the mapping before sending. So balance >= sum(claims) always.
         // We verify the contract exists and has no cross-theft.
-        assertTrue(address(bondsRedeemedEarly).code.length > 0, "escrow contract must exist");
+        assertTrue(address(redemptionEscrow).code.length > 0, "escrow contract must exist");
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -171,9 +171,9 @@ contract CofferInvariantExtTest is BaseTest {
         // Clone's immutable args must match factory-deployed addresses
         assertEq(coffer.iCofferBondNftAddress(), address(bondNft), "CWIA: CofferBondNft address mismatch");
         assertEq(
-            coffer.iCofferBondsRedeemedEarly(),
-            address(bondsRedeemedEarly),
-            "CWIA: CofferBondsRedeemedEarly address mismatch"
+            coffer.iCofferRedemptionEscrowAddress(),
+            address(redemptionEscrow),
+            "CWIA: CofferRedemptionEscrow address mismatch"
         );
         assertEq(coffer.iPublicKeyPart1(), validPublicKeyPart1, "CWIA: publicKeyPart1 mismatch");
         assertEq(coffer.iPublicKeyPart2(), validPublicKeyPart2, "CWIA: publicKeyPart2 mismatch");
@@ -290,7 +290,7 @@ contract CofferInvariantExtTest is BaseTest {
     // ══════════════════════════════════════════════════════════════════════
 
     /// @dev Only our handler flips the default flag, in either direction. The ghost is set on a
-    /// handler-observed default declaration (declareDefault, or redeemBondOrDefault's shortfall) and
+    /// handler-observed default declaration (declareDefault, or holderRedeemBondOrDefault's shortfall) and
     /// cleared on a handler-observed clearDefault (which the
     /// handler only attempts at outstandingBonds == 0), so two-way equality proves the on-chain
     /// flag never rises without a declare and never clears without a settlement-gated clearDefault.
@@ -394,10 +394,10 @@ contract CofferInvariantExtTest is BaseTest {
     function invariant_callSummary() public view {
         console2.log("--- Extended Invariant Call Summary ---");
         console2.log("buyBond:                    ", handler.callsBuyBond());
-        console2.log("redeemBondOrDefault: ", handler.callsRedeemBondOrDefault());
-        console2.log("redeemBondInDefault: ", handler.callsRedeemBondInDefault());
+        console2.log("holderRedeemBondOrDefault:  ", handler.callsHolderRedeemBondOrDefault());
+        console2.log("holderRedeemBondInDefault:  ", handler.callsHolderRedeemBondInDefault());
         console2.log("simulateEthArrival:         ", handler.callsSimulateEthArrival());
-        console2.log("redeemBondsEarly:           ", handler.callsRedeemBondsEarly());
+        console2.log("validatorRedeemBonds:       ", handler.callsValidatorRedeemBonds());
         console2.log("validatorWithdrawExecution:  ", handler.callsValidatorWithdrawFromExecution());
         console2.log("validatorWithdrawConsensus:  ", handler.callsValidatorWithdrawFromConsensus());
         console2.log("validatorAddFundsConsensus:  ", handler.callsValidatorAddFundsToConsensus());

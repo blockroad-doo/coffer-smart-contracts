@@ -5,7 +5,7 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ICofferBondNft} from "./interfaces/ICofferBondNft.sol";
-import {ICofferBondsRedeemedEarly} from "./interfaces/ICofferBondsRedeemedEarly.sol";
+import {ICofferRedemptionEscrow} from "./interfaces/ICofferRedemptionEscrow.sol";
 import {IDepositContract} from "./interfaces/IDepositContract.sol";
 import {IFeeCurve} from "./interfaces/IFeeCurve.sol";
 import {Interest} from "./libraries/Interest.sol";
@@ -74,13 +74,13 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @param issueSizeBufferBps - Conservatism buffer set by the validator. issueSize is derived from consensus
     /// balance as balance * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFER_DENOMINATOR. 1% = 100.
     /// Holders must assess whether the chosen buffer is adequate. A higher value is more conservative (smaller
-    /// issueSize). Can always be increased and can be decreased only when no unmatured bonds exist.
+    /// issueSize). Can always be increased and can be decreased only when no outstanding bonds exist.
     /// @param outstandingBonds - Counter for bonds not redeemed yet. Those bonds may or may not have matured.
     /// @param isActive - Represents if validator is willing to issue a bond or not. Can switch on/off at own will.
-    /// @param validatorDefaulted - Set by declareDefault (or atomically by the holder's redeemBondOrDefault)
+    /// @param validatorDefaulted - Set by declareDefault (or atomically by the holder's holderRedeemBondOrDefault)
     /// when a matured bond cannot be paid from the contract balance. Cleared only by clearDefault, by the owner,
     /// once outstandingBonds == 0. While set, bond sales and every validator extraction path revert with
-    /// ValidatorInDefault, all bonds accelerate to claimable at full maturity value via redeemBondInDefault,
+    /// ValidatorInDefault, all bonds accelerate to claimable at full maturity value via holderRedeemBondInDefault,
     /// and anyone can request the validator's full exit via exitValidator while any bond is outstanding.
 
     struct ValidatorConditions {
@@ -163,10 +163,11 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         uint128 remainingBondMaturityValue
     );
     /* solhint-enable gas-indexed-events */
-    /// @notice Emitted when validator redeems a bond early
+    /// @notice Emitted when the validator redeems a bond, before or after maturity. The maturity value goes to
+    /// the redemption escrow
     /// @param holderAddress The address of the bond holder
     /// @param bondId The ID of the bond NFT
-    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId);
+    event BondRedeemedByValidator(address indexed holderAddress, uint256 indexed bondId);
     /// @notice Emitted when validator withdraws from execution layer
     /// @param amount The amount withdrawn
     event ValidatorWithdrawFromExecution(uint128 indexed amount);
@@ -182,7 +183,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Emitted when Coffer is deactivated
     event CofferDeactivated();
     /// @notice Emitted when the validator is declared in default, either by declareDefault or atomically by
-    /// the holder's redeemBondOrDefault
+    /// the holder's holderRedeemBondOrDefault
     /// @param bondId The matured, unpayable bond that triggered the default
     /// @param caller The address that declared the default
     event ValidatorDefaulted(uint256 indexed bondId, address indexed caller);
@@ -243,9 +244,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         }
     }
 
-    /// @notice Address of the shared CofferBondsRedeemedEarly contract (CWIA arg at offset 20)
-    /// @return result The CofferBondsRedeemedEarly contract address
-    function iCofferBondsRedeemedEarly() public view returns (address result) {
+    /// @notice Address of the shared CofferRedemptionEscrow contract (CWIA arg at offset 20)
+    /// @return result The CofferRedemptionEscrow contract address
+    function iCofferRedemptionEscrowAddress() public view returns (address result) {
         assembly {
             extcodecopy(address(), 12, add(_ARGS_OFFSET, 20), 20)
             result := mload(0)
@@ -271,7 +272,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     }
 
     /// @notice Initializes a CWIA clone with validator parameters
-    /// @dev Called once by CofferFactory after cloning. The 4 "immutable" values (NFT address, early redemption
+    /// @dev Called once by CofferFactory after cloning. The 4 "immutable" values (NFT address, redemption escrow
     /// address, public key parts) are read from CWIA args appended to this clone's bytecode, not passed here.
     /// @param _owner The validator address that will own this Coffer
     /// @param _interestRate Yearly interest rate offered to bond holders
@@ -321,7 +322,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// issueSize.
     /// @notice Topping up the balance is how a validator serves bonds from the execution layer, and how an
     /// imminent default is cured: while the ETH sits here, matured bonds are claimable in full via
-    /// redeemBondOrDefault and declareDefault's predicate fails. The function stays open after a default
+    /// holderRedeemBondOrDefault and declareDefault's predicate fails. The function stays open after a default
     /// (cure of the contract balance, donations; consensus-layer sweeps bypass code anyway). The issueSize
     /// bump below stays honest across a declare-and-clear cycle: buyBond consumed issueSize that settlement
     /// never restores, and the cure top-up credits it back, the same accounting as serving a bond in normal
@@ -421,9 +422,13 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     }
 
     // solhint-enable function-max-lines
-    /// @notice Redeem bonds early by sending maturity values to CofferBondsRedeemedEarly
+    /// @notice Validator settles bonds at their full maturity value, before or after maturity, by sending the
+    /// values to CofferRedemptionEscrow
     /// @notice Only the validator can call this function
-    /// @notice Holders claim their funds from CofferBondsRedeemedEarly (pull pattern)
+    /// @notice Holders claim their funds from CofferRedemptionEscrow (pull pattern)
+    /// @notice Never needed to serve a matured bond: a funded contract is enough and the holder pulls the payment
+    /// through holderRedeemBondOrDefault. Used to settle bonds that must stop counting as outstanding, including
+    /// a matured bond the holder never claims, which would otherwise block every restricted parameter change
     /// @notice If the contract doesn't have enough to repay, the validator can send additional funds via msg.value
     /// @notice msg.value should equal max(0, totalValue - address(this).balance), where totalValue is the sum of
     /// bondMaturityValue across the passed bondIds. Unlike the EIP-7002 and EIP-7251 fee-bearing functions, the
@@ -431,10 +436,10 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// msg.value exactly without oracle or fee drift. Any surplus is NOT refunded and accrues to the contract
     /// balance. It is recoverable via validatorWithdrawFromExecution, bounded by issueSize while outstandingBonds > 0
     /// and freely withdrawable once all bonds settle.
-    /// @param _bondIds Bond IDs of the bonds to be redeemed early
+    /// @param _bondIds Bond IDs of the bonds the validator redeems
     /// @dev Slither flags reentrancy-no-eth (false positive): burnCofferBond calls a trusted immutable NFT contract
     /// whose _burn has no callbacks, and this function is onlyOwner
-    function redeemBondsEarly(uint256[] calldata _bondIds) external payable onlyOwner {
+    function validatorRedeemBonds(uint256[] calldata _bondIds) external payable onlyOwner {
         address[] memory holders = new address[](_bondIds.length);
         uint128[] memory amounts = new uint128[](_bondIds.length);
         uint256 totalValue = 0;
@@ -455,7 +460,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
             // slither-disable-next-line reentrancy-no-eth
             ICofferBondNft(iCofferBondNftAddress()).burnCofferBond(bondId);
 
-            emit ValidatorsBondRedeem(holders[i], bondId);
+            emit BondRedeemedByValidator(holders[i], bondId);
         }
 
         ValidatorConditions storage vc = sValidatorConditions;
@@ -464,7 +469,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         // solhint-disable-next-line gas-strict-inequalities
         require(address(this).balance >= totalValue, ContractBalanceLessThanValue());
 
-        ICofferBondsRedeemedEarly(iCofferBondsRedeemedEarly()).deposit{value: totalValue}(holders, amounts);
+        ICofferRedemptionEscrow(iCofferRedemptionEscrowAddress()).deposit{value: totalValue}(holders, amounts);
     }
 
     /// @notice Change the Coffer's activity
@@ -601,15 +606,15 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// extraction path is frozen. The only useful validator front-run of this function is paying the bond.
     /// @notice A successful call does not mean the holder was paid. When the contract cannot cover the
     /// bond, it returns false and declares the validator in default without transferring anything; the
-    /// bond stays alive and is then claimed through redeemBondInDefault. Check the return value rather
+    /// bond stays alive and is then claimed through holderRedeemBondInDefault. Check the return value rather
     /// than whether the call succeeded.
     /// @notice Reverts while the validator is defaulted
-    /// @notice Batching [redeemBondOrDefault, redeemBondInDefault] on the same bond
+    /// @notice Batching [holderRedeemBondOrDefault, holderRedeemBondInDefault] on the same bond
     /// through multicall (or any all-or-nothing batcher) lands only when 0 < contract balance <
     /// bondMaturityValue. Outside that window the second subcall reverts and unwinds the whole batch.
     /// @param _bondId The ID of the bond NFT to redeem
     /// @return paidInFull True if the full bondMaturityValue was paid to the holder
-    function redeemBondOrDefault(uint256 _bondId) external returns (bool paidInFull) {
+    function holderRedeemBondOrDefault(uint256 _bondId) external returns (bool paidInFull) {
         ValidatorConditions storage vc = sValidatorConditions;
 
         require(!vc.validatorDefaulted, ValidatorInDefault());
@@ -649,10 +654,10 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// clearDefault's outstandingBonds == 0 gate stays reachable.
     /// @notice Reverts while the validator is serving (ValidatorNotInDefault) and when the contract balance is
     /// zero (NothingToRedeem). In an all-or-nothing batch the zero-balance revert unwinds every earlier
-    /// subcall, a default freshly declared by redeemBondOrDefault included; see redeemBondOrDefault's
+    /// subcall, a default freshly declared by holderRedeemBondOrDefault included; see holderRedeemBondOrDefault's
     /// composition warning.
     /// @param _bondId The ID of the bond NFT to redeem
-    function redeemBondInDefault(uint256 _bondId) external {
+    function holderRedeemBondInDefault(uint256 _bondId) external {
         ValidatorConditions storage vc = sValidatorConditions;
 
         require(vc.validatorDefaulted, ValidatorNotInDefault());
@@ -695,9 +700,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         Address.sendValue(payable(msg.sender), _value);
     }
 
-    /// @dev Shared by declareDefault and redeemBondOrDefault. Checks the full predicate itself, so a
+    /// @dev Shared by declareDefault and holderRedeemBondOrDefault. Checks the full predicate itself, so a
     /// default can never be declared outside it regardless of what the entry points check.
-    /// redeemBondOrDefault re-implements these checks to pick its branch, so a change to this predicate
+    /// holderRedeemBondOrDefault re-implements these checks to pick its branch, so a change to this predicate
     /// must be mirrored there or the shortfall path starts reverting instead of returning false.
     /// Internal calls preserve msg.sender, so the ValidatorDefaulted caller field is correct from both
     /// entry points.
@@ -724,15 +729,15 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     }
 
     /// @notice Declares the validator in default: a matured bond exists that the contract balance cannot pay
-    /// @notice Callable by anyone. The holder's own atomic path is redeemBondOrDefault, which declares the
+    /// @notice Callable by anyone. The holder's own atomic path is holderRedeemBondOrDefault, which declares the
     /// default through the same predicate in the same transaction as the failed redeem. The only way to
     /// prevent the declaration is to pay: top up the balance via receive() or settle the bond via
-    /// redeemBondsEarly before this call lands, so the only useful front-run of this function is paying the
+    /// validatorRedeemBonds before this call lands, so the only useful front-run of this function is paying the
     /// holder. The only way out of a declared default is also to pay: once every outstanding bond is settled
     /// at its full maturity value, the owner can clear the flag via clearDefault.
     /// @notice While defaulted: bond sales and every validator extraction path revert with ValidatorInDefault,
     /// all bonds accelerate to claimable at full maturity value (first come first served, via
-    /// redeemBondInDefault), and anyone can repeatedly request the validator's full exit via exitValidator
+    /// holderRedeemBondInDefault), and anyone can repeatedly request the validator's full exit via exitValidator
     /// while any bond is outstanding, sweeping the remaining stake into this contract.
     /// @param _bondId A bond satisfying the default predicate: it exists, it is matured, and it cannot be paid
     function declareDefault(uint256 _bondId) external {
@@ -776,9 +781,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
     /// @notice Clears the default once every bond is settled: the only exit from a default is to pay in full
     /// @notice Callable only by the validator, and only when outstandingBonds == 0, which holds exactly when
-    /// every bond was paid at its full maturity value (full claims and early redemptions are the only paths
+    /// every bond was paid at its full maturity value (full claims and validator redemptions are the only paths
     /// that decrement the counter). No holder can therefore ever cross this transition. Clearing the flag
-    /// unfreezes bond sales and every validator function, so surplus above the settled claims leaves through
+    /// unfreezes bond sales and the validator extraction paths, so surplus above the settled claims leaves through
     /// the normal zero-bond branch of validatorWithdrawFromExecution.
     /// @notice The version bump invalidates any buyBond transaction still in flight from before the default,
     /// so no stale purchase can land against the cleared coffer.

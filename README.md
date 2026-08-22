@@ -21,7 +21,7 @@
     - [Exit Mechanics](#exit-mechanics)
     - [Default Economics](#default-economics)
     - [Redemption behaves differently in defaulted state](#redemption-behaves-differently-in-defaulted-state)
-  - [Redeeming Bonds Early](#redeeming-bonds-early)
+  - [Validator Redeeming Bonds](#validator-redeeming-bonds)
 - [Risk Factors](#risk-factors)
   - [Extreme Consensus-Layer Events](#extreme-consensus-layer-events)
     - [Non-Finalization (Inactivity Leak)](#non-finalization-inactivity-leak)
@@ -63,7 +63,7 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 | **`CofferFactory.sol`** | Factory contract for creating Coffers |
 | **`Coffer.sol`** | Individual Coffer contract managing validator-holder relationships |
 | **`CofferBondNft.sol`** | ERC-721 contract representing transferable Coffer bonds |
-| **`CofferBondsRedeemedEarly.sol`** | Pull-based claim contract for early bond redemptions |
+| **`CofferRedemptionEscrow.sol`** | Pull-based claim contract holding the maturity value of bonds the validator redeemed. Holders claim from it |
 | **`FeeCurve.sol`** | Shared, protocol-wide fee schedule. Resolves the current fee (in basis points) and the fee recipient for `buyBond` |
 
 ### Libraries
@@ -78,20 +78,20 @@ A detailed description of the protocol can be found in the [**Coffer Whitepaper*
 |-----------|-------------|
 | **`ICoffer.sol`** | Minimal interface for reading bond data from a Coffer contract |
 | **`ICofferBondNft.sol`** | Interface for the core contract CofferBondNft.sol |
-| **`ICofferBondsRedeemedEarly.sol`** | Interface for the pull-based early bond redemption contract |
+| **`ICofferRedemptionEscrow.sol`** | Interface for the pull-based redemption escrow contract |
 | **`IFeeCurve.sol`** | Interface for the shared protocol fee schedule contract |
 | **`IDepositContract.sol`** | Ethereum 2.0 deposit contract interface |
 
 ### Clone Architecture (CWIA)
 
-Each Coffer is deployed as a minimal proxy clone using Solady's `LibClone`. At construction time the factory deploys the shared `CofferBondNft`, `CofferBondsRedeemedEarly`, and `FeeCurve` contracts once, along with a single Coffer implementation contract. Every `createCoffer` call creates a lightweight clone pointing to that implementation.
+Each Coffer is deployed as a minimal proxy clone using Solady's `LibClone`. At construction time the factory deploys the shared `CofferBondNft`, `CofferRedemptionEscrow`, and `FeeCurve` contracts once, along with a single Coffer implementation contract. Every `createCoffer` call creates a lightweight clone pointing to that implementation.
 
 88 bytes of immutable data are appended to each clone's bytecode via the Clones With Immutable Args (CWIA) pattern:
 
 | Arg | Type | Byte Offset | Reason |
 |-----|------|-------------|--------|
 | CofferBondNft address | `address` | 0 | Shared across all Coffers, never changes |
-| CofferBondsRedeemedEarly address | `address` | 20 | Shared across all Coffers, never changes |
+| CofferRedemptionEscrow address | `address` | 20 | Shared across all Coffers, never changes |
 | Validator BLS public key (part 1) | `bytes32` | 40 | Must be immutable for trust (see [Setup Steps](#setup-steps)) |
 | Validator BLS public key (part 2) | `bytes16` | 72 | Must be immutable for trust (see [Setup Steps](#setup-steps)) |
 
@@ -106,9 +106,9 @@ The remaining parameters, `_owner`, `_interestRate`, `_minimumDuration`, `_maxim
 Four roles. The Protocol Admin owns the shared `FeeCurve` and can update the protocol fee recipient. The Validator is the owner of a given `Coffer` clone, with two-step ownership transfer and renouncing ownership disabled. The Holder is the current owner of a given bond NFT, with authority scoped to that `bondId`. Anyone else can only call the entrypoints listed below.
 
 **Holder**, the current owner of `bondId`:
-- `Coffer.redeemBondOrDefault(uint256) returns (bool paidInFull)` (while the validator is not in default)
-- `Coffer.redeemBondInDefault(uint256)` (while the validator is defaulted)
-- `CofferBondsRedeemedEarly.claim(address payable)` (when there is a pending claim)
+- `Coffer.holderRedeemBondOrDefault(uint256) returns (bool paidInFull)` (while the validator is not in default)
+- `Coffer.holderRedeemBondInDefault(uint256)` (while the validator is defaulted)
+- `CofferRedemptionEscrow.claim(address payable)` (when there is a pending claim)
 
 **Anyone**:
 - `Coffer.buyBond(uint32, uint32) returns (uint256 bondId)` (rejects the validator)
@@ -117,14 +117,14 @@ Four roles. The Protocol Admin owns the shared `FeeCurve` and can update the pro
 - `Coffer.exitValidator()` (requests the defaulted validator's full EIP-7002 exit, callable repeatedly while any bond is outstanding, the caller pays the request fee, reverts until a default is declared and again after the last bond settles)
 - `CofferFactory.createCoffer(...)` (caller becomes the validator of the new Coffer)
 - `CofferFactory.predictCofferAddress(...)` (view)
-- `CofferBondsRedeemedEarly.deposit(...)` (no access control, any caller pays real ETH that is credited 1:1 to the listed holders)
+- `CofferRedemptionEscrow.deposit(...)` (no access control, any caller pays real ETH that is credited 1:1 to the listed holders)
 - `FeeCurve.claim()` (a permissionless call that sends pooled protocol fees to the current fee recipient)
 - `FeeCurve.collectFee()`, no access control, called by Coffer clones during `buyBond` to deposit the fee
 
 **Protocol Admin**, the owner of the shared `FeeCurve`, initially the deployer of `CofferFactory`:
 - `FeeCurve.setFeeRecipient(address)` (redirects where future bond fees are sent, the fee amounts themselves are immutable)
 
-**Validator**: every other state-changing function on `Coffer`, e.g. `changeInterestRate`, `changeMinimumAndMaximumDuration`, `changeMinimumValueToAccept`, `changeIssueSize`, `changeIssueSizeBufferBps`, `changeCofferActivity`, `validatorWithdrawFromExecution`, `validatorWithdrawFromConsensus`, `validatorAddFundsToConsensus`, `redeemBondsEarly`, `clearDefault`, and `convertToCompounding`. Protocol-internal calls between contracts (NFT mint/burn/metadata-update, factory registration) are gated to the issuing/owning contract and are not user-callable.
+**Validator**: every other state-changing function on `Coffer`, e.g. `changeInterestRate`, `changeMinimumAndMaximumDuration`, `changeMinimumValueToAccept`, `changeIssueSize`, `changeIssueSizeBufferBps`, `changeCofferActivity`, `validatorWithdrawFromExecution`, `validatorWithdrawFromConsensus`, `validatorAddFundsToConsensus`, `validatorRedeemBonds`, `clearDefault`, and `convertToCompounding`. Protocol-internal calls between contracts (NFT mint/burn/metadata-update, factory registration) are gated to the issuing/owning contract and are not user-callable.
 
 ### Deployment
 
@@ -192,15 +192,15 @@ The validator sets the buffer. The holder evaluates whether the chosen value, co
 
 #### Exit Mechanics
 
-Bonds are paid from the contract's execution-layer balance, and the validator's one duty is to keep that balance sufficient. At every moment, the contract must hold at least the sum of maturity values across all matured, unpaid bonds. How the validator sources the ETH is their business. Consensus partials via `validatorWithdrawFromConsensus` take roughly two days to arrive (the request queue plus the beacon sweep), direct transfers via `receive()` are instant, and third-party top-ups count too. The holder redeems through `redeemBondOrDefault` while the validator is not in default and through `redeemBondInDefault` once a default stands (see [Redemption behaves differently in defaulted state](#redemption-behaves-differently-in-defaulted-state)).
+Bonds are paid from the contract's execution-layer balance, and the validator's one duty is to keep that balance sufficient. At every moment, the contract must hold at least the sum of maturity values across all matured, unpaid bonds. How the validator sources the ETH is their business. Consensus partials via `validatorWithdrawFromConsensus` take roughly two days to arrive (the request queue plus the beacon sweep), direct transfers via `receive()` are instant, and third-party top-ups count too. The holder redeems through `holderRedeemBondOrDefault` while the validator is not in default and through `holderRedeemBondInDefault` once a default stands (see [Redemption behaves differently in defaulted state](#redemption-behaves-differently-in-defaulted-state)).
 
-The moment any single matured bond cannot be paid in full from the contract balance, `declareDefault(bondId)` becomes callable by anyone. A default stands until every bond is settled. It freezes bond sales and every validator extraction path, accelerates every outstanding bond to claimable at its full maturity value on a first-come-first-served basis, and opens `exitValidator()`, which anyone can call repeatedly while any bond is outstanding to request the validator's full EIP-7002 exit. The exit sweeps the entire remaining stake to the contract, including the `MIN_ACTIVATION_BALANCE` floor (currently 32 ETH), so the floor never caps recovery. Preventing a default requires payment. Top up the contract or settle the bond through `redeemBondsEarly` before the declaration lands. Clearing a default requires payment in full. `clearDefault()` lifts the flag only once every outstanding bond has received its full maturity value, and it does not recall an exit request that already landed. In practice a default should be treated as the end of the validator and of the Coffer. Requesting the exit is in every holder's immediate interest, so a request usually lands before the validator can settle every bond, and an exited validator can never rejoin the active set.
+The moment any single matured bond cannot be paid in full from the contract balance, `declareDefault(bondId)` becomes callable by anyone. A default stands until every bond is settled. It freezes bond sales and every validator extraction path, accelerates every outstanding bond to claimable at its full maturity value on a first-come-first-served basis, and opens `exitValidator()`, which anyone can call repeatedly while any bond is outstanding to request the validator's full EIP-7002 exit. The exit sweeps the entire remaining stake to the contract, including the `MIN_ACTIVATION_BALANCE` floor (currently 32 ETH), so the floor never caps recovery. Preventing a default requires payment. Top up the contract or settle the bond through `validatorRedeemBonds` before the declaration lands. Clearing a default requires payment in full. `clearDefault()` lifts the flag only once every outstanding bond has received its full maturity value, and it does not recall an exit request that already landed. In practice a default should be treated as the end of the validator and of the Coffer. Requesting the exit is in every holder's immediate interest, so a request usually lands before the validator can settle every bond, and an exited validator can never rejoin the active set.
 
 `minimumDuration` is the validator's guaranteed reaction time. `buyBond` forwards the principal to the validator's wallet, so a fresh bond adds a liability with no backing in the contract, and the shortest bond a validator sells is the shortest notice they can get to fund it. The protocol sets no floor on this parameter. The validator chooses it and the validator bears the risk, so it should sit well above the validator's own funding latency.
 
 #### Default Economics
 
-While the default stands, bond sales and every validator extraction path are frozen, `redeemBondsEarly` stays open as the settlement path, and every bond is claimable at its full maturity value. The default clears only through `clearDefault()`, which the validator can call only when no bonds are outstanding, that is, once every holder has received the full maturity value of every bond.
+While the default stands, bond sales and every validator extraction path are frozen, `validatorRedeemBonds` stays open as the settlement path, and every bond is claimable at its full maturity value. The default clears only through `clearDefault()`, which the validator can call only when no bonds are outstanding, that is, once every holder has received the full maturity value of every bond.
 
 `exitValidator()` is callable by anyone while the default stands and at least one bond is outstanding. Once the last bond settles there is nothing left to recover, so the request gate closes. A third party cannot force the beacon exit of a validator who has paid everyone in full. After `clearDefault()` and with no bonds outstanding the validator withdraws the remaining balance freely through `validatorWithdrawFromExecution`.
 
@@ -208,17 +208,19 @@ If a bond matures while the contract balance cannot cover its maturity value, a 
 
 #### Redemption behaves differently in defaulted state
 
-**While the validator is not in default.** `redeemBondOrDefault(bondId)` returns a bool that says whether the bond was paid in full. The function has two outcomes, and it never pays a partial amount. The bond is paid its full maturity value, or the validator is declared in default. The moment the contract balance cannot cover the bond, the default lands in the same transaction as the failed redeem, and every validator extraction path freezes from that moment on. A validator cannot dodge the default by briefly topping up and re-extracting the cure through `validatorWithdrawFromExecution`. Front-running this function averts the default only when the front-run funds the bond in full. When the redeem fails, the transaction still succeeds and moves no ETH. The bond stays alive at its full value and becomes claimable through `redeemBondInDefault`. The function reverts if the bond has not yet matured, and it reverts once a default already stands.
+**While the validator is not in default.** `holderRedeemBondOrDefault(bondId)` returns a bool that says whether the bond was paid in full. The function has two outcomes, and it never pays a partial amount. The bond is paid its full maturity value, or the validator is declared in default. The moment the contract balance cannot cover the bond, the default lands in the same transaction as the failed redeem, and every validator extraction path freezes from that moment on. A validator cannot dodge the default by briefly topping up and re-extracting the cure through `validatorWithdrawFromExecution`. Front-running this function averts the default only when the front-run funds the bond in full. When the redeem fails, the transaction still succeeds and moves no ETH. The bond stays alive at its full value and becomes claimable through `holderRedeemBondInDefault`. The function reverts if the bond has not yet matured, and it reverts once a default already stands.
 
-**While the validator is defaulted.** `redeemBondInDefault(bondId)`. This function does not check maturity. A declared default accelerates every bond to claimable at its full maturity value, first come, first served. The function pays the smaller of the contract balance and the bond's remaining maturity value, so it pays whatever the contract holds, up to the bond's remaining value. A full payout settles and burns the bond, so repeated partial claims eventually settle the bond through this same function. It reverts while the validator is not in default, and it reverts when the contract balance is zero. In that case the holder waits for the exit sweep to land, as described under Default Economics.
+**While the validator is defaulted.** `holderRedeemBondInDefault(bondId)`. This function does not check maturity. A declared default accelerates every bond to claimable at its full maturity value, first come, first served. The function pays the smaller of the contract balance and the bond's remaining maturity value, so it pays whatever the contract holds, up to the bond's remaining value. A full payout settles and burns the bond, so repeated partial claims eventually settle the bond through this same function. It reverts while the validator is not in default, and it reverts when the contract balance is zero. In that case the holder waits for the exit sweep to land, as described under Default Economics.
 
-The rare "declare default and claim what the contract holds" combo is available in one transaction through the contract's non-payable multicall, by batching a redeem that declares the default with an immediate claim. The batch lands only when the contract balance is above zero but below the bond's remaining value. Anything outside that window reverts the second subcall and unwinds the whole batch. With a zero balance the unwind rolls back the default declaration. With a balance that covers the bond it rolls back the holder's own payment, which is the state the validator's cure top-up produces. When unsure what the balance will be at execution time, call `redeemBondOrDefault` alone. A contract caller can branch on the bool the function returns.
+The rare "declare default and claim what the contract holds" combo is available in one transaction through the contract's non-payable multicall, by batching a redeem that declares the default with an immediate claim. The batch lands only when the contract balance is above zero but below the bond's remaining value. Anything outside that window reverts the second subcall and unwinds the whole batch. With a zero balance the unwind rolls back the default declaration. With a balance that covers the bond it rolls back the holder's own payment, which is the state the validator's cure top-up produces. When unsure what the balance will be at execution time, call `holderRedeemBondOrDefault` alone. A contract caller can branch on the bool the function returns.
 
-### Redeeming Bonds Early
+### Validator Redeeming Bonds
 
-A validator can redeem outstanding bonds before maturity by calling `redeemBondsEarly`. This matters when the validator needs all bonds settled to change bond parameters such as interest rate, issue size, or issue size buffer. After a default the same threshold closes `exitValidator` and opens `clearDefault`, so redeeming every remaining bond early is the fastest way out of a default.
+`validatorRedeemBonds` settles the listed bonds at their full maturity value, before or after maturity. Before maturity the holder receives the full maturity value ahead of schedule. After maturity the amount is the same, so the holder only changes where the claim is made. The function is never needed to serve a matured bond. A funded contract is enough, and the holder pulls the payment through `holderRedeemBondOrDefault`.
 
-When bonds are redeemed early, the maturity values are sent to the `CofferBondsRedeemedEarly` contract rather than directly to each bond holder. Holders then claim their funds individually by calling `claim()` on that contract.
+The validator reaches for it when a bond has to stop counting as outstanding. Every restricted parameter change waits for `outstandingBonds == 0` (see [Changing Offer Parameters](#changing-offer-parameters)), and a matured bond that its holder never claims keeps the counter up indefinitely. Redeeming that bond is the validator's only way to settle it without the holder's cooperation. After a default the same threshold closes `exitValidator` and opens `clearDefault`, so redeeming every remaining bond is the fastest way out of a default.
+
+When the validator redeems bonds, the maturity values are sent to the `CofferRedemptionEscrow` contract rather than directly to each bond holder. Holders then claim their funds individually by calling `claim()` on that contract.
 
 This pull-based pattern prevents a griefing attack where a bond NFT is transferred to a contract that rejects ETH because its `receive()` is missing or reverts. Payment goes to the escrow rather than the holder's address, so such a transfer cannot block the validator from redeeming the bond, freeze the `outstandingBonds` counter, or tie up `issueSize` capacity.
 
@@ -246,9 +248,9 @@ Large-scale correlated slashing, where a major fraction of total network stake i
 
 ### Default Declaration Race
 
-`declareDefault` is callable by anyone, so the not-defaulted state that `redeemBondOrDefault` requires can disappear while the holder's transaction waits in the mempool. When someone else's declaration lands first, the holder's redeem reverts with `ValidatorInDefault` and the claim moves to `redeemBondInDefault` a block or more later. Claims in default are first come, first served, so the delay can cost the holder a place in the queue. A rival holder can even declare the default and claim in the same transaction through the contract's multicall, which puts them ahead of every redeem that was already in flight.
+`declareDefault` is callable by anyone, so the not-defaulted state that `holderRedeemBondOrDefault` requires can disappear while the holder's transaction waits in the mempool. When someone else's declaration lands first, the holder's redeem reverts with `ValidatorInDefault` and the claim moves to `holderRedeemBondInDefault` a block or more later. Claims in default are first come, first served, so the delay can cost the holder a place in the queue. A rival holder can even declare the default and claim in the same transaction through the contract's multicall, which puts them ahead of every redeem that was already in flight.
 
-A contract holder can close the race by branching in a single transaction. Call `redeemBondOrDefault` first, and when it returns false or reverts with `ValidatorInDefault`, claim through `redeemBondInDefault`. A holder sending plain transactions from a wallet has no equivalent protection and carries the race whenever the Coffer sits near the default boundary.
+A contract holder can close the race by branching in a single transaction. Call `holderRedeemBondOrDefault` first, and when it returns false or reverts with `ValidatorInDefault`, claim through `holderRedeemBondInDefault`. A holder sending plain transactions from a wallet has no equivalent protection and carries the race whenever the Coffer sits near the default boundary.
 
 Queue position normally decides when a holder is paid, not how much. As long as the contract balance together with the swept stake covers every outstanding bond, each claim ends in full settlement. Losing the race turns into losing money only when the recovery falls short, which is the situation described under [Extreme Consensus-Layer Events](#extreme-consensus-layer-events).
 
@@ -324,8 +326,8 @@ The fee depends only on the calendar **date**, not on the individual transaction
 - **Bond-NFT bijection**: Each active bond maps 1:1 to a live NFT (mint on buy, burn on full redemption)
 - **Version monotonicity**: `version` strictly increases on any parameter change that affects holder protections, and on `validatorWithdrawFromExecution`
 - **bondMaturityValue >= principal**: `bondMaturityValue = principal + interest - fee`. The protocol fee is capped at 9.9% of the *interest*, never the principal, so net interest stays non-negative and the maturity value never drops below the principal. `buyBond` reverts with `FeeExceedsPrincipal` in the extreme case where the computed fee would exceed the principal
-- **Default transitions are gated**: `validatorDefaulted` goes `false`→`true` only against a matured bond the balance cannot pay, through `declareDefault` (callable by anyone) or atomically through the holder's `redeemBondOrDefault`, and `true`→`false` only through `clearDefault`, which only the validator can call and only when `outstandingBonds == 0`. The clear bumps `version`, so a stale pre-default `buyBond` transaction cannot land once the state has changed
-- **Outflow only against claims while defaulted**: while the default stands, ETH leaves the contract only toward bond owners, through `redeemBondInDefault` or the `redeemBondsEarly` escrow. A validator holding purchased bonds is paid as a bondholder
+- **Default transitions are gated**: `validatorDefaulted` goes `false`→`true` only against a matured bond the balance cannot pay, through `declareDefault` (callable by anyone) or atomically through `holderRedeemBondOrDefault`, and `true`→`false` only through `clearDefault`, which only the validator can call and only when `outstandingBonds == 0`. The clear bumps `version`, so a stale pre-default `buyBond` transaction cannot land once the state has changed
+- **Outflow only against claims while defaulted**: while the default stands, ETH leaves the contract only toward bond owners, through `holderRedeemBondInDefault` or the `validatorRedeemBonds` escrow. A validator holding purchased bonds is paid as a bondholder
 - **A covered bond cannot trigger a default**: `declareDefault` reverts whenever the contract balance covers the named bond, and no third party can push the balance down except by exercising their own bond claim. The check reads execution-layer liquidity only, never consensus-layer solvency
 - **All consensus value becomes holder collateral at default**: every consensus-layer payout can only credit the withdrawal-credential address, which is this contract, and the contract-to-validator hop is frozen while the default stands. The entire remaining stake, floor included, backs the holders' claims until every bond is settled
 
@@ -350,7 +352,7 @@ At creation the validator reports a starting balance, and `initialize` derives `
 issueSize = startingBalance * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFER_DENOMINATOR
 ```
 
-If the validator reports the starting balance honestly, meaning it equals the real consensus plus execution balance at creation, the condition starts with the buffer amount. That amount is the `issueSizeBufferBps` share of the reported balance, in basis points where 1% = 100. The consensus balance can then fall by up to that amount, and the condition still holds, whether the decline comes from inactivity penalties, leaks, or slashing. The buffer widens over time by consensus-layer rewards and by the buffer share of later deposits through `validatorAddFundsToConsensus`, and by the small payable surpluses that reach the balance without an `issueSize` credit, such as early-redemption overfunding and predeploy fee surplus. It is never widened by `receive()` top-ups, which add the same amount to both sides. The condition does not require the consensus balance to stay flat. It only requires that the initial evaluation was correct and that the buffer covers the decline the validator expects over the life of the longest bond it sells. A longer `maximumDuration` widens the window for consensus-layer events that eat into the buffer, which is why increasing it is blocked while bonds are outstanding (see [Changing Offer Parameters](#changing-offer-parameters)).
+If the validator reports the starting balance honestly, meaning it equals the real consensus plus execution balance at creation, the condition starts with the buffer amount. That amount is the `issueSizeBufferBps` share of the reported balance, in basis points where 1% = 100. The consensus balance can then fall by up to that amount, and the condition still holds, whether the decline comes from inactivity penalties, leaks, or slashing. The buffer widens over time by consensus-layer rewards and by the buffer share of later deposits through `validatorAddFundsToConsensus`, and by the small payable surpluses that reach the balance without an `issueSize` credit, such as overfunding of a validator redemption and predeploy fee surplus. It is never widened by `receive()` top-ups, which add the same amount to both sides. The condition does not require the consensus balance to stay flat. It only requires that the initial evaluation was correct and that the buffer covers the decline the validator expects over the life of the longest bond it sells. A longer `maximumDuration` widens the window for consensus-layer events that eat into the buffer, which is why increasing it is blocked while bonds are outstanding (see [Changing Offer Parameters](#changing-offer-parameters)).
 
 #### Preserved by every on-chain transition
 
@@ -360,7 +362,7 @@ If the condition holds at a given moment, every transition the protocol can perf
 - Consensus withdrawals move value from `consensusBalance` to `cofferContractBalance`, leaving the right side unchanged.
 - `validatorAddFundsToConsensus` increases `issueSize` by only the buffer-adjusted deposit amount, so the left side grows no more than the right side.
 - `validatorWithdrawFromExecution` while bonds are outstanding reduces `issueSize` and the contract balance by the same amount, so both sides fall together.
-- Holder claims and early redemptions reduce the maturity sum and the contract balance by the same amount, so both sides fall together.
+- Holder claims and validator redemptions reduce the maturity sum and the contract balance by the same amount, so both sides fall together.
 - Every other transition is safe. Parameter changes either move neither side or only lower the left side, since `changeIssueSize` can only decrease while bonds are outstanding. Activity toggles and default transitions move neither side, `receive()` adds the same amount to both sides, and the fee-bearing predeploy calls never reduce the contract balance on net.
 
 The base case, the first bond, depends on the validator's initial configuration, which cannot be enforced on-chain (see [Evaluating a Coffer](#evaluating-a-coffer)). When no bonds are outstanding, the condition may not hold. The validator can withdraw freely and change parameters, which is harmless because no bond holders exist to be affected. If the condition does hold with no bonds outstanding, front-run protection guarantees it is preserved when the first bond is bought.

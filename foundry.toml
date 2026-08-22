@@ -33,5 +33,5 @@ fail_on_revert = true
 no_match_path = "test/invariant/*"
 
 [profile.fv]
-model_checker = { contracts = { "src/Coffer.sol" = ["Coffer"], "src/CofferBondNft.sol" = ["CofferBondNft"], "src/CofferBondsRedeemedEarly.sol" = ["CofferBondsRedeemedEarly"], "src/CofferFactory.sol" = ["CofferFactory"], "src/FeeCurve.sol" = ["FeeCurve"], "src/libraries/Interest.sol" = ["Interest"] }, engine = "all", targets = ["assert", "underflow", "overflow", "divByZero", "balance", "popEmptyArray", "outOfBounds", "constantCondition"], show_unproved = true, timeout = 30000 }
+model_checker = { contracts = { "src/Coffer.sol" = ["Coffer"], "src/CofferBondNft.sol" = ["CofferBondNft"], "src/CofferRedemptionEscrow.sol" = ["CofferRedemptionEscrow"], "src/CofferFactory.sol" = ["CofferFactory"], "src/FeeCurve.sol" = ["FeeCurve"], "src/libraries/Interest.sol" = ["Interest"] }, engine = "all", targets = ["assert", "underflow", "overflow", "divByZero", "balance", "popEmptyArray", "outOfBounds", "constantCondition"], show_unproved = true, timeout = 30000 }
 

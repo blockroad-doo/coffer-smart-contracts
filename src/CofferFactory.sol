@@ -3,7 +3,7 @@ pragma solidity 0.8.34;
 
 import {Coffer} from "./Coffer.sol";
 import {CofferBondNft} from "./CofferBondNft.sol";
-import {CofferBondsRedeemedEarly} from "./CofferBondsRedeemedEarly.sol";
+import {CofferRedemptionEscrow} from "./CofferRedemptionEscrow.sol";
 import {FeeCurve} from "./FeeCurve.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
 
@@ -28,8 +28,8 @@ contract CofferFactory {
 
     /// @notice Address of the shared CofferBondNft contract
     address public immutable I_COFFER_BOND_NFT_ADDRESS;
-    /// @notice Address of the shared CofferBondsRedeemedEarly contract
-    address public immutable I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS;
+    /// @notice Address of the shared CofferRedemptionEscrow contract
+    address public immutable I_COFFER_REDEMPTION_ESCROW_ADDRESS;
     /// @notice Address of the Coffer implementation contract (used for CWIA cloning)
     address public immutable I_COFFER_IMPLEMENTATION;
     /// @notice Address of the shared FeeCurve contract
@@ -66,8 +66,8 @@ contract CofferFactory {
         CofferBondNft iCofferBondNft = new CofferBondNft(address(this));
         I_COFFER_BOND_NFT_ADDRESS = address(iCofferBondNft);
 
-        CofferBondsRedeemedEarly iBondsRedeemedEarly = new CofferBondsRedeemedEarly();
-        I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS = address(iBondsRedeemedEarly);
+        CofferRedemptionEscrow iRedemptionEscrow = new CofferRedemptionEscrow();
+        I_COFFER_REDEMPTION_ESCROW_ADDRESS = address(iRedemptionEscrow);
 
         FeeCurve feeCurve = new FeeCurve(msg.sender, _feeRecipient);
         I_FEE_CURVE_ADDRESS = address(feeCurve);
@@ -178,11 +178,11 @@ contract CofferFactory {
         return LibClone.predictDeterministicAddress(I_COFFER_IMPLEMENTATION, data, salt, address(this));
     }
 
-    /// @dev Packs CWIA immutable args: 88 bytes (NFT addr + BondsRedeemed addr + BLS pubkey)
+    /// @dev Packs CWIA immutable args: 88 bytes (NFT addr + escrow addr + BLS pubkey)
     function _packCwiaData(bytes32 _pk1, bytes16 _pk2) private view returns (bytes memory) {
         return abi.encodePacked(
             I_COFFER_BOND_NFT_ADDRESS, // 20 bytes, offset 0
-            I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS, // 20 bytes, offset 20
+            I_COFFER_REDEMPTION_ESCROW_ADDRESS, // 20 bytes, offset 20
             _pk1, // 32 bytes, offset 40
             _pk2 // 16 bytes, offset 72
         );

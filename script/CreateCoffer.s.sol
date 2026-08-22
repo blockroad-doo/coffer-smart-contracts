@@ -46,8 +46,8 @@ contract CreateCoffer is Script {
 
         console.log("Coffer created at:", cofferAddress);
 
-        address bondsRedeemedEarlyAddress = factory.I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS();
-        console.log("CofferBondsRedeemedEarly at:", bondsRedeemedEarlyAddress);
+        address redemptionEscrowAddress = factory.I_COFFER_REDEMPTION_ESCROW_ADDRESS();
+        console.log("CofferRedemptionEscrow at:", redemptionEscrowAddress);
 
         // Update .env file with the new Coffer address
         //console.log("\nUpdating .env file...");

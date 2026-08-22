@@ -13,7 +13,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  * full-exit payload, fee handling, re-callability while bonds are outstanding), and clearDefault
  * (the settlement-gated exit from a default)
  * @dev Scenario walkthroughs: cure at the door, the top-up/re-extract yo-yo resolved by the atomic
- * redeemBondOrDefault, the pre-default dust partial that drops the first exit and the retry after the
+ * holderRedeemBondOrDefault, the pre-default dust partial that drops the first exit and the retry after the
  * pending tail, pre-default mint ordering, and the in-flight exit request that survives the clear.
  */
 contract CofferDefaultTest is BaseTest {
@@ -53,7 +53,7 @@ contract CofferDefaultTest is BaseTest {
         coffer.declareDefault(bondId);
         vm.deal(cofferAddr, bmv);
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
     }
 
     // ========================================
@@ -137,7 +137,7 @@ contract CofferDefaultTest is BaseTest {
 
         uint256 balBefore = holder1.balance;
         vm.prank(holder1);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
         assertEq(holder1.balance, balBefore + bmv, "holder collects in full");
     }
 
@@ -147,7 +147,7 @@ contract CofferDefaultTest is BaseTest {
         uint256[] memory ids = new uint256[](1);
         ids[0] = bondId;
         vm.prank(validator);
-        coffer.redeemBondsEarly{value: bmv}(ids);
+        coffer.validatorRedeemBonds{value: bmv}(ids);
 
         vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
         coffer.declareDefault(bondId);
@@ -204,7 +204,7 @@ contract CofferDefaultTest is BaseTest {
         coffer.convertToCompounding{value: 1 ether}();
     }
 
-    function test_Defaulted_RedeemBondsEarlyStillWorks() public {
+    function test_Defaulted_ValidatorRedeemBondsStillWorks() public {
         (uint256 bondId, uint128 bmv) = _maturedUnpaidBond();
         coffer.declareDefault(bondId);
 
@@ -212,12 +212,12 @@ contract CofferDefaultTest is BaseTest {
         uint256[] memory ids = new uint256[](1);
         ids[0] = bondId;
         vm.prank(validator);
-        coffer.redeemBondsEarly{value: bmv}(ids);
+        coffer.validatorRedeemBonds{value: bmv}(ids);
 
         (uint128 remaining,,) = coffer.sHolderConditions(bondId);
         assertEq(remaining, 0, "bond settled via escrow during default");
         // A9: a redeemed holder is never underpaid, even in default: the escrow holds the full value
-        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), bmv, "escrow credited with the full maturity value");
+        assertEq(redemptionEscrow.sPendingClaims(holder1), bmv, "escrow credited with the full maturity value");
     }
 
     function test_Defaulted_ReceiveStaysOpen() public {
@@ -245,7 +245,7 @@ contract CofferDefaultTest is BaseTest {
         vm.deal(cofferAddr, bmv2);
         uint256 balBefore = holder2.balance;
         vm.prank(holder2);
-        coffer.redeemBondInDefault(b2);
+        coffer.holderRedeemBondInDefault(b2);
         assertEq(holder2.balance, balBefore + bmv2, "immature bond claims full maturity value post-default");
     }
 
@@ -255,7 +255,7 @@ contract CofferDefaultTest is BaseTest {
 
         vm.deal(cofferAddr, bmv - 1 ether);
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         (uint128 remaining,,) = coffer.sHolderConditions(bondId);
         assertEq(remaining, 1 ether, "partial payout tracked");
@@ -263,7 +263,7 @@ contract CofferDefaultTest is BaseTest {
         // Balance is drained: the zero-balance gate fails closed
         vm.prank(holder1);
         vm.expectRevert(Coffer.NothingToRedeem.selector);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
     }
 
     function test_Defaulted_ClaimsAreFCFS() public {
@@ -276,11 +276,11 @@ contract CofferDefaultTest is BaseTest {
         // The contract balance covers exactly one bond: first come, first served
         vm.deal(cofferAddr, bmv1);
         vm.prank(holder1);
-        coffer.redeemBondInDefault(b1);
+        coffer.holderRedeemBondInDefault(b1);
 
         vm.prank(holder2);
         vm.expectRevert(Coffer.NothingToRedeem.selector);
-        coffer.redeemBondInDefault(b2);
+        coffer.holderRedeemBondInDefault(b2);
     }
 
     // ========================================
@@ -483,8 +483,8 @@ contract CofferDefaultTest is BaseTest {
         assertTrue(_isDefaulted(), "second epoch opened");
     }
 
-    /// @dev Settlement via the escrow path: redeemBondsEarly drops outstandingBonds to zero while the
-    ///      holder's claim is still pending in CofferBondsRedeemedEarly. Pins the cure gate's
+    /// @dev Settlement via the escrow path: validatorRedeemBonds drops outstandingBonds to zero while the
+    ///      holder's claim is still pending in CofferRedemptionEscrow. Pins the cure gate's
     ///      definition of "paid in full" — escrowed at full maturity value counts — and that a
     ///      pending escrow claim survives the clear untouched.
     function test_ClearDefault_AfterEscrowSettlement_EscrowClaimStillPays() public {
@@ -496,11 +496,11 @@ contract CofferDefaultTest is BaseTest {
         uint256[] memory ids = new uint256[](1);
         ids[0] = bondId;
         vm.prank(validator);
-        coffer.redeemBondsEarly{value: bmv}(ids);
+        coffer.validatorRedeemBonds{value: bmv}(ids);
 
         (,,,,,, uint32 outstanding,,,) = coffer.sValidatorConditions();
         assertEq(outstanding, 0, "settlement reached through the escrow path");
-        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), bmv, "full maturity value escrowed");
+        assertEq(redemptionEscrow.sPendingClaims(holder1), bmv, "full maturity value escrowed");
 
         // The settle-to-clear window is open despite the pending claim
         vm.prank(validator);
@@ -510,8 +510,8 @@ contract CofferDefaultTest is BaseTest {
         // The pending escrow claim is unaffected and pays in full
         uint256 balBefore = holder1.balance;
         vm.prank(holder1);
-        bondsRedeemedEarly.claim(payable(holder1));
-        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), 0, "claim consumed");
+        redemptionEscrow.claim(payable(holder1));
+        assertEq(redemptionEscrow.sPendingClaims(holder1), 0, "claim consumed");
         assertEq(holder1.balance, balBefore + bmv, "escrow paid the full maturity value");
     }
 
@@ -534,7 +534,7 @@ contract CofferDefaultTest is BaseTest {
     // Scenario walkthroughs
     // ========================================
 
-    /// @dev The top-up/re-extract yo-yo is dead. The holder's redeemBondOrDefault
+    /// @dev The top-up/re-extract yo-yo is dead. The holder's holderRedeemBondOrDefault
     ///      declares the default in the same transaction as a failed redeem, so the validator can
     ///      no longer dodge declareDefault with a top-up and re-extract it: the moment the balance
     ///      fails to cover the bond, the default lands and every extraction path freezes. A top-up
@@ -560,7 +560,7 @@ contract CofferDefaultTest is BaseTest {
         vm.expectEmit(true, true, false, true, cofferAddr);
         emit Coffer.ValidatorDefaulted(bondId, holder1);
         vm.prank(holder1);
-        bool paidInFull = coffer.redeemBondOrDefault(bondId);
+        bool paidInFull = coffer.holderRedeemBondOrDefault(bondId);
         assertFalse(paidInFull, "shortfall, not a payout");
         assertTrue(_isDefaulted(), "default declared in the same transaction");
 
@@ -572,7 +572,7 @@ contract CofferDefaultTest is BaseTest {
 
         // The only exit is full payment: the holder claims, then the validator clears the default
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
         vm.prank(validator);
         coffer.clearDefault();
         assertFalse(_isDefaulted(), "full payment discharged the default");
@@ -599,7 +599,7 @@ contract CofferDefaultTest is BaseTest {
 
         // FCFS: H1 drains the contract balance in full
         vm.prank(holder1);
-        coffer.redeemBondOrDefault(b1);
+        coffer.holderRedeemBondOrDefault(b1);
 
         // Now B2 is matured and unpayable: the default fires. No deadlock state exists.
         coffer.declareDefault(b2);
@@ -620,12 +620,12 @@ contract CofferDefaultTest is BaseTest {
         // The seller has no claim left
         vm.prank(holder1);
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         // The buyer collects in full
         uint256 balBefore = holder3.balance;
         vm.prank(holder3);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
         assertEq(holder3.balance, balBefore + bmv, "claim follows the NFT owner");
     }
 
@@ -655,8 +655,8 @@ contract CofferDefaultTest is BaseTest {
         uint256[] memory ids = new uint256[](1);
         ids[0] = bondId;
         vm.prank(rescuer);
-        coffer.redeemBondsEarly{value: bmv}(ids);
-        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), bmv, "rescuer settled the holder in full");
+        coffer.validatorRedeemBonds{value: bmv}(ids);
+        assertEq(redemptionEscrow.sPendingClaims(holder1), bmv, "rescuer settled the holder in full");
 
         // Settlement zeroed outstandingBonds, so the clear power is live for the new owner
         vm.prank(rescuer);
@@ -707,7 +707,7 @@ contract CofferDefaultTest is BaseTest {
         // Settle every bond at full maturity value while the request sits in the queue
         vm.deal(cofferAddr, bmv);
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         // The settle-to-clear window: the in-flight request does not block the clear
         vm.prank(validator);
@@ -756,7 +756,7 @@ contract CofferDefaultTest is BaseTest {
         vm.deal(longCofferAddr, 0);
         vm.prank(holder1);
         vm.expectRevert(Coffer.HoldersTimeHasNotExpiredYet.selector);
-        longCoffer.redeemBondOrDefault(bondId);
+        longCoffer.holderRedeemBondOrDefault(bondId);
         vm.expectRevert(Coffer.HoldersTimeHasNotExpiredYet.selector);
         longCoffer.declareDefault(bondId);
 
@@ -766,7 +766,7 @@ contract CofferDefaultTest is BaseTest {
         vm.deal(longCofferAddr, bmv);
         uint256 balBefore = holder1.balance;
         vm.prank(holder1);
-        longCoffer.redeemBondInDefault(bondId);
+        longCoffer.holderRedeemBondInDefault(bondId);
         assertEq(holder1.balance, balBefore + bmv, "widened maturity math settles the bond");
     }
 
@@ -782,7 +782,7 @@ contract CofferDefaultTest is BaseTest {
 
         vm.deal(cofferAddr, bmv2);
         vm.prank(holder2);
-        coffer.redeemBondInDefault(b2);
+        coffer.holderRedeemBondInDefault(b2);
 
         // [default, buy]: after the flip, minting is frozen
         vm.prank(holder3);

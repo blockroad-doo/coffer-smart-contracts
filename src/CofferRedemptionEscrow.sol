@@ -2,22 +2,22 @@
 pragma solidity 0.8.34;
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {ICofferBondsRedeemedEarly} from "./interfaces/ICofferBondsRedeemedEarly.sol";
+import {ICofferRedemptionEscrow} from "./interfaces/ICofferRedemptionEscrow.sol";
 
 /**
- * @title CofferBondsRedeemedEarly
+ * @title CofferRedemptionEscrow
  * @author Blockroad Ltd
- * @notice Simple pull-based claim contract for early bond redemptions
- * @notice When a validator redeems bonds early, Coffer deposits the ETH here
+ * @notice Simple pull-based claim contract for bonds the validator redeems
+ * @notice When a validator redeems bonds, Coffer deposits the maturity values here
  * @notice Holders claim their funds individually via claim()
  * @notice This prevents griefing by non-payable holder contracts
  */
-contract CofferBondsRedeemedEarly is ICofferBondsRedeemedEarly {
+contract CofferRedemptionEscrow is ICofferRedemptionEscrow {
     error NoPendingClaim();
     error DepositArrayLengthMismatch();
     error DepositMsgValueMismatch();
 
-    /// @notice Pending ETH claims for holders whose bonds were redeemed early
+    /// @notice Pending ETH claims for holders whose bonds the validator redeemed
     mapping(address => uint256) public sPendingClaims;
 
     /// @notice Emitted when ETH is deposited for a bond holder
@@ -52,7 +52,7 @@ contract CofferBondsRedeemedEarly is ICofferBondsRedeemedEarly {
         require(msg.value == total, DepositMsgValueMismatch());
     }
 
-    /// @notice Claim escrowed funds from early bond redemption
+    /// @notice Claim escrowed funds from a validator redemption
     /// @notice The _to parameter allows non-payable contracts to redirect funds
     /// @param _to Address to receive the claimed funds
     /// #if_succeeds {:msg "claim sets caller's pending to zero"} sPendingClaims[msg.sender] == 0;

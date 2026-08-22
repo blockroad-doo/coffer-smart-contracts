@@ -51,7 +51,7 @@ contract CofferHandlerExt is Test {
     uint256 public ghostTotalEthArrivedFromConsensus;
 
     // ── Ghost state: default machine ───────────────────────────────────────
-    // Mirrors the on-chain flag both ways: set by handlerDeclareDefault or handlerRedeemBondOrDefault
+    // Mirrors the on-chain flag both ways: set by handlerDeclareDefault or handlerHolderRedeemBondOrDefault
     // on a successful declare, cleared by handlerClearDefault on a successful clear.
     // A default epoch is the span between one flip to true and the matching clear.
     bool public ghostValidatorDefaulted;
@@ -70,7 +70,7 @@ contract CofferHandlerExt is Test {
     // Epoch ledger: every wei entering/leaving the contract balance within the current default epoch,
     // attributed by cause and zeroed at each flip to true.
     // Inflows: receive() tops, consensus arrivals, exit-fee surpluses (none: exact fee).
-    // Outflows: holder claim payouts and redeemBondsEarly net escrow spend.
+    // Outflows: holder claim payouts and validatorRedeemBonds net escrow spend.
     uint256 public ghostBalanceInflowsSinceDefault;
     uint256 public ghostBalanceOutflowsSinceDefault;
     // Exit-sweep model: the stake moves into in-transit at most once per default epoch; the latch
@@ -78,10 +78,10 @@ contract CofferHandlerExt is Test {
     bool public ghostExitSweepQueued;
 
     uint256 public callsBuyBond;
-    uint256 public callsRedeemBondOrDefault;
-    uint256 public callsRedeemBondInDefault;
+    uint256 public callsHolderRedeemBondOrDefault;
+    uint256 public callsHolderRedeemBondInDefault;
     uint256 public callsSimulateEthArrival;
-    uint256 public callsRedeemBondsEarly;
+    uint256 public callsValidatorRedeemBonds;
     uint256 public callsValidatorWithdrawFromExecution;
     uint256 public callsValidatorWithdrawFromConsensus;
     uint256 public callsValidatorAddFundsToConsensus;
@@ -238,10 +238,10 @@ contract CofferHandlerExt is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // HANDLER: redeemBondOrDefault (serving-state: full payout or atomic default)
+    // HANDLER: holderRedeemBondOrDefault (serving-state: full payout or atomic default)
     // ══════════════════════════════════════════════════════════════════════
-    function handlerRedeemBondOrDefault(uint256 idSeed) external {
-        ++callsRedeemBondOrDefault;
+    function handlerHolderRedeemBondOrDefault(uint256 idSeed) external {
+        ++callsHolderRedeemBondOrDefault;
 
         if (ghostValidatorDefaulted) return;
 
@@ -263,7 +263,7 @@ contract CofferHandlerExt is Test {
         bool coveredBeforeCall = address(coffer).balance >= amount;
 
         vm.prank(holder);
-        bool paidInFull = coffer.redeemBondOrDefault(bondId);
+        bool paidInFull = coffer.holderRedeemBondOrDefault(bondId);
 
         if (paidInFull) {
             ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
@@ -281,10 +281,10 @@ contract CofferHandlerExt is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // HANDLER: redeemBondInDefault (defaulted-state claim, no maturity check)
+    // HANDLER: holderRedeemBondInDefault (defaulted-state claim, no maturity check)
     // ══════════════════════════════════════════════════════════════════════
-    function handlerRedeemBondInDefault(uint256 idSeed) external {
-        ++callsRedeemBondInDefault;
+    function handlerHolderRedeemBondInDefault(uint256 idSeed) external {
+        ++callsHolderRedeemBondInDefault;
 
         if (!ghostValidatorDefaulted) return;
 
@@ -301,7 +301,7 @@ contract CofferHandlerExt is Test {
         if (address(coffer).balance == 0) return;
 
         vm.prank(holder);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         (uint128 amountAfter,,) = coffer.sHolderConditions(bondId);
         uint128 paidOut = amount - amountAfter;
@@ -344,10 +344,10 @@ contract CofferHandlerExt is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // HANDLER: redeemBondsEarly
+    // HANDLER: validatorRedeemBonds
     // ══════════════════════════════════════════════════════════════════════
-    function handlerRedeemBondsEarly(uint256 idSeed) external {
-        ++callsRedeemBondsEarly;
+    function handlerValidatorRedeemBonds(uint256 idSeed) external {
+        ++callsValidatorRedeemBonds;
         uint256 len = ghostActiveBondIds.length;
         if (len == 0) return;
 
@@ -365,7 +365,7 @@ contract CofferHandlerExt is Test {
 
         uint256 balanceBefore = address(coffer).balance;
         vm.prank(validator);
-        coffer.redeemBondsEarly{value: topUp}(bondIds);
+        coffer.validatorRedeemBonds{value: topUp}(bondIds);
 
         // Epoch ledger: the contract balance's net change is (topUp in, amount out to escrow). Track both sides
         // exactly via the balance delta so the outflow attribution stays wei-precise.
@@ -716,7 +716,7 @@ contract CofferHandlerExt is Test {
         }
     }
 
-    /// @dev Both default-flip sites (handlerDeclareDefault and handlerRedeemBondOrDefault's
+    /// @dev Both default-flip sites (handlerDeclareDefault and handlerHolderRedeemBondOrDefault's
     /// shortfall) record the epoch ghosts through this single function, so they cannot drift apart.
     /// The epoch ledger restarts from the balance snapshot taken here.
     function _recordDefaultFlip(bool coveredBeforeCall) private {

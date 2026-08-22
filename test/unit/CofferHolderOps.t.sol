@@ -330,10 +330,10 @@ contract CofferHolderOpsTest is BaseTest {
     }
 
     // ========================================
-    // redeemBondOrDefault: Happy
+    // holderRedeemBondOrDefault: Happy
     // ========================================
 
-    function test_RedeemBondOrDefault_PaysAmountWithInterest() public {
+    function test_HolderRedeemBondOrDefault_PaysAmountWithInterest() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -345,14 +345,14 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 balBefore = holder1.balance;
 
         vm.prank(holder1);
-        bool paidInFull = coffer.redeemBondOrDefault(bondId);
-        vm.snapshotGasLastCall("redeemBondOrDefault");
+        bool paidInFull = coffer.holderRedeemBondOrDefault(bondId);
+        vm.snapshotGasLastCall("holderRedeemBondOrDefault");
 
         assertTrue(paidInFull, "full payout must report paidInFull");
         assertEq(holder1.balance, balBefore + amtOwed);
     }
 
-    function test_RedeemBondOrDefault_EmitsBondRedeemed() public {
+    function test_HolderRedeemBondOrDefault_EmitsBondRedeemed() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -364,10 +364,10 @@ contract CofferHolderOpsTest is BaseTest {
         emit CofferEvents.BondRedeemed(holder1, bondId);
 
         vm.prank(holder1);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
     }
 
-    function test_RedeemBondOrDefault_FullRedeem_DoesNotRestoreIssueSize() public {
+    function test_HolderRedeemBondOrDefault_FullRedeem_DoesNotRestoreIssueSize() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -377,7 +377,7 @@ contract CofferHolderOpsTest is BaseTest {
         (uint128 issueSizeBefore,,,,,,,,,) = coffer.sValidatorConditions();
 
         vm.prank(holder1);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
 
         (uint128 issueSizeAfter,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
         assertEq(bonds, 0);
@@ -385,7 +385,7 @@ contract CofferHolderOpsTest is BaseTest {
         assertEq(issueSizeAfter, issueSizeBefore);
     }
 
-    function test_RedeemBondOrDefault_MultipleHoldersIndependently() public {
+    function test_HolderRedeemBondOrDefault_MultipleHoldersIndependently() public {
         uint32 version = _enableBonding(10 ether);
         uint256 id1 = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
         uint256 id2 = buyBond(cofferAddr, holder2, 1 ether, ONE_MONTH, version);
@@ -395,20 +395,20 @@ contract CofferHolderOpsTest is BaseTest {
 
         // holder1 redeems first
         vm.prank(holder1);
-        coffer.redeemBondOrDefault(id1);
+        coffer.holderRedeemBondOrDefault(id1);
 
         (,,,,,, uint32 bonds1,,,) = coffer.sValidatorConditions();
         assertEq(bonds1, 1);
 
         // holder2 redeems second
         vm.prank(holder2);
-        coffer.redeemBondOrDefault(id2);
+        coffer.holderRedeemBondOrDefault(id2);
 
         (,,,,,, uint32 bonds2,,,) = coffer.sValidatorConditions();
         assertEq(bonds2, 0);
     }
 
-    function test_RedeemBondOrDefault_AfterNftTransfer() public {
+    function test_HolderRedeemBondOrDefault_AfterNftTransfer() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -424,16 +424,16 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 balBefore = holder2.balance;
 
         vm.prank(holder2);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
 
         assertEq(holder2.balance, balBefore + amtOwed);
     }
 
     // ========================================
-    // redeemBondOrDefault: shortfall flips the default atomically
+    // holderRedeemBondOrDefault: shortfall flips the default atomically
     // ========================================
 
-    function test_RedeemBondOrDefault_Shortfall_DeclaresDefault_ReturnsFalse_NoEthMoved() public {
+    function test_HolderRedeemBondOrDefault_Shortfall_DeclaresDefault_ReturnsFalse_NoEthMoved() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -449,7 +449,7 @@ contract CofferHolderOpsTest is BaseTest {
         emit CofferEvents.ValidatorDefaulted(bondId, holder1);
 
         vm.prank(holder1);
-        bool paidInFull = coffer.redeemBondOrDefault(bondId);
+        bool paidInFull = coffer.holderRedeemBondOrDefault(bondId);
 
         assertFalse(paidInFull, "shortfall must report not paid in full");
         assertEq(holder1.balance, balBefore, "false path moves no ETH");
@@ -467,7 +467,7 @@ contract CofferHolderOpsTest is BaseTest {
         coffer.validatorWithdrawFromExecution(1);
     }
 
-    function test_RedeemBondOrDefault_ZeroBalance_DeclaresDefault() public {
+    function test_HolderRedeemBondOrDefault_ZeroBalance_DeclaresDefault() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -475,7 +475,7 @@ contract CofferHolderOpsTest is BaseTest {
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);
-        bool paidInFull = coffer.redeemBondOrDefault(bondId);
+        bool paidInFull = coffer.holderRedeemBondOrDefault(bondId);
 
         assertFalse(paidInFull, "zero balance must default, not pay");
 
@@ -484,10 +484,10 @@ contract CofferHolderOpsTest is BaseTest {
     }
 
     // ========================================
-    // redeemBondInDefault: partial and full claims while defaulted
+    // holderRedeemBondInDefault: partial and full claims while defaulted
     // ========================================
 
-    function test_RedeemBondInDefault_WithdrawsAvailableBalance() public {
+    function test_HolderRedeemBondInDefault_WithdrawsAvailableBalance() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -502,12 +502,12 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 balBefore = holder1.balance;
 
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         assertEq(holder1.balance, balBefore + partialAmount);
     }
 
-    function test_RedeemBondInDefault_ReducesBondMaturityValue() public {
+    function test_HolderRedeemBondInDefault_ReducesBondMaturityValue() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -519,13 +519,13 @@ contract CofferHolderOpsTest is BaseTest {
         coffer.declareDefault(bondId);
 
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         (uint128 remaining,,) = coffer.sHolderConditions(bondId);
         assertEq(remaining, amtOwed - partialAmount);
     }
 
-    function test_RedeemBondInDefault_DoesNotChangeIssueSize() public {
+    function test_HolderRedeemBondInDefault_DoesNotChangeIssueSize() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -538,14 +538,14 @@ contract CofferHolderOpsTest is BaseTest {
         coffer.declareDefault(bondId);
 
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
         // partial redeem does not change issueSize.
         assertEq(issueSizeAfter, issueSizeBefore);
     }
 
-    function test_RedeemBondInDefault_BondRemainsActive() public {
+    function test_HolderRedeemBondInDefault_BondRemainsActive() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -557,7 +557,7 @@ contract CofferHolderOpsTest is BaseTest {
         coffer.declareDefault(bondId);
 
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         // outstandingBonds unchanged
         (,,,,,, uint32 bonds,,,) = coffer.sValidatorConditions();
@@ -571,7 +571,7 @@ contract CofferHolderOpsTest is BaseTest {
         assertGt(remaining, 0);
     }
 
-    function test_RedeemBondInDefault_EmitsPartialEvent() public {
+    function test_HolderRedeemBondInDefault_EmitsPartialEvent() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -589,10 +589,10 @@ contract CofferHolderOpsTest is BaseTest {
         emit CofferBondNftEvents.MetadataUpdate(bondId);
 
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
     }
 
-    function test_RedeemBondInDefault_PartialThenFullRedeem() public {
+    function test_HolderRedeemBondInDefault_PartialThenFullRedeem() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -605,7 +605,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         // Partial redeem
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         uint128 remaining = amtOwed - partialAmount;
 
@@ -616,7 +616,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         // Full redeem on reduced bondMaturityValue
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         assertEq(holder1.balance, balBefore + remaining);
 
@@ -628,7 +628,7 @@ contract CofferHolderOpsTest is BaseTest {
         assertEq(finalAmount, 0);
     }
 
-    function test_RedeemBondInDefault_MultiplePartialRedeems() public {
+    function test_HolderRedeemBondInDefault_MultiplePartialRedeems() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -641,7 +641,7 @@ contract CofferHolderOpsTest is BaseTest {
         vm.deal(cofferAddr, first);
 
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         (uint128 remainingAfter1,,) = coffer.sHolderConditions(bondId);
         assertEq(remainingAfter1, amtOwed - first);
@@ -651,7 +651,7 @@ contract CofferHolderOpsTest is BaseTest {
         vm.deal(cofferAddr, second);
 
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         (uint128 remainingAfter2,,) = coffer.sHolderConditions(bondId);
         assertEq(remainingAfter2, amtOwed - first - second);
@@ -663,7 +663,7 @@ contract CofferHolderOpsTest is BaseTest {
         assertEq(issueSizeAfter, issueSizeBase);
     }
 
-    function test_RedeemBondInDefault_PartialThenRedeemBondsEarly() public {
+    function test_HolderRedeemBondInDefault_PartialThenValidatorRedeemBonds() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -676,7 +676,7 @@ contract CofferHolderOpsTest is BaseTest {
         coffer.declareDefault(bondId);
 
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         uint128 remaining = amtOwed - partialAmount;
 
@@ -687,7 +687,7 @@ contract CofferHolderOpsTest is BaseTest {
         ids[0] = bondId;
 
         vm.prank(validator);
-        coffer.redeemBondsEarly(ids);
+        coffer.validatorRedeemBonds(ids);
 
         // Bond fully removed
         (uint128 finalAmount,,) = coffer.sHolderConditions(bondId);
@@ -697,7 +697,7 @@ contract CofferHolderOpsTest is BaseTest {
         assertEq(bonds, 0);
     }
 
-    function test_RedeemBondInDefault_AfterNftTransfer() public {
+    function test_HolderRedeemBondInDefault_AfterNftTransfer() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -716,7 +716,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         // New owner does partial redeem
         vm.prank(holder2);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         assertEq(holder2.balance, balBefore + partialAmount);
 
@@ -726,7 +726,7 @@ contract CofferHolderOpsTest is BaseTest {
         assertEq(bondNft.ownerOf(bondId), holder2);
     }
 
-    function test_RedeemBondInDefault_ImmatureBondClaimsFullValue_Acceleration() public {
+    function test_HolderRedeemBondInDefault_ImmatureBondClaimsFullValue_Acceleration() public {
         uint32 version = _enableBonding(10 ether);
         uint256 b1 = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
         uint256 b2 = buyBond(cofferAddr, holder2, 1 ether, ONE_YEAR, version);
@@ -742,12 +742,12 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 balBefore = holder2.balance;
 
         vm.prank(holder2);
-        coffer.redeemBondInDefault(b2);
+        coffer.holderRedeemBondInDefault(b2);
 
         assertEq(holder2.balance, balBefore + amtOwed2, "immature bond claims full maturity value post-default");
     }
 
-    function test_RedeemBondInDefault_BalanceExceedsRemaining_PaysExactlyRemaining() public {
+    function test_HolderRedeemBondInDefault_BalanceExceedsRemaining_PaysExactlyRemaining() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -763,7 +763,7 @@ contract CofferHolderOpsTest is BaseTest {
         uint256 balBefore = holder1.balance;
 
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         assertEq(holder1.balance, balBefore + amtOwed, "pays exactly the remaining value");
         assertEq(cofferAddr.balance, 3 ether, "surplus stays in the contract");
@@ -775,10 +775,10 @@ contract CofferHolderOpsTest is BaseTest {
     }
 
     // ========================================
-    // redeemBondOrDefault / redeemBondInDefault: state gates and reverts
+    // holderRedeemBondOrDefault / holderRedeemBondInDefault: state gates and reverts
     // ========================================
 
-    function test_RedeemBondOrDefault_RevertsIfDefaulted() public {
+    function test_HolderRedeemBondOrDefault_RevertsIfDefaulted() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -787,10 +787,10 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.ValidatorInDefault.selector);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
     }
 
-    function test_RedeemBondInDefault_RevertsIfNotDefaulted() public {
+    function test_HolderRedeemBondInDefault_RevertsIfNotDefaulted() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -799,10 +799,10 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.ValidatorNotInDefault.selector);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
     }
 
-    function test_RedeemBondInDefault_RevertsIfZeroBalance() public {
+    function test_HolderRedeemBondInDefault_RevertsIfZeroBalance() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -811,16 +811,16 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.NothingToRedeem.selector);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
     }
 
-    function test_RedeemBondOrDefault_RevertsIfHolderDoesNotExist() public {
+    function test_HolderRedeemBondOrDefault_RevertsIfHolderDoesNotExist() public {
         vm.prank(holder1);
         vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
-        coffer.redeemBondOrDefault(999);
+        coffer.holderRedeemBondOrDefault(999);
     }
 
-    function test_RedeemBondInDefault_RevertsIfHolderDoesNotExist() public {
+    function test_HolderRedeemBondInDefault_RevertsIfHolderDoesNotExist() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -829,10 +829,10 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder2);
         vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
-        coffer.redeemBondInDefault(999);
+        coffer.holderRedeemBondInDefault(999);
     }
 
-    function test_RedeemBondInDefault_RevertsIfAlreadyWithdrawn() public {
+    function test_HolderRedeemBondInDefault_RevertsIfAlreadyWithdrawn() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -841,11 +841,11 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.deal(cofferAddr, 10 ether);
         vm.prank(holder1);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
     }
 
     function test_DirectNftMint_CreatesNoHolderConditions() public {
@@ -862,10 +862,10 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
     }
 
-    function test_RedeemBondOrDefault_RevertsIfAlreadyRedeemed() public {
+    function test_HolderRedeemBondOrDefault_RevertsIfAlreadyRedeemed() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -873,14 +873,14 @@ contract CofferHolderOpsTest is BaseTest {
         advanceTime(ONE_MONTH + 1);
 
         vm.prank(holder1);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
     }
 
-    function test_RedeemBondOrDefault_RevertsIfNotNftOwner() public {
+    function test_HolderRedeemBondOrDefault_RevertsIfNotNftOwner() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -889,10 +889,10 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder2);
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
     }
 
-    function test_RedeemBondOrDefault_RevertsIfNotMatured() public {
+    function test_HolderRedeemBondOrDefault_RevertsIfNotMatured() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -901,10 +901,10 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.HoldersTimeHasNotExpiredYet.selector);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
     }
 
-    function test_RedeemBondOrDefault_RevertsIfSendAmountFailed() public {
+    function test_HolderRedeemBondOrDefault_RevertsIfSendAmountFailed() public {
         // Use a RejectEther contract as the bond buyer
         RejectEther rejector = new RejectEther();
         vm.deal(address(rejector), 100 ether);
@@ -922,7 +922,7 @@ contract CofferHolderOpsTest is BaseTest {
 
         vm.prank(address(rejector));
         vm.expectRevert(Errors.FailedCall.selector);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
     }
 
     // ========================================
@@ -945,16 +945,16 @@ contract CofferHolderOpsTest is BaseTest {
         // holder1 can no longer withdraw
         vm.prank(holder1);
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
 
         // holder2 can withdraw
         uint256 balBefore = holder2.balance;
         vm.prank(holder2);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
         assertEq(holder2.balance, balBefore + amtOwed);
     }
 
-    function test_EdgeCase_ValidatorRedeemsEarly_HolderCannotWithdraw() public {
+    function test_EdgeCase_ValidatorRedeemsBond_HolderCannotWithdraw() public {
         uint32 version = _enableBonding(10 ether);
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, version);
 
@@ -965,13 +965,13 @@ contract CofferHolderOpsTest is BaseTest {
         vm.prank(validator);
         uint256[] memory ids = new uint256[](1);
         ids[0] = bondId;
-        coffer.redeemBondsEarly(ids);
+        coffer.validatorRedeemBonds(ids);
 
         advanceTime(ONE_MONTH + 1);
 
         // Holder tries to redeem: should fail because bond was already redeemed
         vm.prank(holder1);
         vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
     }
 }

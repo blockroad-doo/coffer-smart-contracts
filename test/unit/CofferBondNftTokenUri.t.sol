@@ -106,7 +106,7 @@ contract CofferBondNftTokenUriTest is BaseTest {
         vm.deal(cofferAddr, 2 ether);
 
         vm.prank(holder1);
-        testCoffer.redeemBondOrDefault(bondId);
+        testCoffer.holderRedeemBondOrDefault(bondId);
 
         vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, bondId));
         bondNft.tokenURI(bondId);

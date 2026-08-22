@@ -32,7 +32,7 @@ contract CofferHandler is Test {
     uint256 public ghostTotalBondsWithdrawnExecution;
 
     // ── Ghost state: default machine ───────────────────────────────────────
-    // Mirrors the on-chain flag both ways: set by handlerDeclareDefault or handlerRedeemBondOrDefault
+    // Mirrors the on-chain flag both ways: set by handlerDeclareDefault or handlerHolderRedeemBondOrDefault
     // on a successful declare, cleared by handlerClearDefault on a successful clear.
     bool public ghostValidatorDefaulted;
     // Set if a declare ever SUCCEEDS while the pre-call balance covered the bond. Handler-side
@@ -48,9 +48,9 @@ contract CofferHandler is Test {
 
     // ── Per-function call counters ─────────────────────────────────────────
     uint256 public callsBuyBond;
-    uint256 public callsRedeemBondOrDefault;
-    uint256 public callsRedeemBondInDefault;
-    uint256 public callsRedeemBondsEarly;
+    uint256 public callsHolderRedeemBondOrDefault;
+    uint256 public callsHolderRedeemBondInDefault;
+    uint256 public callsValidatorRedeemBonds;
     uint256 public callsValidatorWithdrawFromExecution;
     uint256 public callsValidatorAddFundsToConsensus;
     uint256 public callsChangeCofferActivity;
@@ -191,8 +191,8 @@ contract CofferHandler is Test {
         ++ghostTotalBondsBought;
     }
 
-    function handlerRedeemBondOrDefault(uint256 idSeed) external {
-        ++callsRedeemBondOrDefault;
+    function handlerHolderRedeemBondOrDefault(uint256 idSeed) external {
+        ++callsHolderRedeemBondOrDefault;
 
         // Serving-state entry point: pays in full or flips the default atomically
         if (ghostValidatorDefaulted) return;
@@ -217,7 +217,7 @@ contract CofferHandler is Test {
         bool coveredBeforeCall = address(coffer).balance >= amount;
 
         vm.prank(holder);
-        bool paidInFull = coffer.redeemBondOrDefault(bondId);
+        bool paidInFull = coffer.holderRedeemBondOrDefault(bondId);
 
         if (paidInFull) {
             // Full payout: remove from active
@@ -233,8 +233,8 @@ contract CofferHandler is Test {
         }
     }
 
-    function handlerRedeemBondInDefault(uint256 idSeed) external {
-        ++callsRedeemBondInDefault;
+    function handlerHolderRedeemBondInDefault(uint256 idSeed) external {
+        ++callsHolderRedeemBondInDefault;
 
         // Defaulted-state claim: pays min(contract balance, remaining), no maturity check (acceleration, R5)
         if (!ghostValidatorDefaulted) return;
@@ -255,7 +255,7 @@ contract CofferHandler is Test {
         if (balance == 0) return;
 
         vm.prank(holder);
-        coffer.redeemBondInDefault(bondId);
+        coffer.holderRedeemBondInDefault(bondId);
 
         // Re-read on-chain amount after the redeem to determine what happened
         (uint128 amountAfter,,) = coffer.sHolderConditions(bondId);
@@ -275,8 +275,8 @@ contract CofferHandler is Test {
         }
     }
 
-    function handlerRedeemBondsEarly(uint256 idSeed) external {
-        ++callsRedeemBondsEarly;
+    function handlerValidatorRedeemBonds(uint256 idSeed) external {
+        ++callsValidatorRedeemBonds;
 
         uint256 len = ghostActiveBondIds.length;
         if (len == 0) return;
@@ -302,7 +302,7 @@ contract CofferHandler is Test {
         bondIds[0] = bondId;
 
         vm.prank(validator);
-        coffer.redeemBondsEarly{value: topUp}(bondIds);
+        coffer.validatorRedeemBonds{value: topUp}(bondIds);
 
         // Swap-and-pop from ghostActiveBondIds
         ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
@@ -502,7 +502,7 @@ contract CofferHandler is Test {
         }
     }
 
-    /// @dev Both default-flip sites (handlerDeclareDefault and handlerRedeemBondOrDefault's
+    /// @dev Both default-flip sites (handlerDeclareDefault and handlerHolderRedeemBondOrDefault's
     /// shortfall) record the epoch ghosts through this single function, so they cannot drift apart.
     function _recordDefaultFlip(bool coveredBeforeCall) private {
         if (coveredBeforeCall) ghostDefaultViolation = true;

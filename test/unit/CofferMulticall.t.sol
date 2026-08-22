@@ -26,12 +26,12 @@ import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
  *    it proves the hand-encoded calldata is a well-formed `multicall(bytes[])` encoding whose subcalls
  *    really dispatch to `buyBond`, so the value-bearing failure is provably about msg.value rather than
  *    about malformed calldata.
- *  - Batched `redeemBondsEarly` is never looser than the same calls made sequentially, because the
+ *  - Batched `validatorRedeemBonds` is never looser than the same calls made sequentially, because the
  *    per-subcall gate `balance >= totalValue` is re-evaluated against post-state on every subcall.
- *  - Claim-then-default batch semantics: the single-bond [redeemBondOrDefault, redeemBondInDefault]
+ *  - Claim-then-default batch semantics: the single-bond [holderRedeemBondOrDefault, holderRedeemBondInDefault]
  *    batch unwinds atomically when the redeem pays in full or when the contract balance is zero, and
  *    pays the partial in the same tx when the redeem shortfalls. The two-bond
- *    [redeemBondOrDefault, declareDefault] shape is the intended atomic drain-then-default.
+ *    [holderRedeemBondOrDefault, declareDefault] shape is the intended atomic drain-then-default.
  */
 contract CofferMulticallTest is BaseTest {
     address public attacker = makeAddr("attacker");
@@ -56,17 +56,17 @@ contract CofferMulticallTest is BaseTest {
         (issueSize,,,,,, outstandingBonds,,,) = Coffer(payable(c)).sValidatorConditions();
     }
 
-    /// @dev Single-element bondId array for redeemBondsEarly.
+    /// @dev Single-element bondId array for validatorRedeemBonds.
     function _ids(uint256 a) internal pure returns (uint256[] memory ids) {
         ids = new uint256[](1);
         ids[0] = a;
     }
 
-    /// @dev Two-subcall batch: [redeemBondsEarly(first), redeemBondsEarly(second)].
+    /// @dev Two-subcall batch: [validatorRedeemBonds(first), validatorRedeemBonds(second)].
     function _redeemBatch(uint256 first, uint256 second) internal pure returns (bytes[] memory batch) {
         batch = new bytes[](2);
-        batch[0] = abi.encodeWithSelector(Coffer.redeemBondsEarly.selector, _ids(first));
-        batch[1] = abi.encodeWithSelector(Coffer.redeemBondsEarly.selector, _ids(second));
+        batch[0] = abi.encodeWithSelector(Coffer.validatorRedeemBonds.selector, _ids(first));
+        batch[1] = abi.encodeWithSelector(Coffer.validatorRedeemBonds.selector, _ids(second));
     }
 
     /// @dev Fresh default coffer with two honest bonds (holder1: 5 ETH, holder2: 6 ETH) and a
@@ -175,13 +175,13 @@ contract CofferMulticallTest is BaseTest {
     // BATCHED REDEEMBONDS EARLY IS NEVER LOOSER THAN SEQUENTIAL
     // ════════════════════════════════════════════════════════════
 
-    /// @notice A zero-value batch of two redeemBondsEarly behaves
+    /// @notice A zero-value batch of two validatorRedeemBonds behaves
     ///         IDENTICALLY to two sequential calls — the per-subcall balance gate
     ///         (`balance >= totalValue`) is re-evaluated post-state each time, so batching
     ///         extracts no extra value. (Note: attaching the shortfall as batch msg.value is
     ///         impossible — multicall is non-payable — so the only reachable batch is the
     ///         zero-value one; the coffer is topped up via receive().)
-    function test_BatchedRedeemBondsEarly_ZeroReserve_MatchesSequential() public {
+    function test_BatchedValidatorRedeemBonds_ZeroReserve_MatchesSequential() public {
         // Branch 1 (fresh coffer #1): one zero-value multicall batching both redeems.
         uint256 rBal;
         uint256 rClaim1;
@@ -190,14 +190,14 @@ contract CofferMulticallTest is BaseTest {
         uint32 rOutstanding;
         {
             (address c, uint256 id1, uint256 id2, uint256 bmv1, uint256 bmv2) = _setupTwoBonds(101, true);
-            uint256 preEscrow = address(bondsRedeemedEarly).balance;
+            uint256 preEscrow = address(redemptionEscrow).balance;
             bytes[] memory batch = _redeemBatch(id1, id2);
             vm.prank(validator);
             Coffer(payable(c)).multicall(batch);
             rBal = c.balance;
-            rClaim1 = bondsRedeemedEarly.sPendingClaims(holder1);
-            rClaim2 = bondsRedeemedEarly.sPendingClaims(holder2);
-            rEscrowDelta = address(bondsRedeemedEarly).balance - preEscrow;
+            rClaim1 = redemptionEscrow.sPendingClaims(holder1);
+            rClaim2 = redemptionEscrow.sPendingClaims(holder2);
+            rEscrowDelta = address(redemptionEscrow).balance - preEscrow;
             (, rOutstanding) = _issueSize(c);
             // Absolute expectations for the shared end state:
             assertEq(rClaim1, bmv1, "holder1 claim == bmv1");
@@ -209,18 +209,18 @@ contract CofferMulticallTest is BaseTest {
         // Branch 2 (fresh coffer #2, identical setup): two sequential calls.
         {
             (address c, uint256 id1, uint256 id2,,) = _setupTwoBonds(202, true);
-            uint256 preClaim1 = bondsRedeemedEarly.sPendingClaims(holder1);
-            uint256 preClaim2 = bondsRedeemedEarly.sPendingClaims(holder2);
-            uint256 preEscrow = address(bondsRedeemedEarly).balance;
+            uint256 preClaim1 = redemptionEscrow.sPendingClaims(holder1);
+            uint256 preClaim2 = redemptionEscrow.sPendingClaims(holder2);
+            uint256 preEscrow = address(redemptionEscrow).balance;
             vm.prank(validator);
-            Coffer(payable(c)).redeemBondsEarly(_ids(id1));
+            Coffer(payable(c)).validatorRedeemBonds(_ids(id1));
             vm.prank(validator);
-            Coffer(payable(c)).redeemBondsEarly(_ids(id2));
+            Coffer(payable(c)).validatorRedeemBonds(_ids(id2));
 
             assertEq(c.balance, rBal, "same coffer balance as batch");
-            assertEq(bondsRedeemedEarly.sPendingClaims(holder1) - preClaim1, rClaim1, "same claim holder1");
-            assertEq(bondsRedeemedEarly.sPendingClaims(holder2) - preClaim2, rClaim2, "same claim holder2");
-            assertEq(address(bondsRedeemedEarly).balance - preEscrow, rEscrowDelta, "same escrow inflow");
+            assertEq(redemptionEscrow.sPendingClaims(holder1) - preClaim1, rClaim1, "same claim holder1");
+            assertEq(redemptionEscrow.sPendingClaims(holder2) - preClaim2, rClaim2, "same claim holder2");
+            assertEq(address(redemptionEscrow).balance - preEscrow, rEscrowDelta, "same escrow inflow");
             (, uint32 seqOutstanding) = _issueSize(c);
             assertEq(seqOutstanding, rOutstanding, "same outstandingBonds");
         }
@@ -230,7 +230,7 @@ contract CofferMulticallTest is BaseTest {
     ///         subcall's balance gate — nothing is deposited. Sequentially, the first call
     ///         succeeds and only the second reverts. The batch is therefore strictly
     ///         all-or-nothing, never looser than sequential: no extra value extractable.
-    function test_BatchedRedeemBondsEarly_ZeroReserve_Underfunded_RevertsAtomically() public {
+    function test_BatchedValidatorRedeemBonds_ZeroReserve_Underfunded_RevertsAtomically() public {
         (address c, uint256 id1, uint256 id2, uint256 bmv1,) = _setupTwoBonds(303, false);
 
         bytes[] memory batch = _redeemBatch(id1, id2);
@@ -240,17 +240,17 @@ contract CofferMulticallTest is BaseTest {
         Coffer(payable(c)).multicall(batch);
 
         // Atomicity: first subcall's deposit was rolled back too.
-        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), 0, "no partial deposit");
-        assertEq(bondsRedeemedEarly.sPendingClaims(holder2), 0, "no partial deposit");
-        assertEq(address(bondsRedeemedEarly).balance, 0, "escrow untouched");
+        assertEq(redemptionEscrow.sPendingClaims(holder1), 0, "no partial deposit");
+        assertEq(redemptionEscrow.sPendingClaims(holder2), 0, "no partial deposit");
+        assertEq(address(redemptionEscrow).balance, 0, "escrow untouched");
         assertEq(c.balance, bmv1, "coffer untouched");
         (, uint32 outstanding) = _issueSize(c);
         assertEq(outstanding, 2, "both bonds still open");
 
         // Contrast: sequentially, the first call DOES succeed (batch is stricter, never looser).
         vm.prank(validator);
-        Coffer(payable(c)).redeemBondsEarly(_ids(id1));
-        assertEq(bondsRedeemedEarly.sPendingClaims(holder1), bmv1, "sequential first call succeeds");
+        Coffer(payable(c)).validatorRedeemBonds(_ids(id1));
+        assertEq(redemptionEscrow.sPendingClaims(holder1), bmv1, "sequential first call succeeds");
     }
 
     // ════════════════════════════════════════════════════════════
@@ -266,8 +266,8 @@ contract CofferMulticallTest is BaseTest {
         advanceTime(ONE_MONTH + 1);
 
         bytes[] memory batch = new bytes[](2);
-        batch[0] = abi.encodeWithSelector(Coffer.redeemBondOrDefault.selector, id1);
-        batch[1] = abi.encodeWithSelector(Coffer.redeemBondInDefault.selector, id1);
+        batch[0] = abi.encodeWithSelector(Coffer.holderRedeemBondOrDefault.selector, id1);
+        batch[1] = abi.encodeWithSelector(Coffer.holderRedeemBondInDefault.selector, id1);
 
         uint256 balBefore = holder1.balance;
         vm.prank(holder1);
@@ -293,8 +293,8 @@ contract CofferMulticallTest is BaseTest {
         uint256 balBefore = holder1.balance;
 
         bytes[] memory batch = new bytes[](2);
-        batch[0] = abi.encodeWithSelector(Coffer.redeemBondOrDefault.selector, id1);
-        batch[1] = abi.encodeWithSelector(Coffer.redeemBondInDefault.selector, id1);
+        batch[0] = abi.encodeWithSelector(Coffer.holderRedeemBondOrDefault.selector, id1);
+        batch[1] = abi.encodeWithSelector(Coffer.holderRedeemBondInDefault.selector, id1);
 
         vm.prank(holder1);
         Coffer(payable(c)).multicall(batch);
@@ -309,15 +309,15 @@ contract CofferMulticallTest is BaseTest {
     /// @notice Zero-balance batch nuance: with a zero contract balance the second subcall reverts
     ///         (NothingToRedeem), which unwinds the WHOLE batch — the default declaration
     ///         included. The correct flow for a zero balance is the standalone
-    ///         redeemBondOrDefault: the default sticks and the bond waits for the exit sweep.
+    ///         holderRedeemBondOrDefault: the default sticks and the bond waits for the exit sweep.
     function test_Multicall_SingleBond_ZeroBalanceBatch_RevertsAtomically_DefaultNotSet() public {
         (address c, uint256 id1,, uint256 bmv1,) = _setupTwoBonds(0xA404, false);
         advanceTime(ONE_MONTH + 1);
         vm.deal(c, 0); // drained to zero
 
         bytes[] memory batch = new bytes[](2);
-        batch[0] = abi.encodeWithSelector(Coffer.redeemBondOrDefault.selector, id1);
-        batch[1] = abi.encodeWithSelector(Coffer.redeemBondInDefault.selector, id1);
+        batch[0] = abi.encodeWithSelector(Coffer.holderRedeemBondOrDefault.selector, id1);
+        batch[1] = abi.encodeWithSelector(Coffer.holderRedeemBondInDefault.selector, id1);
 
         vm.prank(holder1);
         vm.expectRevert(Coffer.NothingToRedeem.selector);
@@ -331,7 +331,7 @@ contract CofferMulticallTest is BaseTest {
 
         // The standalone call is the correct flow: the default sticks, nothing is paid
         vm.prank(holder1);
-        bool paidInFull = Coffer(payable(c)).redeemBondOrDefault(id1);
+        bool paidInFull = Coffer(payable(c)).holderRedeemBondOrDefault(id1);
         assertFalse(paidInFull, "zero balance defaults, pays nothing");
         (,,,,,,,,, defaulted) = Coffer(payable(c)).sValidatorConditions();
         assertTrue(defaulted, "standalone shortfall declared the default");
@@ -345,7 +345,7 @@ contract CofferMulticallTest is BaseTest {
         advanceTime(ONE_MONTH + 1);
 
         bytes[] memory batch = new bytes[](2);
-        batch[0] = abi.encodeWithSelector(Coffer.redeemBondOrDefault.selector, id1);
+        batch[0] = abi.encodeWithSelector(Coffer.holderRedeemBondOrDefault.selector, id1);
         batch[1] = abi.encodeWithSelector(Coffer.declareDefault.selector, id2);
 
         vm.prank(holder1);

@@ -8,7 +8,7 @@ import {Coffer} from "../../src/Coffer.sol";
  * @title CofferReentrancyTest
  * @notice Reentrancy-safety tests for the bond lifecycle entry points.
  *
- * redeemBondOrDefault and redeemBondInDefault send value to the NFT owner at the end of both
+ * holderRedeemBondOrDefault and holderRedeemBondInDefault send value to the NFT owner at the end of both
  * branches. This is safe because state is mutated before every send. On the defaulted partial
  * branch the send drains the balance, so a reentrant second claim reverts. On the full branch the
  * bond is deleted before the send, so the reentrant claim hits the existence check.
@@ -22,7 +22,7 @@ contract CofferReentrancyTest is BaseTest {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // Partial branch (redeemBondInDefault): malicious NFT owner reenters
+    // Partial branch (holderRedeemBondInDefault): malicious NFT owner reenters
     // on receipt of the partial payout; balance is already 0, so the reentrant
     // claim reverts.
     // ════════════════════════════════════════════════════════════════════
@@ -43,7 +43,7 @@ contract CofferReentrancyTest is BaseTest {
         Coffer(payable(cofferAddr)).declareDefault(bondId);
         vm.deal(cofferAddr, bmv / 2);
 
-        attacker.attackRedeemBondInDefault(bondId);
+        attacker.attackHolderRedeemBondInDefault(bondId);
 
         // The reentrant second claim must NOT have succeeded
         assertFalse(attacker.reentrantSucceeded(), "reentrant second claim must fail");
@@ -58,7 +58,7 @@ contract CofferReentrancyTest is BaseTest {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // Full branch (redeemBondOrDefault): state deleted + burn before the
+    // Full branch (holderRedeemBondOrDefault): state deleted + burn before the
     // send; the reentrant claim hits the existence check and reverts.
     // ════════════════════════════════════════════════════════════════════
 
@@ -75,7 +75,7 @@ contract CofferReentrancyTest is BaseTest {
         // Fully fund the contract so the claim takes the full branch
         vm.deal(cofferAddr, bmv);
 
-        attacker.attackRedeemBondOrDefault(bondId);
+        attacker.attackHolderRedeemBondOrDefault(bondId);
 
         assertFalse(attacker.reentrantSucceeded(), "reentrant second claim must fail");
         assertEq(address(attacker).balance, bmv, "exactly one full payout");
@@ -143,7 +143,7 @@ contract CofferReentrancyTest is BaseTest {
     }
 }
 
-/// @dev Malicious NFT owner that reenters redeemBondOrDefault / redeemBondInDefault
+/// @dev Malicious NFT owner that reenters holderRedeemBondOrDefault / holderRedeemBondInDefault
 /// when it receives ETH. Records success instead of reverting so the outer call can
 /// complete and be asserted on.
 contract ReentrantClaimer {
@@ -156,24 +156,24 @@ contract ReentrantClaimer {
         coffer = _coffer;
     }
 
-    function attackRedeemBondOrDefault(uint256 bondId) external {
+    function attackHolderRedeemBondOrDefault(uint256 bondId) external {
         targetBondId = bondId;
         useOrDefaultPath = true;
-        Coffer(payable(coffer)).redeemBondOrDefault(bondId);
+        Coffer(payable(coffer)).holderRedeemBondOrDefault(bondId);
     }
 
-    function attackRedeemBondInDefault(uint256 bondId) external {
+    function attackHolderRedeemBondInDefault(uint256 bondId) external {
         targetBondId = bondId;
         useOrDefaultPath = false;
-        Coffer(payable(coffer)).redeemBondInDefault(bondId);
+        Coffer(payable(coffer)).holderRedeemBondInDefault(bondId);
     }
 
     receive() external payable {
         if (useOrDefaultPath) {
-            (bool ok,) = coffer.call(abi.encodeCall(Coffer.redeemBondOrDefault, (targetBondId)));
+            (bool ok,) = coffer.call(abi.encodeCall(Coffer.holderRedeemBondOrDefault, (targetBondId)));
             if (ok) reentrantSucceeded = true;
         } else {
-            (bool ok,) = coffer.call(abi.encodeCall(Coffer.redeemBondInDefault, (targetBondId)));
+            (bool ok,) = coffer.call(abi.encodeCall(Coffer.holderRedeemBondInDefault, (targetBondId)));
             if (ok) reentrantSucceeded = true;
         }
     }

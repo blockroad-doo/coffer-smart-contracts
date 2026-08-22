@@ -2,12 +2,12 @@
 pragma solidity 0.8.34;
 
 /**
- * @title ICofferBondsRedeemedEarly
+ * @title ICofferRedemptionEscrow
  * @author Blockroad Ltd
- * @notice Interface for the pull-based early bond redemption contract
+ * @notice Interface for the pull-based redemption escrow contract
  * @notice Coffer contracts use this interface to deposit ETH for bond holders
  */
-interface ICofferBondsRedeemedEarly {
+interface ICofferRedemptionEscrow {
     /// @notice Called by Coffer contracts to deposit ETH for bond holders
     /// @param _holders Array of holder addresses
     /// @param _amounts Array of amounts owed to each holder

@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {CofferFactory} from "../../src/CofferFactory.sol";
 import {CofferBondNft} from "../../src/CofferBondNft.sol";
-import {CofferBondsRedeemedEarly} from "../../src/CofferBondsRedeemedEarly.sol";
+import {CofferRedemptionEscrow} from "../../src/CofferRedemptionEscrow.sol";
 import {FeeCurve} from "../../src/FeeCurve.sol";
 import {EIP7002Mock, WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS, SYSTEM_ADDRESS} from "../mock/EIP7002Mock.sol";
 import {EIP7251Mock, CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS} from "../mock/EIP7251Mock.sol";
@@ -49,7 +49,7 @@ abstract contract BaseTest is Test {
 
     CofferFactory public factory;
     CofferBondNft public bondNft;
-    CofferBondsRedeemedEarly public bondsRedeemedEarly;
+    CofferRedemptionEscrow public redemptionEscrow;
     Coffer public coffer;
     FeeCurve public feeCurve;
     EIP7002Mock public withdrawalMock;
@@ -88,7 +88,7 @@ abstract contract BaseTest is Test {
 
         // Get the NFT address and other deployed addresses from factory
         bondNft = CofferBondNft(factory.I_COFFER_BOND_NFT_ADDRESS());
-        bondsRedeemedEarly = CofferBondsRedeemedEarly(factory.I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS());
+        redemptionEscrow = CofferRedemptionEscrow(factory.I_COFFER_REDEMPTION_ESCROW_ADDRESS());
         feeCurve = FeeCurve(factory.I_FEE_CURVE_ADDRESS());
 
         // Fund test accounts
@@ -394,7 +394,7 @@ interface CofferEvents {
         uint128 valueWithdrawn,
         uint128 remainingBondMaturityValue
     );
-    event ValidatorsBondRedeem(address indexed holderAddress, uint256 indexed bondId);
+    event BondRedeemedByValidator(address indexed holderAddress, uint256 indexed bondId);
     event ValidatorWithdrawFromExecution(uint128 indexed amount);
     event ValidatorWithdrawFromConsensus(uint128 indexed amount);
     event ValidatorFundsAdded(uint128 indexed amount);
@@ -416,7 +416,7 @@ interface CofferBondNftEvents {
     event MetadataUpdate(uint256 _tokenId);
 }
 
-interface CofferBondsRedeemedEarlyEvents {
+interface CofferRedemptionEscrowEvents {
     event ClaimDeposited(address indexed holder, uint128 indexed amount);
     event ClaimWithdrawn(address indexed claimant, address indexed to, uint256 indexed amount);
 }

@@ -55,11 +55,11 @@ contract DeployCofferFactory is Script {
         // solhint-disable-next-line gas-small-strings
         updateEnvVariable("HOODI_COFFER_IMPLEMENTATION_ADDRESS", addressToString(implAddress));
 
-        address bondsRedeemedEarlyAddress = cofferFactory.I_COFFER_BONDS_REDEEMED_EARLY_ADDRESS();
+        address redemptionEscrowAddress = cofferFactory.I_COFFER_REDEMPTION_ESCROW_ADDRESS();
         // solhint-disable-next-line gas-small-strings
-        console.log("CofferBondsRedeemedEarly deployed at:", bondsRedeemedEarlyAddress);
+        console.log("CofferRedemptionEscrow deployed at:", redemptionEscrowAddress);
         // solhint-disable-next-line gas-small-strings
-        updateEnvVariable("HOODI_COFFER_BONDS_REDEEMED_EARLY_ADDRESS", addressToString(bondsRedeemedEarlyAddress));
+        updateEnvVariable("HOODI_COFFER_REDEMPTION_ESCROW_ADDRESS", addressToString(redemptionEscrowAddress));
 
         address feeCurveAddress = cofferFactory.I_FEE_CURVE_ADDRESS();
         // solhint-disable-next-line gas-small-strings

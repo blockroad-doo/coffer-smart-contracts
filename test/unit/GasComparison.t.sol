@@ -94,7 +94,7 @@ contract GasComparisonTest is BaseTest {
         emit log_named_uint("receive", gasUsed);
     }
 
-    function test_GAS_redeemBondOrDefault() public {
+    function test_GAS_holderRedeemBondOrDefault() public {
         // Buy bond and mature it
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
         vm.warp(block.timestamp + ONE_MONTH + 1);
@@ -103,12 +103,12 @@ contract GasComparisonTest is BaseTest {
 
         vm.prank(holder1);
         uint256 gasBefore = gasleft();
-        Coffer(payable(cofferAddr)).redeemBondOrDefault(bondId);
+        Coffer(payable(cofferAddr)).holderRedeemBondOrDefault(bondId);
         uint256 gasUsed = gasBefore - gasleft();
-        emit log_named_uint("redeemBondOrDefault", gasUsed);
+        emit log_named_uint("holderRedeemBondOrDefault", gasUsed);
     }
 
-    function test_GAS_redeemBondInDefault() public {
+    function test_GAS_holderRedeemBondInDefault() public {
         // Buy bond, default it, then redeem from the contract balance
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
         vm.warp(block.timestamp + ONE_MONTH + 1);
@@ -117,12 +117,12 @@ contract GasComparisonTest is BaseTest {
 
         vm.prank(holder1);
         uint256 gasBefore = gasleft();
-        Coffer(payable(cofferAddr)).redeemBondInDefault(bondId);
+        Coffer(payable(cofferAddr)).holderRedeemBondInDefault(bondId);
         uint256 gasUsed = gasBefore - gasleft();
-        emit log_named_uint("redeemBondInDefault", gasUsed);
+        emit log_named_uint("holderRedeemBondInDefault", gasUsed);
     }
 
-    function test_GAS_redeemBondsEarly() public {
+    function test_GAS_validatorRedeemBonds() public {
         uint256 bondId = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
         vm.deal(cofferAddr, 10 ether);
 
@@ -131,9 +131,9 @@ contract GasComparisonTest is BaseTest {
 
         vm.prank(validator);
         uint256 gasBefore = gasleft();
-        Coffer(payable(cofferAddr)).redeemBondsEarly(ids);
+        Coffer(payable(cofferAddr)).validatorRedeemBonds(ids);
         uint256 gasUsed = gasBefore - gasleft();
-        emit log_named_uint("redeemBondsEarly", gasUsed);
+        emit log_named_uint("validatorRedeemBonds", gasUsed);
     }
 
     function test_GAS_validatorWithdrawFromExecution() public {

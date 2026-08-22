@@ -19,7 +19,7 @@ contract CofferInvariantTest is BaseTest {
         vm.prank(validator);
         coffer.changeIssueSize(100 ether);
 
-        // Fund validator for redeemBondsEarly top-ups + consensus deposits
+        // Fund validator for validatorRedeemBonds top-ups + consensus deposits
         vm.deal(validator, 10_000 ether);
 
         handler = new CofferHandler(coffer, feeCurve);
@@ -145,7 +145,7 @@ contract CofferInvariantTest is BaseTest {
     // ══════════════════════════════════════════════════════════════════════
 
     /// @dev Only our handler flips the default flag, in either direction. The ghost is set on a
-    /// handler-observed default declaration (declareDefault, or redeemBondOrDefault's shortfall) and
+    /// handler-observed default declaration (declareDefault, or holderRedeemBondOrDefault's shortfall) and
     /// cleared on a handler-observed clearDefault (which the
     /// handler only attempts at outstandingBonds == 0), so two-way equality proves the on-chain
     /// flag never rises without a declare and never clears without a settlement-gated clearDefault.
@@ -180,9 +180,9 @@ contract CofferInvariantTest is BaseTest {
     function invariant_callSummary() public view {
         console2.log("--- Call Summary ---");
         console2.log("buyBond:                    ", handler.callsBuyBond());
-        console2.log("redeemBondOrDefault: ", handler.callsRedeemBondOrDefault());
-        console2.log("redeemBondInDefault: ", handler.callsRedeemBondInDefault());
-        console2.log("redeemBondsEarly:           ", handler.callsRedeemBondsEarly());
+        console2.log("holderRedeemBondOrDefault:  ", handler.callsHolderRedeemBondOrDefault());
+        console2.log("holderRedeemBondInDefault:  ", handler.callsHolderRedeemBondInDefault());
+        console2.log("validatorRedeemBonds:       ", handler.callsValidatorRedeemBonds());
         console2.log("validatorWithdrawExecution:  ", handler.callsValidatorWithdrawFromExecution());
         console2.log("validatorAddFundsConsensus:  ", handler.callsValidatorAddFundsToConsensus());
         console2.log("changeCofferActivity:       ", handler.callsChangeCofferActivity());

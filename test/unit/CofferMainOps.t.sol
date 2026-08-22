@@ -36,7 +36,7 @@ contract CofferMainOpsTest is BaseTest {
 
     function test_Constructor_SetsImmutables() public view {
         assertEq(coffer.iCofferBondNftAddress(), address(bondNft));
-        assertEq(coffer.iCofferBondsRedeemedEarly(), address(bondsRedeemedEarly));
+        assertEq(coffer.iCofferRedemptionEscrowAddress(), address(redemptionEscrow));
         assertEq(coffer.iPublicKeyPart1(), validPublicKeyPart1);
         assertEq(coffer.iPublicKeyPart2(), validPublicKeyPart2);
     }
@@ -274,7 +274,7 @@ contract CofferMainOpsTest is BaseTest {
 
         vm.prank(holder2); // not the NFT owner
         vm.expectRevert(Coffer.CallerIsNotHolder.selector);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
     }
 
     function test_HolderIsCaller_SucceedsAfterNftTransfer() public {
@@ -293,7 +293,7 @@ contract CofferMainOpsTest is BaseTest {
         // holder2 can now redeem
         uint256 balBefore = holder2.balance;
         vm.prank(holder2);
-        coffer.redeemBondOrDefault(bondId);
+        coffer.holderRedeemBondOrDefault(bondId);
 
         assertGt(holder2.balance, balBefore);
     }

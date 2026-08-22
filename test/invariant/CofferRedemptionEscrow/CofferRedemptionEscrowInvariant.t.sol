@@ -3,16 +3,16 @@ pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
-import {CofferBondsRedeemedEarly} from "../../../src/CofferBondsRedeemedEarly.sol";
-import {CofferBondsRedeemedEarlyHandler} from "./CofferBondsRedeemedEarlyHandler.sol";
+import {CofferRedemptionEscrow} from "../../../src/CofferRedemptionEscrow.sol";
+import {CofferRedemptionEscrowHandler} from "./CofferRedemptionEscrowHandler.sol";
 
-contract CofferBondsRedeemedEarlyInvariantTest is Test {
-    CofferBondsRedeemedEarly public escrow;
-    CofferBondsRedeemedEarlyHandler public handler;
+contract CofferRedemptionEscrowInvariantTest is Test {
+    CofferRedemptionEscrow public escrow;
+    CofferRedemptionEscrowHandler public handler;
 
     function setUp() public virtual {
-        escrow = new CofferBondsRedeemedEarly();
-        handler = new CofferBondsRedeemedEarlyHandler(escrow);
+        escrow = new CofferRedemptionEscrow();
+        handler = new CofferRedemptionEscrowHandler(escrow);
         targetContract(address(handler));
     }
 

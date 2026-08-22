@@ -2,10 +2,10 @@
 pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
-import {CofferBondsRedeemedEarly} from "../../../src/CofferBondsRedeemedEarly.sol";
+import {CofferRedemptionEscrow} from "../../../src/CofferRedemptionEscrow.sol";
 
-contract CofferBondsRedeemedEarlyHandler is Test {
-    CofferBondsRedeemedEarly public escrow;
+contract CofferRedemptionEscrowHandler is Test {
+    CofferRedemptionEscrow public escrow;
     address[] public actors;
 
     // Ghost state
@@ -22,7 +22,7 @@ contract CofferBondsRedeemedEarlyHandler is Test {
     uint256 public callsClaimInvalid;
     uint256 public callsDepositInvalid;
 
-    constructor(CofferBondsRedeemedEarly _escrow) {
+    constructor(CofferRedemptionEscrow _escrow) {
         escrow = _escrow;
 
         actors.push(makeAddr("escrowActor0"));

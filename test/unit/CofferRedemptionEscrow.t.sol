@@ -2,13 +2,13 @@
 pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
-import {CofferBondsRedeemedEarly} from "../../src/CofferBondsRedeemedEarly.sol";
+import {CofferRedemptionEscrow} from "../../src/CofferRedemptionEscrow.sol";
 
 /// @dev Contract that rejects all ETH transfers
 contract RejectEtherClaim {
-    CofferBondsRedeemedEarly public claimContract;
+    CofferRedemptionEscrow public claimContract;
 
-    constructor(CofferBondsRedeemedEarly _claimContract) {
+    constructor(CofferRedemptionEscrow _claimContract) {
         claimContract = _claimContract;
     }
 
@@ -23,11 +23,11 @@ contract RejectEtherClaim {
 
 /// @dev Contract that reenters claim() on receive
 contract ReentrancyAttacker {
-    CofferBondsRedeemedEarly public claimContract;
+    CofferRedemptionEscrow public claimContract;
     address payable public target;
     uint256 public attackCount;
 
-    constructor(CofferBondsRedeemedEarly _claimContract) {
+    constructor(CofferRedemptionEscrow _claimContract) {
         claimContract = _claimContract;
         target = payable(address(this));
     }
@@ -44,8 +44,8 @@ contract ReentrancyAttacker {
     }
 }
 
-contract CofferBondsRedeemedEarlyTest is Test {
-    CofferBondsRedeemedEarly public claimContract;
+contract CofferRedemptionEscrowTest is Test {
+    CofferRedemptionEscrow public claimContract;
 
     address public depositor = makeAddr("depositor");
     address public holder1 = makeAddr("holder1");
@@ -56,7 +56,7 @@ contract CofferBondsRedeemedEarlyTest is Test {
     event ClaimWithdrawn(address indexed claimant, address indexed to, uint256 indexed amount);
 
     function setUp() public {
-        claimContract = new CofferBondsRedeemedEarly();
+        claimContract = new CofferRedemptionEscrow();
         vm.deal(depositor, 1000 ether);
     }
 
@@ -103,7 +103,7 @@ contract CofferBondsRedeemedEarlyTest is Test {
         amounts[0] = 1 ether;
 
         vm.prank(depositor);
-        vm.expectRevert(CofferBondsRedeemedEarly.DepositArrayLengthMismatch.selector);
+        vm.expectRevert(CofferRedemptionEscrow.DepositArrayLengthMismatch.selector);
         claimContract.deposit{value: 1 ether}(holders, amounts);
     }
 
@@ -114,7 +114,7 @@ contract CofferBondsRedeemedEarlyTest is Test {
         amounts[0] = 1 ether;
 
         vm.prank(depositor);
-        vm.expectRevert(CofferBondsRedeemedEarly.DepositMsgValueMismatch.selector);
+        vm.expectRevert(CofferRedemptionEscrow.DepositMsgValueMismatch.selector);
         claimContract.deposit{value: 2 ether}(holders, amounts);
     }
 
@@ -179,7 +179,7 @@ contract CofferBondsRedeemedEarlyTest is Test {
 
     function test_Claim_RevertsIfNoPendingClaim() public {
         vm.prank(holder1);
-        vm.expectRevert(CofferBondsRedeemedEarly.NoPendingClaim.selector);
+        vm.expectRevert(CofferRedemptionEscrow.NoPendingClaim.selector);
         claimContract.claim(payable(holder1));
     }
 
@@ -212,7 +212,7 @@ contract CofferBondsRedeemedEarlyTest is Test {
 
         // Reentrancy attempt should revert with NoPendingClaim on second call
         // because mapping is zeroed before transfer (CEI pattern)
-        vm.expectRevert(CofferBondsRedeemedEarly.NoPendingClaim.selector);
+        vm.expectRevert(CofferRedemptionEscrow.NoPendingClaim.selector);
         attacker.attack();
     }
 }
