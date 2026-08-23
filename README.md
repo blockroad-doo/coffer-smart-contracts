@@ -50,7 +50,7 @@ Coffer is a **permissionless, non-custodial peer-to-peer protocol** that allows 
 
 ## Whitepaper
 
-A detailed description of the protocol can be found in the [**Coffer Whitepaper**](https://github.com/tomoglava/coffer-whitepaper/blob/main/whitepaper-v0.1.pdf).
+A detailed description of the protocol can be found in the [**Coffer Whitepaper**](https://github.com/tomoglava/coffer-whitepaper/blob/main/whitepaper.pdf).
 
 ---
 
@@ -94,8 +94,6 @@ Each Coffer is deployed as a minimal proxy clone using Solady's `LibClone`. At c
 | CofferRedemptionEscrow address | `address` | 20 | Shared across all Coffers, never changes |
 | Validator BLS public key (part 1) | `bytes32` | 40 | Must be immutable for trust (see [Setup Steps](#setup-steps)) |
 | Validator BLS public key (part 2) | `bytes16` | 72 | Must be immutable for trust (see [Setup Steps](#setup-steps)) |
-
-These values are read via `extcodecopy` in assembly, costing ~6 gas versus 2,100 for a cold `SLOAD`. Because the clone's bytecode is deployed once and never changes, the CWIA args cannot be altered by the validator, the factory, or an upgrade.
 
 The shared `FeeCurve` address is **not** a CWIA arg. It is stored as an immutable on the `Coffer` implementation itself, set in the implementation's constructor when `CofferFactory` deploys it. Since every clone delegates to that single implementation, all clones read the same `FEE_CURVE` value, and like the CWIA args it cannot be changed after deployment.
 
@@ -147,15 +145,15 @@ CofferFactory uses CREATE2 deterministic deployment, so the Coffer address can b
 3. Make a deposit between `MIN_ACTIVATION_BALANCE` and `MAX_EFFECTIVE_BALANCE` (consensus-layer parameters, currently 32-2048 ETH) using `0x02` withdrawal credentials pointing to the predicted Coffer address
 4. Create Coffer contract through `CofferFactory.createCoffer(...)` with matching `_startingBalance` (deploys at the predicted address)
 
-#### Validators with 0x00 (or 0x01) withdrawal credentials
+#### Validators with 0x00 withdrawal credentials
 
-For validators already created with `0x00` credentials:
+For a validator that already exists with `0x00` credentials:
 
-1. Create signing keys with `0x00` credentials
-2. Make a deposit of `MIN_ACTIVATION_BALANCE` (the consensus-layer minimum, currently 32 ETH) using the signing keys from step 1
-3. Create Coffer contract through CofferFactory (pass the signing public key from step 1)
-4. Perform one-time `BLSToExecutionChange` to transform `0x00` → `0x01` with the Coffer contract as the withdrawal credential
-5. Call Coffer function `convertToCompounding()` to convert from `0x01` → `0x02`
+1. Create Coffer contract through CofferFactory (pass the validator's signing public key)
+2. Perform one-time `BLSToExecutionChange` to transform `0x00` → `0x01` with the Coffer contract as the withdrawal credential
+3. Call Coffer function `convertToCompounding()` to convert from `0x01` → `0x02`
+
+A validator whose 0x01 credentials already point somewhere else cannot be moved, because an execution-layer withdrawal address is final. Its path is a fresh deposit with 0x02 credentials pointing at the predicted Coffer address, as in the recommended flow.
 
 ### Evaluating a Coffer
 
@@ -168,13 +166,13 @@ Before buying, verify the conditions below on the execution and consensus layers
 EIP-7002 authenticates a withdrawal request against the 20-byte execution address embedded in the validator's credentials. Any mismatch between that address and the Coffer's address makes the validator's stake inaccessible to the Coffer. The check applies to every credential type:
 
 - `0x02` / `0x01`: the 20-byte address embedded in the credentials must equal the Coffer's address.
-- `0x00`: no withdrawal address is committed on-chain yet, so buying a bond requires trusting the eventual `BLSToExecutionChange` will target this Coffer (see *Validator credentials are not 0x02*).
+- `0x00`: no withdrawal address is committed on-chain yet, so buying a bond requires trusting the eventual `BLSToExecutionChange` will target this Coffer (see *Validators with 0x00 withdrawal credentials* under Setup Steps).
 
 The holder must verify this on the execution and consensus layers before any interaction, regardless of which credential type the validator used.
 
-**Validator credentials are not 0x02**
+**Validator credentials are 0x01, not 0x02**
 
-`convertToCompounding()` and EIP-7002 withdrawal requests require the validator to have 0x02 (compounding) withdrawal credentials. If the validator's credentials are still 0x00 or 0x01, these functions cannot execute. The bond cannot be satisfied through those functions until credentials are upgraded to 0x02. The holder must verify credential type on the consensus layer.
+Every consensus-layer request the Coffer sends needs execution-layer credentials, 0x01 or 0x02, whose address is the Coffer. A full exit works with either type, so `exitValidator()` in a default and `validatorWithdrawFromConsensus(0)` recover the stake of a 0x01 validator as well. Partial withdrawals need 0x02, and a 0x01 validator cannot hold more than 32 ETH on the consensus layer, because the beacon chain sweeps the excess to the Coffer on its own. `convertToCompounding()` is the step from 0x01 to 0x02, so it needs 0x01. The predeploys accept and charge for every request. One the consensus layer rejects is dropped silently, so a call that succeeded on the execution layer proves nothing about the credentials. The holder verifies the credential type and address on the consensus layer.
 
 #### Issuance Buffer
 
@@ -303,7 +301,7 @@ send(validator, principal - fee)
 
 The curve is **immutable**. The fee amounts and breakpoints live in code with no setter. The only mutable parameter is the fee **recipient**, changeable by the `FeeCurve` owner, the protocol admin. The fee for a given purchase date is fixed and publicly verifiable in advance.
 
-The fee depends only on the calendar **date**, not on the individual transaction. A `buyBond` signed on one UTC day but included on the next realizes that next day's fee, at most ~1.08 bps of interest higher (the steepest segment of the curve, days 0-90, and zero after the day-3650 plateau). Because the fee is taken from interest, never from principal, and is paid to the protocol rather than the validator, the difference is bounded, costs the holder no principal, and is not a value a validator or proposer can manipulate for gain. Holders who want exact terms across a day boundary should price against the next breakpoint's value.
+The fee depends only on the number of whole days elapsed since the `FeeCurve` was deployed, not on the individual transaction. Day boundaries fall at the deployment timestamp plus multiples of 24 hours, not at UTC midnight. A `buyBond` signed before a boundary but included after it realizes the next day's fee, at most ~1.08 bps of interest higher (the steepest segment of the curve, days 0-90, and zero after the day-3650 plateau). Because the fee is taken from interest, never from principal, and is paid to the protocol rather than the validator, the difference is bounded, costs the holder no principal, and is not a value a validator or proposer can manipulate for gain. Holders who want exact terms across a day boundary should price against the next breakpoint's value.
 
 ### Fee-Related Events
 
@@ -318,7 +316,7 @@ The fee depends only on the calendar **date**, not on the individual transaction
 
 ### Contract Invariants (enforced by code)
 
-- **issueSize conservation**: `issueSize + sum(bondMaturityValues) = totalIssuableCapacity`, where total issuable capacity is the sum of cumulative buffer-adjusted deposits and execution-layer receive() deposits, minus explicit issueSize decreases. The protocol fee does not affect this accounting. The fee is paid out of the validator's principal payout in `buyBond`, not from the bond backing, and each `bondMaturityValue` is already net of the fee
+- **issueSize accounting**: `issueSize` moves only through five transitions. `receive()` adds `msg.value`, `validatorAddFundsToConsensus` adds the buffer-adjusted deposit, `buyBond` subtracts the bond's maturity value, `validatorWithdrawFromExecution` subtracts the amount while bonds are outstanding, and `changeIssueSize` sets it outright. Settling a bond, by any path, never moves it, so capacity consumed by a bond comes back only through a new deposit. The protocol fee does not affect this accounting. The fee is paid out of the validator's principal payout in `buyBond`, not from the bond backing, and each `bondMaturityValue` is already net of the fee
 - **receive() issueSize top-up**: `receive()` increases `issueSize` by `msg.value`. Beacon chain withdrawals (EIP-4895) credit balance without code execution and do not trigger `receive()`, so all `receive()` invocations are execution-layer transfers with real ETH backing
 - **Parameter monotonicity**: While `outstandingBonds > 0`, `issueSize`, `interestRate`, and `maximumDuration` can only decrease, and `issueSizeBufferBps` can only increase
 - **Validator execution withdrawal bound**: While `outstandingBonds > 0`, the validator can withdraw from execution up to `issueSize` and never more than the contract balance. Withdrawals are unrestricted when `outstandingBonds == 0`, and frozen while the validator is defaulted

@@ -751,7 +751,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// griefer cannot slip an exit request in front of the owner's clearDefault transaction. The consensus
     /// layer silently drops an exit request while a pre-default partial withdrawal is still pending (a pending's
     /// existence blocks exits, not its size). No new pending can be created during the default epoch, so a retry
-    /// after the pending tail (~28 hours) lands. A dropped request burns nothing.
+    /// after the pending tail (~28 hours) lands. It also drops one while the validator is within
+    /// SHARD_COMMITTEE_PERIOD (256 epochs, ~27 hours) of activation. A dropped request costs only the predeploy
+    /// fee already paid, and a retry lands once the condition has passed.
     /// @notice msg.value must cover the EIP-7002 withdrawal fee read from WITHDRAWAL_CONTRACT via staticcall.
     /// Callers should pre-size msg.value off-chain as (fee + small_buffer). Any surplus (msg.value - fee) is NOT
     /// refunded and accrues to the contract balance, which backs the holders' claims while the default stands.
