@@ -372,3 +372,7 @@ The base case, the first bond, depends on the validator's initial configuration,
 **Built with love for the Ethereum ecosystem**
 
 </div>
+
+## Licence
+
+The code in this repository is licensed under the Business Source License 1.1, see `LICENSE`. Until 2030-09-01 it may be copied, modified, redistributed and used for anything except production use, and production use needs a licence from Blockroad ltd. On that date the code becomes available under the MIT licence. The deposit contract interface and its test mock carry the Ethereum deposit contract's own `CC0-1.0` header.
