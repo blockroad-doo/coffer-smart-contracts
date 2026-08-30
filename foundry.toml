@@ -10,6 +10,14 @@ no_match_coverage = "^test/|^script/|^integration/"
 no_match_path =  "test/{invariant,integration}/*" #comment this line if wan to test invariants with -> forge test --mp "test/invariant/*"
 remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/", "solady/=lib/solady/src/"]
 ignored_error_codes = [4591, 2424] #openzeppelin warnings cause too many warnings which have to be ignored
+dynamic_test_linking = false # forge 1.8 default; breaks our build-then-test flow (tests read missing out/src/*.json artifacts)
+
+[lint]
+ignore = ["test/**", "script/**"] # mirror slither.config.json filter_paths (not honored by forge 1.8.1, see workflow --skip)
+# first three mirror the slither.config.json triage; arbitrary-send-eth is the product (bond/fee payouts to
+# holder/validator chosen addresses, slither's own detector still covers src); missing-events-access-control
+# on the CofferBondNft setters would be an ABI change, a product decision, not a lint fix
+exclude_lints = ["reentrancy-events", "calls-loop", "missing-zero-check", "arbitrary-send-eth", "missing-events-access-control"]
 
 
 [fuzz]

@@ -393,6 +393,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         // Store coffer conditions using bondId as key
         sHolderConditions[bondId] = HolderConditions({
             duration: _duration,
+            // forge-lint: disable-next-line(unsafe-typecast) block.timestamp fits uint32 until year 2106
             startTimestamp: uint32(block.timestamp),
             // forge-lint: disable-next-line(unsafe-typecast) bondMaturityValue ≤ issueSize which is uint128
             bondMaturityValue: uint128(bondMaturityValue)
@@ -409,6 +410,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
             // forge-lint: disable-next-line(unsafe-typecast) bondMaturityValue ≤ issueSize which is uint128
             uint128(bondMaturityValue),
             _duration,
+            // forge-lint: disable-next-line(unsafe-typecast) msg.value cannot exceed ETH supply, below uint128 max
             uint128(msg.value),
             vc.interestRate
         );
@@ -449,6 +451,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
             HolderConditions storage holder = sHolderConditions[bondId];
             uint128 value = holder.bondMaturityValue;
 
+            // forge-lint: disable-next-line(require-revert-in-loop) intended all-or-nothing batch settlement
             require(value != 0, HolderDoesNotExistOrAlreadyWithdrawnValue());
 
             holders[i] = ICofferBondNft(iCofferBondNftAddress()).ownerOf(bondId);
@@ -464,6 +467,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         }
 
         ValidatorConditions storage vc = sValidatorConditions;
+        // forge-lint: disable-next-line(unsafe-typecast) block gas caps _bondIds.length far below uint32 max
         vc.outstandingBonds -= uint32(_bondIds.length);
 
         // solhint-disable-next-line gas-strict-inequalities

@@ -65,6 +65,9 @@ contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
         require(isRegisteredCoffer[msg.sender], OnlyRegisteredCoffer());
         uint256 bondId = ++sBondIdCounter;
         cofferOf[bondId] = msg.sender;
+        // intentional: _safeMint's onERC721Received callback would open a reentrancy window inside
+        // buyBond and let a non-receiver contract revert the purchase; the recipient is the buyer itself
+        // forge-lint: disable-next-line(unsafe-oz-erc721-mint)
         _mint(_holderAddress, bondId);
         emit CofferBondTokenMinted(bondId, _holderAddress);
         return bondId;
