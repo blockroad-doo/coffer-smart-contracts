@@ -17,7 +17,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          version: v1.8.1
           cache: false
 
       - name: Set up Node
@@ -43,11 +43,13 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          version: v1.8.1
           cache: false
 
+      # the skip globs scope the post-build lint to src (forge 1.8.1 ignores the [lint] ignore config);
+      # test and script sources still compile in the Test job
       - name: Build
-        run: forge build --sizes --deny warnings
+        run: forge build --sizes --deny warnings --skip "test/**" "script/**"
 
   slither:
     name: Slither
@@ -60,7 +62,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          version: v1.8.1
           cache: false
 
       - name: Build for Slither
@@ -84,7 +86,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          version: v1.8.1
           cache: false
 
       - name: Set weekly fuzz seed
@@ -94,7 +96,7 @@ jobs:
           )" >> $GITHUB_ENV
 
       - name: Build
-        run: forge build
+        run: forge build --no-lint
 
       - name: Run local tests
         run: >
