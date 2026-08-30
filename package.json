@@ -7,6 +7,6 @@
     "lint": "make lint"
   },
   "devDependencies": {
-    "solhint": "6.2.3"
+    "solhint": "6.2.4"
   }
 }
