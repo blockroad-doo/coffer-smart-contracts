@@ -50,7 +50,7 @@ Coffer is a **permissionless, non-custodial peer-to-peer protocol** that allows 
 
 ## Whitepaper
 
-A detailed description of the protocol can be found in the [**Coffer Whitepaper**](https://github.com/tomoglava/coffer-whitepaper/blob/main/whitepaper.pdf).
+A detailed description of the protocol can be found in the [**Coffer Whitepaper**](https://docs.coffer.bond/whitepaper).
 
 ---
 
@@ -365,6 +365,10 @@ If the condition holds at a given moment, every transition the protocol can perf
 
 The base case, the first bond, depends on the validator's initial configuration, which cannot be enforced on-chain (see [Evaluating a Coffer](#evaluating-a-coffer)). When no bonds are outstanding, the condition may not hold. The validator can withdraw freely and change parameters, which is harmless because no bond holders exist to be affected. If the condition does hold with no bonds outstanding, front-run protection guarantees it is preserved when the first bond is bought.
 
+## Licence
+
+The code in this repository is licensed under the Business Source License 1.1, see `LICENSE`. Until 2030-09-01 it may be copied, modified, redistributed and used for anything except production use, and production use needs a licence from Blockroad ltd. On that date the code becomes available under the MIT licence. The deposit contract interface and its test mock carry the Ethereum deposit contract's own `CC0-1.0` header.
+
 ---
 
 <div align="center">
@@ -372,7 +376,3 @@ The base case, the first bond, depends on the validator's initial configuration,
 **Built with love for the Ethereum ecosystem**
 
 </div>
-
-## Licence
-
-The code in this repository is licensed under the Business Source License 1.1, see `LICENSE`. Until 2030-09-01 it may be copied, modified, redistributed and used for anything except production use, and production use needs a licence from Blockroad ltd. On that date the code becomes available under the MIT licence. The deposit contract interface and its test mock carry the Ethereum deposit contract's own `CC0-1.0` header.
