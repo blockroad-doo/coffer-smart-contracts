@@ -13,7 +13,7 @@ ignored_error_codes = [4591, 2424] #openzeppelin warnings cause too many warning
 dynamic_test_linking = false # forge 1.8 default; breaks our build-then-test flow (tests read missing out/src/*.json artifacts)
 
 [lint]
-ignore = ["test/**", "script/**"] # mirror slither.config.json filter_paths (not honored by forge 1.8.1, see workflow --skip)
+ignore = ["test/**/*.sol", "script/**/*.sol"] # mirror slither.config.json filter_paths. The glob needs the file component, a bare "**" matches nothing
 # first three mirror the slither.config.json triage; arbitrary-send-eth is the product (bond/fee payouts to
 # holder/validator chosen addresses, slither's own detector still covers src); missing-events-access-control
 # on the CofferBondNft setters would be an ABI change, a product decision, not a lint fix
