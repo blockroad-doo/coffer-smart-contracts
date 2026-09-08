@@ -12,7 +12,7 @@ import {ICoffer} from "./interfaces/ICoffer.sol";
 
 /**
  * @title CofferBondNft
- * @author Blockroad Ltd
+ * @author Blockroad d.o.o.
  * @notice ERC-721 contract representing transferable ownership of Coffer Accepted Offer
  * @notice When a holder accepts Coffer offer, they receive an NFT representing a bond
  */

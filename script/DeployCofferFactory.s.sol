@@ -7,7 +7,7 @@ import {console} from "forge-std/console.sol";
 
 /**
  * @title DeployCofferFactory
- * @author Blockroad Ltd
+ * @author Blockroad d.o.o.
  * @notice Deployment script for CofferFactory contract
  * @dev CofferFactory constructor automatically deploys CofferBondNft internally
  * @dev Automatically updates .env file with deployed contract addresses

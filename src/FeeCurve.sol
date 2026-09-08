@@ -6,7 +6,7 @@ import {IFeeCurve} from "./interfaces/IFeeCurve.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 /// @title FeeCurve
-/// @author Blockroad Ltd
+/// @author Blockroad d.o.o.
 /// @notice Shared, protocol-wide fee schedule. The curve (fee amounts) is immutable -
 /// sampled from f(t) = 10% - 9%*e^(-k t) with k chosen so the curve is ~99% of the way to
 /// 10% by year 10. Only the fee RECIPIENT can be changed (by the protocol admin).

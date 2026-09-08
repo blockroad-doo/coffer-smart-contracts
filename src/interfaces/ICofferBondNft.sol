@@ -3,7 +3,7 @@ pragma solidity 0.8.34;
 
 /**
  * @title ICofferBondNft
- * @author Blockroad Ltd
+ * @author Blockroad d.o.o.
  * @notice Interface for factory-based NFT management in Coffer smart contract
  * @notice Coffer contracts use this interface to interact with the shared NFT contract
  */

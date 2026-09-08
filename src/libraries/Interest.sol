@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 /// @title Interest
-/// @author Blockroad Ltd
+/// @author Blockroad d.o.o.
 /// @notice Library for calculating simple interest on bond values
 library Interest {
     uint256 private constant MAX_RATE = 1e8; // 1e8 = 100%

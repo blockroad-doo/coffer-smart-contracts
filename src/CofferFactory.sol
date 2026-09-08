@@ -11,7 +11,7 @@ import {LibClone} from "solady/utils/LibClone.sol";
  * @title CofferFactory
  * @notice Factory contract for creating validator offers aka Coffers
  * @notice Deploys shared NFT contract CofferBondNft
- * @author Blockroad Ltd
+ * @author Blockroad d.o.o.
  * @dev This contract manages the deployment of individual Coffer
  * contracts and shared NFT management
  */

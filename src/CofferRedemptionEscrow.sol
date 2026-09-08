@@ -6,7 +6,7 @@ import {ICofferRedemptionEscrow} from "./interfaces/ICofferRedemptionEscrow.sol"
 
 /**
  * @title CofferRedemptionEscrow
- * @author Blockroad Ltd
+ * @author Blockroad d.o.o.
  * @notice Simple pull-based claim contract for bonds the validator redeems
  * @notice When a validator redeems bonds, Coffer deposits the maturity values here
  * @notice Holders claim their funds individually via claim()

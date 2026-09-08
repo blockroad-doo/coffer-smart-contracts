@@ -3,7 +3,7 @@ pragma solidity 0.8.34;
 
 /**
  * @title ICofferRedemptionEscrow
- * @author Blockroad Ltd
+ * @author Blockroad d.o.o.
  * @notice Interface for the pull-based redemption escrow contract
  * @notice Coffer contracts use this interface to deposit ETH for bond holders
  */

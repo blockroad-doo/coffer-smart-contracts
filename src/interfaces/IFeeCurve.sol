@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 /**
  * @title IFeeCurve
- * @author Blockroad Ltd
+ * @author Blockroad d.o.o.
  * @notice Interface for the shared protocol fee curve contract
  */
 interface IFeeCurve {

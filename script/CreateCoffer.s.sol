@@ -8,7 +8,7 @@ import {Vm} from "forge-std/Vm.sol";
 
 /**
  * @title CreateCoffer
- * @author Blockroad Ltd
+ * @author Blockroad d.o.o.
  * @notice Script to call createCoffer on existing CofferFactory using .env parameters
  * @dev Reads validator offer parameters from .env, creates a Coffer, and saves the address back to .env
  *
