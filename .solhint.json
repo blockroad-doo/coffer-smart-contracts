@@ -6,6 +6,7 @@
     "import-path-check": "off",
     "max-line-length": ["warn", 120],
     "no-inline-assembly": "off",
-    "not-rely-on-time": "off"
+    "not-rely-on-time": "off",
+    "no-console": "off"
   }
 }
