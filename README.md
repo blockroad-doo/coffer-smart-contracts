@@ -196,6 +196,8 @@ The moment any single matured bond cannot be paid in full from the contract bala
 
 `minimumDuration` is the validator's guaranteed reaction time. `buyBond` forwards the principal to the validator's wallet, so a fresh bond adds a liability with no backing in the contract, and the shortest bond a validator sells is the shortest notice they can get to fund it. The protocol sets no floor on this parameter. The validator chooses it and the validator bears the risk, so it should sit well above the validator's own funding latency.
 
+A default accelerates every outstanding bond to its full maturity value, including a bond bought in the block of the declaration, so unsold `issueSize` at that moment is capacity a stranger can buy and claim at once. A validator that is not selling lowers `issueSize` to the issued amount or sets `isActive` to false, and funds each maturity before it lands.
+
 #### Default Economics
 
 While the default stands, bond sales and every validator extraction path are frozen, `validatorRedeemBonds` stays open as the settlement path, and every bond is claimable at its full maturity value. The default clears only through `clearDefault()`, which the validator can call only when no bonds are outstanding, that is, once every holder has received the full maturity value of every bond.
@@ -314,7 +316,7 @@ The fee depends only on the number of whole days elapsed since the `FeeCurve` wa
 
 ## Invariants and Solvency
 
-### Contract Invariants (enforced by code)
+### Contract Invariants
 
 - **issueSize accounting**: `issueSize` moves only through five transitions. `receive()` adds `msg.value`, `validatorAddFundsToConsensus` adds the buffer-adjusted deposit, `buyBond` subtracts the bond's maturity value, `validatorWithdrawFromExecution` subtracts the amount while bonds are outstanding, and `changeIssueSize` sets it outright. Settling a bond, by any path, never moves it, so capacity consumed by a bond comes back only through a new deposit. The protocol fee does not affect this accounting. The fee is paid out of the validator's principal payout in `buyBond`, not from the bond backing, and each `bondMaturityValue` is already net of the fee
 - **receive() issueSize top-up**: `receive()` increases `issueSize` by `msg.value`. Beacon chain withdrawals (EIP-4895) credit balance without code execution and do not trigger `receive()`, so all `receive()` invocations are execution-layer transfers with real ETH backing
