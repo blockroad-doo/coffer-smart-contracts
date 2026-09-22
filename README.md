@@ -196,7 +196,7 @@ The moment any single matured bond cannot be paid in full from the contract bala
 
 `minimumDuration` is the validator's guaranteed reaction time. `buyBond` forwards the principal to the validator's wallet, so a fresh bond adds a liability with no backing in the contract, and the shortest bond a validator sells is the shortest notice they can get to fund it. The protocol sets no floor on this parameter. The validator chooses it and the validator bears the risk, so it should sit well above the validator's own funding latency.
 
-A default accelerates every outstanding bond to its full maturity value, including a bond bought in the block of the declaration, so unsold `issueSize` at that moment is capacity a stranger can buy and claim at once. A validator that is not selling lowers `issueSize` to the issued amount or sets `isActive` to false, and funds each maturity before it lands.
+A default accelerates every outstanding bond to its full maturity value, including a bond bought in the block of the declaration, so unsold `issueSize` at that moment is capacity a stranger can buy and claim at once. A validator that is not selling lowers `issueSize` to zero or sets `isActive` to false, and funds each maturity before it lands.
 
 #### Default Economics
 
