@@ -15,6 +15,8 @@ contract CofferFactoryHandler is Test {
     // Ghost state
     address[] public ghostDeployedCoffers;
     uint256 public ghostDeploymentCount;
+    // Set when createCoffer returns an address other than the prediction (gap table defect 9)
+    bool public ghostFactoryViolation;
 
     constructor(CofferFactory _factory) {
         factory = _factory;
@@ -62,8 +64,15 @@ contract CofferFactoryHandler is Test {
         // Use predictCofferAddress and try/catch for duplicate salt reverts
         address predicted = factory.predictCofferAddress(actor, pk1, pk2);
         vm.prank(actor);
-        try factory.createCoffer(pk1, pk2, rate, minDur, maxDur, minAmount, issueSizeBufferBps, startingBalance) {
-            ghostDeployedCoffers.push(predicted);
+        try factory.createCoffer(
+            pk1, pk2, rate, minDur, maxDur, minAmount, issueSizeBufferBps, startingBalance
+        ) returns (
+            address clone
+        ) {
+            if (clone != predicted) {
+                ghostFactoryViolation = true;
+            }
+            ghostDeployedCoffers.push(clone);
             ++ghostDeploymentCount;
         } catch {
             // Duplicate (actor, pk1, pk2): skip

@@ -15,6 +15,8 @@ contract CofferRedemptionEscrowHandler is Test {
     uint256 public ghostTotalClaimed;
     address[] public ghostClaimants;
     mapping(address => bool) public ghostHasActiveClaim;
+    // Set when a claim pays other than the pending amount, or moves anything of the payee's own claim
+    bool public ghostClaimViolation;
 
     // Call counters
     uint256 public callsDeposit;
@@ -47,7 +49,8 @@ contract CofferRedemptionEscrowHandler is Test {
         uint256 total = 0;
 
         for (uint256 i = 0; i < holderCount; ++i) {
-            holders[i] = actors[(actorSeed % actors.length + i) % actors.length];
+            // Independent draws, so one holder can appear twice in a batch (gap row G-04)
+            holders[i] = actors[uint256(keccak256(abi.encode(actorSeed, i))) % actors.length];
             amounts[i] = uint128(bound(uint256(keccak256(abi.encode(amountSeed, i))), 1, 10 ether));
             total += amounts[i];
         }
@@ -69,7 +72,7 @@ contract CofferRedemptionEscrowHandler is Test {
         ghostTotalDeposited += total;
     }
 
-    function handlerClaim(uint256 claimantSeed) external {
+    function handlerClaim(uint256 claimantSeed, uint256 toSeed) external {
         ++callsClaim;
 
         uint256 len = ghostClaimants.length;
@@ -80,8 +83,23 @@ contract CofferRedemptionEscrowHandler is Test {
 
         uint256 amount = ghostPendingClaims[claimant];
 
+        // Half the calls redirect to another actor, the path the _to parameter exists for (gap row G-04)
+        address to = toSeed % 2 == 0 ? claimant : actors[(toSeed / 2) % actors.length];
+        uint256 toBefore = to.balance;
+        uint256 claimantBefore = claimant.balance;
+        uint256 toPendingBefore = escrow.sPendingClaims(to);
+        uint256 escrowBefore = address(escrow).balance;
+
         vm.prank(claimant);
-        escrow.claim(payable(claimant));
+        escrow.claim(payable(to));
+
+        if (to.balance != toBefore + amount) ghostClaimViolation = true;
+        if (to != claimant) {
+            if (claimant.balance != claimantBefore) ghostClaimViolation = true;
+            if (escrow.sPendingClaims(to) != toPendingBefore) ghostClaimViolation = true;
+        }
+        if (escrow.sPendingClaims(claimant) != 0) ghostClaimViolation = true;
+        if (address(escrow).balance != escrowBefore - amount) ghostClaimViolation = true;
 
         ghostPendingClaims[claimant] = 0;
         ghostHasActiveClaim[claimant] = false;

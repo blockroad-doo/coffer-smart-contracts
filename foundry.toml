@@ -10,7 +10,6 @@ no_match_coverage = "^test/|^script/|^integration/"
 no_match_path =  "test/{invariant,integration}/*" #comment this line if wan to test invariants with -> forge test --mp "test/invariant/*"
 remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/", "solady/=lib/solady/src/"]
 ignored_error_codes = [4591, 2424] #openzeppelin warnings cause too many warnings which have to be ignored
-dynamic_test_linking = false # forge 1.8 default; breaks our build-then-test flow (tests read missing out/src/*.json artifacts)
 
 [lint]
 ignore = ["test/**/*.sol", "script/**/*.sol"] # mirror slither.config.json filter_paths. The glob needs the file component, a bare "**" matches nothing
@@ -33,13 +32,6 @@ runs = 512
 depth = 64
 fail_on_revert = true
 
-[rpc_endpoints]
-#mainnet = "${MAINNET_RPC_URL}"
-#hoodi = "${HOODI_RPC_URL}"
-
 [profile.ci]
 no_match_path = "test/invariant/*"
-
-[profile.fv]
-model_checker = { contracts = { "src/Coffer.sol" = ["Coffer"], "src/CofferBondNft.sol" = ["CofferBondNft"], "src/CofferRedemptionEscrow.sol" = ["CofferRedemptionEscrow"], "src/CofferFactory.sol" = ["CofferFactory"], "src/FeeCurve.sol" = ["FeeCurve"], "src/libraries/Interest.sol" = ["Interest"] }, engine = "all", targets = ["assert", "underflow", "overflow", "divByZero", "balance", "popEmptyArray", "outOfBounds", "constantCondition"], show_unproved = true, timeout = 30000 }
 

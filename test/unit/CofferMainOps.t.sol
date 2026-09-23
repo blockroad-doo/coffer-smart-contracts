@@ -2,6 +2,7 @@
 pragma solidity 0.8.34;
 
 import {BaseTest} from "./BaseTest.sol";
+import {stdError} from "forge-std/Test.sol";
 import {Coffer} from "../../src/Coffer.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
@@ -147,6 +148,32 @@ contract CofferMainOpsTest is BaseTest {
 
         (uint128 issueSizeAfter,,,,,,,,,) = coffer.sValidatorConditions();
         assertEq(issueSizeAfter, issueSizeBefore + 1 ether);
+    }
+
+    /// @dev Gap row G-11: the issueSize credit is checked arithmetic, so at the uint128 ceiling a plain transfer
+    ///      reverts and so does a consensus top-up, the documented cure path closing. Only the validator's own
+    ///      changeIssueSize at zero bonds sets it up, and a lower value undoes it.
+    function test_Receive_IssueSizeAtUint128Max_TopUpPathsRevertUntilIssueSizeLowered() public {
+        vm.prank(validator);
+        coffer.changeIssueSize(type(uint128).max);
+
+        vm.prank(holder1);
+        (bool success,) = cofferAddr.call{value: 1}("");
+        assertFalse(success, "1 wei send must revert at the ceiling");
+        assertEq(cofferAddr.balance, 0, "nothing lands");
+        (uint128 issueSize,,,,,,,,,) = coffer.sValidatorConditions();
+        assertEq(issueSize, type(uint128).max, "issueSize unchanged");
+
+        // The credit overflows before the deposit contract is called
+        vm.prank(validator);
+        vm.expectRevert(stdError.arithmeticError);
+        coffer.validatorAddFundsToConsensus{value: 1 ether}(bytes32(0));
+
+        vm.prank(validator);
+        coffer.changeIssueSize(1 ether);
+        vm.prank(holder1);
+        (success,) = cofferAddr.call{value: 1}("");
+        assertTrue(success, "send lands once issueSize is lowered");
     }
 
     function test_Receive_ZeroValueNoIssueSizeChange() public {

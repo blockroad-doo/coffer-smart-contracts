@@ -35,7 +35,7 @@
   - [Immutability and Administration](#immutability-and-administration)
   - [Fee-Related Events](#fee-related-events)
 - [Invariants and Solvency](#invariants-and-solvency)
-  - [Contract Invariants](#contract-invariants-enforced-by-code)
+  - [Contract Invariants](#contract-invariants)
   - [Cross-Layer Solvency Condition](#cross-layer-solvency-condition)
     - [The base case and the buffer as a decline budget](#the-base-case-and-the-buffer-as-a-decline-budget)
     - [Preserved by every on-chain transition](#preserved-by-every-on-chain-transition)
@@ -295,7 +295,7 @@ FeeCurve.collectFee{value: fee}()              // fee pooled in FeeCurve, recipi
 send(validator, principal - fee)
 ```
 
-- `feeBps` is at most 990 (9.9% of interest), so net interest is always positive and `bondMaturityValue` is always greater than `principal`.
+- `feeBps` is at most 990 (9.9% of interest), so net interest is never negative and `bondMaturityValue` never drops below `principal` (a dust-sized bond can truncate the interest to zero).
 - `buyBond` reverts with `FeeExceedsPrincipal` only in extreme configurations where the computed fee would exceed the principal, such as a high interest rate combined with a long duration.
 - During `buyBond` the fee is deposited into the shared `FeeCurve`, where it pools for later claim by the recipient, and the principal minus the fee is forwarded to the validator. `issueSize` is reduced by the bond's net maturity value.
 

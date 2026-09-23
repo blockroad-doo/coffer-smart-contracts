@@ -85,6 +85,11 @@ contract CofferRedemptionEscrowInvariantTest is Test {
     }
 
     // 8. DEBUG HELPER
+    /// @dev Gap row G-04: a claim pays exactly the pending amount to _to, redirected or not
+    function invariant_ClaimPaysExactlyToRecipient() public view {
+        assertFalse(handler.ghostClaimViolation(), "claim must pay exactly the pending amount to _to");
+    }
+
     function invariant_callSummary() public view {
         console2.log("--- Call Summary ---");
         console2.log("deposit:        ", handler.callsDeposit());

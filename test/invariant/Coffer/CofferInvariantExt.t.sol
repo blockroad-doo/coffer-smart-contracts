@@ -107,6 +107,14 @@ contract CofferInvariantExtTest is BaseTest {
         assertLt(issueSizeBufferBps, 10000, "issueSizeBufferBps < BUFFER_DENOMINATOR");
     }
 
+    /// @dev Gap table defect 4: the ranges above are static. This holds the one-way rule the README states for
+    /// rate, maximum duration, buffer and issueSize while bonds are outstanding, in both directions: the setter
+    /// handlers record a loosening that landed, and handlerParameterLoosenInvalid records a loosening the contract
+    /// failed to refuse with its named error.
+    function invariant_parameterMonotonicityWhileBondsOutstanding() public view {
+        assertFalse(handler.ghostParamViolation(), "a protected parameter loosened while bonds were outstanding");
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // INVARIANT 6: CROSS-LAYER SOLVENCY
     // ghost issueSize + sum(bondMaturityValues) <= consensusBalance + balance
@@ -155,11 +163,26 @@ contract CofferInvariantExtTest is BaseTest {
     // CofferRedemptionEscrow.balance >= sum(sPendingClaims)
     // ══════════════════════════════════════════════════════════════════════
 
+    /// @dev Gap row G-04: the Ext suite deploys one coffer, so the shared escrow's balance is entirely this
+    /// coffer's. The owner set is the handler's holders plus the validator.
     function invariant_escrowSelfSolvency() public view {
-        // The escrow is 1:1 backed by design: deposit requires msg.value == sum(amounts)
-        // and claim zeroes the mapping before sending. So balance >= sum(claims) always.
-        // We verify the contract exists and has no cross-theft.
-        assertTrue(address(redemptionEscrow).code.length > 0, "escrow contract must exist");
+        uint256 sumPending = 0;
+        uint256 n = handler.getHoldersLength();
+        for (uint256 i = 0; i < n; i++) {
+            sumPending += redemptionEscrow.sPendingClaims(handler.holders(i));
+        }
+        sumPending += redemptionEscrow.sPendingClaims(validator);
+        assertEq(address(redemptionEscrow).balance, sumPending, "escrow balance must equal the sum of pending claims");
+        assertEq(
+            sumPending,
+            handler.ghostTotalEscrowedValue() - handler.ghostTotalEscrowClaimed(),
+            "sum of pending claims must equal escrowed minus claimed"
+        );
+    }
+
+    /// @dev Gap row G-04: batch credits per owner, the batch total, issueSize untouched, and claim payouts exact.
+    function invariant_escrowCreditsAndClaimsExact() public view {
+        assertFalse(handler.ghostEscrowViolation(), "batch redemption credits and escrow claims must be wei-exact");
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -244,6 +267,26 @@ contract CofferInvariantExtTest is BaseTest {
         assertGe(version, 2, "version must be >= 2 after setUp");
     }
 
+    /// @dev Gap row G-06: the anti-frontrun counter is a count of the six bumping operations.
+    function invariant_versionCountsBumps() public view {
+        (,,,,, uint32 version,,,,) = coffer.sValidatorConditions();
+        assertEq(
+            uint256(version),
+            uint256(handler.ghostVersionBase()) + handler.ghostVersionBumps(),
+            "version must equal its value at construction plus the number of bumping calls"
+        );
+    }
+
+    /// @dev Gap row G-06: the terms a buyer's version pins never move without a bump.
+    function invariant_termsBoundToVersion() public view {
+        (, uint32 interestRate, uint32 minimumDuration, uint32 maximumDuration,,,, uint16 issueSizeBufferBps,,) =
+            coffer.sValidatorConditions();
+        assertEq(interestRate, handler.ghostTermsRate(), "interestRate changed without a version bump");
+        assertEq(minimumDuration, handler.ghostTermsMinDur(), "minimumDuration changed without a version bump");
+        assertEq(maximumDuration, handler.ghostTermsMaxDur(), "maximumDuration changed without a version bump");
+        assertEq(issueSizeBufferBps, handler.ghostTermsBuffer(), "issueSizeBufferBps changed without a version bump");
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // INVARIANT 13: EVERY ACTIVE BOND HAS NON-ZERO ON-CHAIN AMOUNT
     // ══════════════════════════════════════════════════════════════════════
@@ -286,6 +329,66 @@ contract CofferInvariantExtTest is BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // INVARIANT 15b: BOND-NFT BIJECTION OVER EVERY ID EVER MINTED (gap row G-01)
+    // The active-list invariants above pop settled ids, so a settlement that skipped the delete or
+    // the burn stays invisible to them. These walk the handler's append-only list of every id.
+    // ══════════════════════════════════════════════════════════════════════
+
+    function invariant_bondNftBijectionAllIds() public {
+        uint256 live = 0;
+        uint256 len = handler.getAllBondIdsLength();
+        for (uint256 i = 0; i < len; i++) {
+            uint256 bondId = handler.getAllBondIdAt(i);
+            (uint128 amount, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(bondId);
+            bool nftLive;
+            try bondNft.ownerOf(bondId) returns (address owner) {
+                nftLive = owner != address(0);
+            } catch {
+                nftLive = false;
+            }
+            assertEq(amount > 0, nftLive, "record is live exactly when the NFT is live");
+            if (nftLive) {
+                assertEq(bondNft.cofferOf(bondId), address(coffer), "live NFT must map to this coffer");
+                ++live;
+            } else {
+                assertEq(bondNft.cofferOf(bondId), address(0), "settled id must have cofferOf cleared");
+                assertEq(duration, 0, "settled id must have an empty record: duration");
+                assertEq(startTimestamp, 0, "settled id must have an empty record: startTimestamp");
+            }
+        }
+        (,,,,,, uint32 outstandingBonds,,,) = coffer.sValidatorConditions();
+        assertEq(uint256(outstandingBonds), live, "outstandingBonds must equal the number of live records");
+    }
+
+    /// @dev The owner set is the handler's holders plus the validator: the Ext handler never transfers
+    /// NFTs and buyBond rejects the owner, the validator term keeps a future transfer handler covered.
+    function invariant_balanceOfSumMatchesOutstanding() public view {
+        uint256 sum = 0;
+        uint256 n = handler.getHoldersLength();
+        for (uint256 i = 0; i < n; i++) {
+            sum += bondNft.balanceOf(handler.holders(i));
+        }
+        sum += bondNft.balanceOf(validator);
+        (,,,,,, uint32 outstandingBonds,,,) = coffer.sValidatorConditions();
+        assertEq(sum, uint256(outstandingBonds), "sum of balanceOf over the owner set must equal outstandingBonds");
+    }
+
+    /// @dev Gap row G-02: over every id ever minted, the value promised at issuance is in exactly one of three
+    /// places, the live remainder, the holder's wallet, or the escrow credit. Active ids carry a non-zero
+    /// remainder, settled ids a zero one, the same equation covers both.
+    function invariant_promiseLedgerPerBond() public view {
+        uint256 len = handler.getAllBondIdsLength();
+        for (uint256 i = 0; i < len; i++) {
+            uint256 bondId = handler.getAllBondIdAt(i);
+            (uint128 remainder,,) = coffer.sHolderConditions(bondId);
+            uint256 issued = uint256(handler.ghostIssuedMaturityValue(bondId));
+            uint256 paid = uint256(handler.ghostPaidDirect(bondId)) + uint256(handler.ghostEscrowCredited(bondId));
+            assertLe(paid, issued, "a bond never pays out more than it promised");
+            assertEq(uint256(remainder) + paid, issued, "remainder + paid direct + escrowed must equal issued");
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
     // INVARIANT 16-18: DEFAULT STATE MACHINE (serve-or-default)
     // ══════════════════════════════════════════════════════════════════════
 
@@ -303,6 +406,13 @@ contract CofferInvariantExtTest is BaseTest {
     /// declare ever succeeded while the bond was covered.
     function invariant_coveredBondNeverDefaulted() public view {
         assertFalse(handler.ghostDefaultViolation(), "declareDefault must never succeed against a covered bond");
+    }
+
+    /// @dev The negative half of the predicate (gap table defect 2): a covered or unmatured bond, or a standing
+    /// default, refuses declareDefault with its named error, and an unmatured bond refuses the holder's redeem.
+    /// handlerDeclareDefault skips covered bonds, so this is the only path that asks the contract to refuse.
+    function invariant_defaultPredicateRefused() public view {
+        assertFalse(handler.ghostDeclareViolation(), "the contract must refuse every declaration outside the predicate");
     }
 
     /// @dev While a default epoch is open, the bond set only shrinks (buyBond is frozen, bonds
@@ -331,6 +441,25 @@ contract CofferInvariantExtTest is BaseTest {
                 - handler.ghostBalanceOutflowsSinceDefault(),
             "post-default contract balance must reconcile against the attributed ledger"
         );
+    }
+
+    /// @dev Gap row G-03: the balance is fully attributed over the whole run, in both states, never re-baselined.
+    function invariant_balanceLedgerWholeRun() public view {
+        assertEq(
+            address(coffer).balance,
+            handler.ghostBalanceBase() + handler.ghostBalanceInflows() - handler.ghostBalanceOutflows(),
+            "coffer balance must equal base + attributed inflows - attributed outflows"
+        );
+    }
+
+    /// @dev Gap row G-03: no third party lowers the balance and the declaring call moves nothing.
+    function invariant_permissionlessCallsNeverLowerBalance() public view {
+        assertFalse(handler.ghostBalanceViolation(), "a permissionless call lowered the balance or a declare moved it");
+    }
+
+    /// @dev Gap row G-11: receive() stays open at every state the model reaches (the uint128 ceiling is not one).
+    function invariant_receiveNeverRevertedInModel() public view {
+        assertFalse(handler.ghostTopUpReverted(), "a plain transfer to the coffer must never revert in the model");
     }
 
     /// @dev Shadow invariant: while a default epoch is open, the recovery estate only migrates toward the
@@ -362,6 +491,17 @@ contract CofferInvariantExtTest is BaseTest {
                 uint256(amount),
                 "ghost bondMaturityValue must match on-chain amount"
             );
+        }
+    }
+
+    /// @dev Gap row G-05: no setter, default, partial claim or transfer touches a bond's duration or startTimestamp.
+    function invariant_bondTermsFrozen() public view {
+        uint256 len = handler.getActiveBondIdsLength();
+        for (uint256 i = 0; i < len; i++) {
+            uint256 bondId = handler.getActiveBondIdAt(i);
+            (, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(bondId);
+            assertEq(duration, handler.ghostBondDuration(bondId), "duration must equal the value recorded at purchase");
+            assertEq(startTimestamp, handler.ghostBondStart(bondId), "startTimestamp must equal the value at purchase");
         }
     }
 
@@ -413,6 +553,9 @@ contract CofferInvariantExtTest is BaseTest {
         console2.log("declareDefault:             ", handler.callsDeclareDefault());
         console2.log("exitValidator:              ", handler.callsExitValidator());
         console2.log("clearDefault:               ", handler.callsClearDefault());
+        console2.log("escrowClaim:                ", handler.callsEscrowClaim());
+        console2.log("declareDefaultInvalid:      ", handler.callsDeclareDefaultInvalid());
+        console2.log("parameterLoosenInvalid:     ", handler.callsParameterLoosenInvalid());
         console2.log("--- Ghost Totals ---");
         console2.log("totalBought:                ", handler.ghostTotalBondsBought());
         console2.log("totalWithdrawnExecution:     ", handler.ghostTotalBondsWithdrawnExecution());

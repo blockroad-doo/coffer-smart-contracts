@@ -333,6 +333,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// balance and credited to issueSize, and any AML or sanctions filtering is performed off-chain. This is an
     /// inherent property of every ETH-accepting Ethereum address, including the validator's own 0x01 or 0x02
     /// withdrawal credential, and is not a Coffer-specific weakness.
+    /// @notice The issueSize credit is checked arithmetic, so a transfer that would carry issueSize past
+    /// type(uint128).max reverts, a state only an extreme changeIssueSize can set up and a lower one undoes.
     /// @dev Anyone can send ETH but only validator/holders benefit from it
     // solhint-disable-next-line no-complex-fallback, use-natspec
     receive() external payable {

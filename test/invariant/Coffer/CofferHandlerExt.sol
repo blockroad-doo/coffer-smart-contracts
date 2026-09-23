@@ -4,6 +4,7 @@ pragma solidity 0.8.34;
 import {Test, Vm} from "forge-std/Test.sol";
 import {Coffer} from "../../../src/Coffer.sol";
 import {FeeCurve} from "../../../src/FeeCurve.sol";
+import {CofferRedemptionEscrow} from "../../../src/CofferRedemptionEscrow.sol";
 import {Interest} from "../../../src/libraries/Interest.sol";
 
 contract CofferHandlerExt is Test {
@@ -28,8 +29,25 @@ contract CofferHandlerExt is Test {
         uint256 arrivalTime;
     }
 
+    // Snapshot of one validatorRedeemBonds batch, kept in memory to stay clear of stack limits.
+    struct RedeemBatch {
+        uint256[] bondIds;
+        uint128[] amounts;
+        uint256 total;
+        address[] owners;
+        uint256[] expectedCredit;
+        uint256[] pendingBefore;
+        uint256 ownerCount;
+        uint256 balanceBefore;
+        uint256 escrowBefore;
+        uint256 msgValue;
+        uint32 outstandingBefore;
+        uint128 issueSizeBefore;
+    }
+
     Coffer public coffer;
     FeeCurve public feeCurve;
+    CofferRedemptionEscrow public redemptionEscrow;
 
     address public validator;
     address[] public holders;
@@ -38,11 +56,31 @@ contract CofferHandlerExt is Test {
     uint128 public ghostConsensusBalance;
 
     uint256[] public ghostActiveBondIds;
+    // Append-only: every id this coffer ever minted, never popped, so the all-ids invariants visit settled ids too.
+    uint256[] public ghostAllBondIds;
     mapping(uint256 => bool) public ghostIsBondActive;
     mapping(uint256 => address) public ghostBondHolder;
     mapping(uint256 => uint128) public ghostBondMaturityValue;
     mapping(uint256 => uint128) public ghostPrincipal;
     mapping(uint256 => uint128) public ghostExecutionWithdrawn;
+    // Promise ledger (gap row G-02). Set or accumulated once and never deleted, so settled ids stay checkable:
+    // the value stored at issuance, the wei the two holder paths delivered (measured on the wallet), and the
+    // wei validatorRedeemBonds credited to the owner in the escrow (measured on sPendingClaims).
+    mapping(uint256 => uint128) public ghostIssuedMaturityValue;
+    mapping(uint256 => uint128) public ghostPaidDirect;
+    mapping(uint256 => uint128) public ghostEscrowCredited;
+    // Escrow ledger (gap row G-04): every wei validatorRedeemBonds forwarded to the escrow, and every wei claimed
+    // back from it.
+    uint256 public ghostTotalEscrowedValue;
+    uint256 public ghostTotalEscrowClaimed;
+    // Set when a batch credits an owner by other than the sum of that owner's remainders, moves other than the
+    // batch total, touches issueSize, or a claim pays other than the pending amount. Asserted false by
+    // invariant_escrowCreditsAndClaimsExact.
+    bool public ghostEscrowViolation;
+    // Terms frozen at purchase (gap row G-05): the duration as passed and the startTimestamp observed at the buy,
+    // never deleted.
+    mapping(uint256 => uint32) public ghostBondDuration;
+    mapping(uint256 => uint32) public ghostBondStart;
     PendingWithdrawal[] public ghostPendingWithdrawals;
 
     uint256 public ghostTotalBondsBought;
@@ -59,6 +97,14 @@ contract CofferHandlerExt is Test {
     // asserts would be masked under fail_on_revert = false, so violations are recorded here and
     // asserted by invariant_coveredBondNeverDefaulted.
     bool public ghostDefaultViolation;
+    // Set when a declaration or an early redeem lands where the predicate forbids it, or the revert carries an
+    // unexpected selector (the probe half of the default predicate, gap table defect 2). Asserted false by
+    // invariant_defaultPredicateRefused.
+    bool public ghostDeclareViolation;
+    // Set when a setter loosens a protected parameter while bonds are outstanding, or the contract accepts a
+    // loosening move it must refuse (gap table defect 4). Asserted false by
+    // invariant_parameterMonotonicityWhileBondsOutstanding.
+    bool public ghostParamViolation;
     // Epoch snapshots, re-baselined by handlerDeclareDefault at every flip to true. The post-default
     // invariants early-out while the flag is down, so between-epoch flows need no attribution.
     uint256 public ghostBondsAtDefault;
@@ -73,9 +119,32 @@ contract CofferHandlerExt is Test {
     // Outflows: holder claim payouts and validatorRedeemBonds net escrow spend.
     uint256 public ghostBalanceInflowsSinceDefault;
     uint256 public ghostBalanceOutflowsSinceDefault;
+    // Whole-run balance ledger (gap row G-03): the balance at construction plus every attributed inflow minus
+    // every attributed outflow, each booked as the amount the code intends, never re-baselined. Inflows: receive()
+    // tops, modeled consensus arrivals, validatorRedeemBonds msg.value, the predeploy surplus msg.value - fee (zero
+    // today). Outflows: holder payouts (the record delta), execution withdrawals, the total forwarded to the escrow.
+    uint256 public ghostBalanceBase;
+    uint256 public ghostBalanceInflows;
+    uint256 public ghostBalanceOutflows;
+    // Set when a permissionless call (receive, buyBond, declareDefault, exitValidator) lowered the balance or a
+    // call that transfers nothing moved it. Asserted false by invariant_permissionlessCallsNeverLowerBalance.
+    bool public ghostBalanceViolation;
+    // Set when a plain transfer to the coffer fails, the documented cure path closing (gap row G-11). The model
+    // never reaches the uint128 ceiling of issueSize, so the flag must stay false.
+    bool public ghostTopUpReverted;
     // Exit-sweep model: the stake moves into in-transit at most once per default epoch; the latch
     // resets when the default clears so a later epoch can sweep whatever stake the model has accrued since.
     bool public ghostExitSweepQueued;
+    // Version ledger (gap row G-06): version == base + bumps, one bump per successful call of the six bumping
+    // functions. The terms tuple is re-read only at a bump, so any drift without a bump fails
+    // invariant_termsBoundToVersion. minimumValueToAccept and isActive are excluded by design: their setters do
+    // not bump.
+    uint32 public ghostVersionBase;
+    uint256 public ghostVersionBumps;
+    uint32 public ghostTermsRate;
+    uint32 public ghostTermsMinDur;
+    uint32 public ghostTermsMaxDur;
+    uint16 public ghostTermsBuffer;
 
     uint256 public callsBuyBond;
     uint256 public callsHolderRedeemBondOrDefault;
@@ -97,11 +166,16 @@ contract CofferHandlerExt is Test {
     uint256 public callsDeclareDefault;
     uint256 public callsExitValidator;
     uint256 public callsClearDefault;
+    uint256 public callsEscrowClaim;
+    uint256 public callsDeclareDefaultInvalid;
+    uint256 public callsParameterLoosenInvalid;
 
     constructor(Coffer _coffer, FeeCurve _feeCurve) {
         coffer = _coffer;
         feeCurve = _feeCurve;
         validator = _coffer.owner();
+        redemptionEscrow = CofferRedemptionEscrow(_coffer.iCofferRedemptionEscrowAddress());
+        ghostBalanceBase = address(_coffer).balance;
 
         holders.push(makeAddr("extHolder0"));
         holders.push(makeAddr("extHolder1"));
@@ -114,6 +188,13 @@ contract CofferHandlerExt is Test {
 
         ghostIssueSize = _readVc().issueSize;
         ghostConsensusBalance = 0;
+
+        Vc memory v0 = _readVc();
+        ghostVersionBase = v0.version;
+        ghostTermsRate = v0.interestRate;
+        ghostTermsMinDur = v0.minimumDuration;
+        ghostTermsMaxDur = v0.maximumDuration;
+        ghostTermsBuffer = v0.issueSizeBufferBps;
     }
 
     // One-shot: setUp seeds the modeled consensus stake exactly once. Guarded because
@@ -218,19 +299,28 @@ contract CofferHandlerExt is Test {
         uint256 computedBondMaturityValue = amt + interest - fee;
         if (computedBondMaturityValue > vc.issueSize) return;
 
+        uint256 cofferBalanceBefore = address(coffer).balance;
         vm.recordLogs();
         vm.prank(holder);
         coffer.buyBond{value: amt}(dur, vc.version);
+        // The principal leaves in the same call, the fee too, so the coffer keeps nothing of msg.value
+        if (address(coffer).balance != cofferBalanceBefore) ghostBalanceViolation = true;
 
         uint256 bondId = _extractBondIdFromLogs();
 
         ghostActiveBondIds.push(bondId);
+        ghostAllBondIds.push(bondId);
         ghostIsBondActive[bondId] = true;
         ghostBondHolder[bondId] = holder;
         // casting to 'uint128' is safe because computedBondMaturityValue fits inside consensus limits
         // forge-lint: disable-next-line(unsafe-typecast)
         ghostBondMaturityValue[bondId] = uint128(computedBondMaturityValue);
+        ghostIssuedMaturityValue[bondId] = ghostBondMaturityValue[bondId];
         ghostPrincipal[bondId] = amt;
+        ghostBondDuration[bondId] = dur;
+        // casting to 'uint32' is safe because block.timestamp fits uint32 until 2106, the contract's own cast
+        // forge-lint: disable-next-line(unsafe-typecast)
+        ghostBondStart[bondId] = uint32(block.timestamp);
         ++ghostTotalBondsBought;
         // casting to 'uint128' is safe because computedBondMaturityValue fits inside consensus limits
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -261,11 +351,17 @@ contract CofferHandlerExt is Test {
         // If the shortfall path defaults although the bond was covered, record the
         // violation instead of asserting (asserts would be masked under fail_on_revert=false)
         bool coveredBeforeCall = address(coffer).balance >= amount;
+        uint256 holderBalanceBefore = holder.balance;
+        uint256 cofferBalanceBefore = address(coffer).balance;
 
         vm.prank(holder);
         bool paidInFull = coffer.holderRedeemBondOrDefault(bondId);
 
         if (paidInFull) {
+            // casting to 'uint128' is safe because a payout never exceeds the uint128 maturity value
+            // forge-lint: disable-next-line(unsafe-typecast)
+            ghostPaidDirect[bondId] += uint128(holder.balance - holderBalanceBefore);
+            ghostBalanceOutflows += amount;
             ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
             ghostActiveBondIds.pop();
             ghostIsBondActive[bondId] = false;
@@ -275,7 +371,8 @@ contract CofferHandlerExt is Test {
             delete ghostExecutionWithdrawn[bondId];
             ++ghostTotalBondsWithdrawnExecution;
         } else {
-            // Shortfall: the default was declared atomically in the same transaction.
+            // Shortfall: the default was declared atomically in the same transaction, nothing moved.
+            if (address(coffer).balance != cofferBalanceBefore) ghostBalanceViolation = true;
             _recordDefaultFlip(coveredBeforeCall);
         }
     }
@@ -299,6 +396,7 @@ contract CofferHandlerExt is Test {
         if (amount == 0) return;
         // The zero balance reverts (NothingToRedeem)
         if (address(coffer).balance == 0) return;
+        uint256 holderBalanceBefore = holder.balance;
 
         vm.prank(holder);
         coffer.holderRedeemBondInDefault(bondId);
@@ -306,6 +404,10 @@ contract CofferHandlerExt is Test {
         (uint128 amountAfter,,) = coffer.sHolderConditions(bondId);
         uint128 paidOut = amount - amountAfter;
         ghostBalanceOutflowsSinceDefault += paidOut;
+        ghostBalanceOutflows += paidOut;
+        // casting to 'uint128' is safe because a payout never exceeds the uint128 maturity value
+        // forge-lint: disable-next-line(unsafe-typecast)
+        ghostPaidDirect[bondId] += uint128(holder.balance - holderBalanceBefore);
 
         if (amountAfter == 0) {
             ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
@@ -336,6 +438,7 @@ contract CofferHandlerExt is Test {
             if (block.timestamp >= pw.arrivalTime) {
                 vm.deal(address(coffer), address(coffer).balance + pw.amount);
                 ghostTotalEthArrivedFromConsensus += pw.amount;
+                ghostBalanceInflows += pw.amount;
                 if (ghostValidatorDefaulted) ghostBalanceInflowsSinceDefault += pw.amount;
                 ghostPendingWithdrawals[idx] = ghostPendingWithdrawals[ghostPendingWithdrawals.length - 1];
                 ghostPendingWithdrawals.pop();
@@ -346,41 +449,137 @@ contract CofferHandlerExt is Test {
     // ══════════════════════════════════════════════════════════════════════
     // HANDLER: validatorRedeemBonds
     // ══════════════════════════════════════════════════════════════════════
-    function handlerValidatorRedeemBonds(uint256 idSeed) external {
+    /// @dev Settles 1 to 3 distinct active ids in one call, a shared owner allowed, with a bounded msg.value
+    ///      surplus above the shortfall (gap row G-04). Strict-safe: every id comes from the active list, so no
+    ///      record is zero and no id repeats, and msg.value covers the batch total.
+    function handlerValidatorRedeemBonds(uint256 idSeed, uint256 countSeed, uint256 surplusSeed) external {
         ++callsValidatorRedeemBonds;
-        uint256 len = ghostActiveBondIds.length;
-        if (len == 0) return;
+        if (ghostActiveBondIds.length == 0) return;
 
-        uint256 idx = idSeed % len;
-        uint256 bondId = ghostActiveBondIds[idx];
-
-        (uint128 amount,,) = coffer.sHolderConditions(bondId);
-        if (amount == 0) return;
-
-        uint256 topUp = amount > address(coffer).balance ? amount - address(coffer).balance : 0;
-        if (validator.balance < topUp) return;
-
-        uint256[] memory bondIds = new uint256[](1);
-        bondIds[0] = bondId;
-
-        uint256 balanceBefore = address(coffer).balance;
-        vm.prank(validator);
-        coffer.validatorRedeemBonds{value: topUp}(bondIds);
-
-        // Epoch ledger: the contract balance's net change is (topUp in, amount out to escrow). Track both sides
-        // exactly via the balance delta so the outflow attribution stays wei-precise.
-        if (ghostValidatorDefaulted) {
-            ghostBalanceInflowsSinceDefault += topUp;
-            ghostBalanceOutflowsSinceDefault += balanceBefore + topUp - address(coffer).balance;
+        RedeemBatch memory b = _pickRedeemBatch(idSeed, countSeed);
+        for (uint256 j = 0; j < b.amounts.length; j++) {
+            if (b.amounts[j] == 0) return;
         }
+        uint256 topUp = b.total > b.balanceBefore ? b.total - b.balanceBefore : 0;
+        b.msgValue = topUp + bound(surplusSeed, 0, 0.1 ether);
+        if (validator.balance < b.msgValue) return;
 
-        ghostActiveBondIds[idx] = ghostActiveBondIds[len - 1];
-        ghostActiveBondIds.pop();
-        ghostIsBondActive[bondId] = false;
-        delete ghostBondHolder[bondId];
-        delete ghostBondMaturityValue[bondId];
-        delete ghostPrincipal[bondId];
-        ++ghostTotalBondsRedeemed;
+        vm.prank(validator);
+        coffer.validatorRedeemBonds{value: b.msgValue}(b.bondIds);
+
+        _checkRedeemBatch(b);
+
+        // Epoch ledger: msg.value carries the surplus, so the inflow is msgValue, the outflow the measured delta.
+        if (ghostValidatorDefaulted) {
+            ghostBalanceInflowsSinceDefault += b.msgValue;
+            ghostBalanceOutflowsSinceDefault += b.balanceBefore + b.msgValue - address(coffer).balance;
+        }
+        ghostBalanceInflows += b.msgValue;
+        ghostBalanceOutflows += b.total;
+        ghostTotalEscrowedValue += b.total;
+
+        for (uint256 j = 0; j < b.bondIds.length; j++) {
+            uint256 bondId = b.bondIds[j];
+            // The per-owner delta check verified the credit, so the per-id amount is the intended one (G-02).
+            ghostEscrowCredited[bondId] += b.amounts[j];
+            _removeActiveBondId(bondId);
+            ghostIsBondActive[bondId] = false;
+            delete ghostBondHolder[bondId];
+            delete ghostBondMaturityValue[bondId];
+            delete ghostPrincipal[bondId];
+            ++ghostTotalBondsRedeemed;
+        }
+    }
+
+    /// @dev A contiguous window over the active list modulo its length: distinct ids for any count <= length.
+    function _pickRedeemBatch(uint256 idSeed, uint256 countSeed) private view returns (RedeemBatch memory b) {
+        uint256 len = ghostActiveBondIds.length;
+        uint256 count = bound(countSeed, 1, len < 3 ? len : 3);
+        uint256 start = idSeed % len;
+        b.bondIds = new uint256[](count);
+        b.amounts = new uint128[](count);
+        b.owners = new address[](count);
+        b.expectedCredit = new uint256[](count);
+        b.pendingBefore = new uint256[](count);
+        for (uint256 j = 0; j < count; j++) {
+            uint256 bondId = ghostActiveBondIds[(start + j) % len];
+            b.bondIds[j] = bondId;
+            (b.amounts[j],,) = coffer.sHolderConditions(bondId);
+            b.total += b.amounts[j];
+            address owner = ghostBondHolder[bondId];
+            uint256 k = 0;
+            while (k < b.ownerCount && b.owners[k] != owner) {
+                k++;
+            }
+            if (k == b.ownerCount) {
+                b.owners[k] = owner;
+                b.pendingBefore[k] = redemptionEscrow.sPendingClaims(owner);
+                ++b.ownerCount;
+            }
+            b.expectedCredit[k] += b.amounts[j];
+        }
+        b.balanceBefore = address(coffer).balance;
+        b.escrowBefore = address(redemptionEscrow).balance;
+        Vc memory vc = _readVc();
+        b.outstandingBefore = vc.outstandingBonds;
+        b.issueSizeBefore = vc.issueSize;
+    }
+
+    function _checkRedeemBatch(RedeemBatch memory b) private {
+        Vc memory vc = _readVc();
+        if (address(redemptionEscrow).balance != b.escrowBefore + b.total) ghostEscrowViolation = true;
+        if (address(coffer).balance != b.balanceBefore + b.msgValue - b.total) ghostEscrowViolation = true;
+        if (uint256(vc.outstandingBonds) != uint256(b.outstandingBefore) - b.bondIds.length) {
+            ghostEscrowViolation = true;
+        }
+        if (vc.issueSize != b.issueSizeBefore) ghostEscrowViolation = true;
+        for (uint256 k = 0; k < b.ownerCount; k++) {
+            if (redemptionEscrow.sPendingClaims(b.owners[k]) != b.pendingBefore[k] + b.expectedCredit[k]) {
+                ghostEscrowViolation = true;
+            }
+        }
+    }
+
+    function _removeActiveBondId(uint256 bondId) private {
+        uint256 len = ghostActiveBondIds.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (ghostActiveBondIds[i] == bondId) {
+                ghostActiveBondIds[i] = ghostActiveBondIds[len - 1];
+                ghostActiveBondIds.pop();
+                return;
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // HANDLER: escrow claim (to self, or redirected to another holder)
+    // ══════════════════════════════════════════════════════════════════════
+    /// @dev Strict-safe: only a claimant with a pending claim calls, and every payee is an EOA.
+    function handlerEscrowClaim(uint256 claimantSeed, uint256 toSeed) external {
+        ++callsEscrowClaim;
+        address claimant = holders[claimantSeed % holders.length];
+        uint256 pending = redemptionEscrow.sPendingClaims(claimant);
+        if (pending == 0) return;
+
+        // Half the calls redirect, the path the _to parameter exists for.
+        address to = toSeed % 2 == 0 ? claimant : holders[(toSeed / 2) % holders.length];
+        uint256 toBefore = to.balance;
+        uint256 claimantBefore = claimant.balance;
+        uint256 toPendingBefore = redemptionEscrow.sPendingClaims(to);
+        uint256 escrowBefore = address(redemptionEscrow).balance;
+
+        vm.prank(claimant);
+        redemptionEscrow.claim(payable(to));
+
+        if (to.balance != toBefore + pending) ghostEscrowViolation = true;
+        if (to != claimant) {
+            if (claimant.balance != claimantBefore) ghostEscrowViolation = true;
+            if (redemptionEscrow.sPendingClaims(to) != toPendingBefore) ghostEscrowViolation = true;
+        }
+        if (redemptionEscrow.sPendingClaims(claimant) != 0) ghostEscrowViolation = true;
+        if (address(redemptionEscrow).balance != escrowBefore - pending) ghostEscrowViolation = true;
+
+        ghostTotalEscrowClaimed += pending;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -407,6 +606,8 @@ contract CofferHandlerExt is Test {
 
         vm.prank(validator);
         coffer.validatorWithdrawFromExecution(amt);
+        _recordVersionBump();
+        ghostBalanceOutflows += amt;
 
         if (vc.outstandingBonds > 0) {
             ghostIssueSize -= amt;
@@ -444,8 +645,13 @@ contract CofferHandlerExt is Test {
         // forge-lint: disable-next-line(unsafe-typecast)
         uint64 amtGwei = uint64(bound(amount, 0, maxGwei));
 
+        uint256 msgValue = fee;
+        uint256 cofferBalanceBefore = address(coffer).balance;
         vm.prank(validator);
-        coffer.validatorWithdrawFromConsensus{value: fee}(amtGwei);
+        coffer.validatorWithdrawFromConsensus{value: msgValue}(amtGwei);
+        // The predeploy takes exactly the fee, the coffer keeps msg.value - fee (zero today)
+        ghostBalanceInflows += msgValue - fee;
+        if (address(coffer).balance != cofferBalanceBefore + msgValue - fee) ghostBalanceViolation = true;
 
         // casting to 'uint128' is safe because GWEI_RATE fits in uint128
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -505,8 +711,11 @@ contract CofferHandlerExt is Test {
         // forge-lint: disable-next-line(unsafe-typecast)
         uint128(uint256(amt) * (BUFFER_DENOMINATOR - uint256(vc.issueSizeBufferBps)) / BUFFER_DENOMINATOR);
 
+        uint256 cofferBalanceBefore = address(coffer).balance;
         vm.prank(validator);
         coffer.validatorAddFundsToConsensus{value: amt}(depositDataRoot);
+        // All of msg.value is forwarded to the deposit contract
+        if (address(coffer).balance != cofferBalanceBefore) ghostBalanceViolation = true;
 
         ghostIssueSize += issueSizeIncrement;
         ghostConsensusBalance += amt;
@@ -528,8 +737,12 @@ contract CofferHandlerExt is Test {
         // forge-lint: disable-next-line(unsafe-typecast)
         uint256 fee = uint256(bytes32(feeData));
         if (validator.balance < fee) return;
+        uint256 msgValue = fee;
+        uint256 cofferBalanceBefore = address(coffer).balance;
         vm.prank(validator);
-        coffer.convertToCompounding{value: fee}();
+        coffer.convertToCompounding{value: msgValue}();
+        ghostBalanceInflows += msgValue - fee;
+        if (address(coffer).balance != cofferBalanceBefore + msgValue - fee) ghostBalanceViolation = true;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -540,9 +753,15 @@ contract CofferHandlerExt is Test {
         uint128 amt = uint128(bound(amount, 0.01 ether, 10 ether));
         address sender = holders[amount % holders.length];
         if (sender.balance < amt) return;
+        uint256 cofferBalanceBefore = address(coffer).balance;
         vm.prank(sender);
         (bool success,) = address(coffer).call{value: amt}("");
-        if (!success) return;
+        if (!success) {
+            ghostTopUpReverted = true;
+            return;
+        }
+        ghostBalanceInflows += amt;
+        if (address(coffer).balance != cofferBalanceBefore + amt) ghostBalanceViolation = true;
         // The on-chain issueSize bump still happens post-default (dead state, every consumer is
         // frozen), so the ghost keeps mirroring it either way.
         ghostIssueSize += amt;
@@ -568,6 +787,8 @@ contract CofferHandlerExt is Test {
         if (newRate >= vc.interestRate && vc.outstandingBonds != 0) return;
         vm.prank(validator);
         coffer.changeInterestRate(newRate);
+        _recordVersionBump();
+        if (vc.outstandingBonds > 0 && _readVc().interestRate >= vc.interestRate) ghostParamViolation = true;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -586,6 +807,8 @@ contract CofferHandlerExt is Test {
         }
         vm.prank(validator);
         coffer.changeIssueSize(newIssueSize);
+        _recordVersionBump();
+        if (vc.outstandingBonds > 0 && _readVc().issueSize >= vc.issueSize) ghostParamViolation = true;
         ghostIssueSize = newIssueSize;
         // Declaring a larger issueSize is the validator asserting issuance capacity that must be
         // backed by consensus-layer stake (issueSize = stake * (1 - buffer) <= stake). Model the
@@ -613,6 +836,10 @@ contract CofferHandlerExt is Test {
         }
         vm.prank(validator);
         coffer.changeIssueSizeBufferBps(newBps);
+        _recordVersionBump();
+        if (vc.outstandingBonds > 0 && _readVc().issueSizeBufferBps <= vc.issueSizeBufferBps) {
+            ghostParamViolation = true;
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -633,6 +860,8 @@ contract CofferHandlerExt is Test {
         if (newMax < newMin) newMax = newMin;
         vm.prank(validator);
         coffer.changeMinimumAndMaximumDuration(newMin, newMax);
+        _recordVersionBump();
+        if (vc.outstandingBonds > 0 && _readVc().maximumDuration > vc.maximumDuration) ghostParamViolation = true;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -710,6 +939,8 @@ contract CofferHandlerExt is Test {
 
             vm.prank(holders[idSeed % holders.length]);
             coffer.declareDefault(bondId);
+            // The declaring call moves nothing (contractBalance was read before the warp, a warp moves no ETH)
+            if (address(coffer).balance != contractBalance) ghostBalanceViolation = true;
 
             _recordDefaultFlip(coveredBeforeCall);
             return;
@@ -719,6 +950,116 @@ contract CofferHandlerExt is Test {
     /// @dev Both default-flip sites (handlerDeclareDefault and handlerHolderRedeemBondOrDefault's
     /// shortfall) record the epoch ghosts through this single function, so they cannot drift apart.
     /// The epoch ledger restarts from the balance snapshot taken here.
+    // ══════════════════════════════════════════════════════════════════════
+    // HANDLER: declareDefault refused (the negative half of the predicate)
+    // ══════════════════════════════════════════════════════════════════════
+    /// @dev handlerDeclareDefault only declares where the predicate holds, so the contract's refusals were never
+    ///      exercised. Strict-safe: every call sits in a try/catch.
+    function handlerDeclareDefaultInvalid(uint256 idSeed) external {
+        ++callsDeclareDefaultInvalid;
+        if (ghostActiveBondIds.length == 0) return;
+        uint256 bondId = ghostActiveBondIds[idSeed % ghostActiveBondIds.length];
+        (uint128 amount, uint32 duration, uint32 startTimestamp) = coffer.sHolderConditions(bondId);
+        if (amount == 0) return;
+        address caller = holders[idSeed % holders.length];
+
+        if (ghostValidatorDefaulted) {
+            // A standing default refuses a second declaration
+            vm.prank(caller);
+            try coffer.declareDefault(bondId) {
+                ghostDeclareViolation = true;
+            } catch (bytes memory reason) {
+                if (bytes4(reason) != Coffer.AlreadyDefaulted.selector) ghostDeclareViolation = true;
+            }
+            return;
+        }
+
+        // forge-lint: disable-next-line
+        bool unmatured = uint256(duration) + uint256(startTimestamp) > block.timestamp;
+        bool covered = address(coffer).balance >= amount;
+        if (!unmatured && !covered) return; // the predicate holds, that is handlerDeclareDefault's case
+
+        vm.prank(caller);
+        try coffer.declareDefault(bondId) {
+            ghostDeclareViolation = true;
+        } catch (bytes memory reason) {
+            bytes4 sel = bytes4(reason);
+            if (sel != Coffer.HoldersTimeHasNotExpiredYet.selector && sel != Coffer.ValidatorNotDefaultable.selector) {
+                ghostDeclareViolation = true;
+            }
+        }
+        if (unmatured) {
+            // The holder's own redeem is gated by the same maturity check
+            vm.prank(ghostBondHolder[bondId]);
+            try coffer.holderRedeemBondOrDefault(bondId) returns (bool) {
+                ghostDeclareViolation = true;
+            } catch (bytes memory reason) {
+                if (bytes4(reason) != Coffer.HoldersTimeHasNotExpiredYet.selector) ghostDeclareViolation = true;
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // HANDLER: parameter loosening refused while bonds are outstanding
+    // ══════════════════════════════════════════════════════════════════════
+    /// @dev The setter handlers pre-filter their inputs to the legal side, so the contract's four guards were never
+    ///      asked to refuse. Strict-safe: low-level calls, a failure never reverts the handler.
+    function handlerParameterLoosenInvalid(uint256 seed) external {
+        ++callsParameterLoosenInvalid;
+        Vc memory vc = _readVc();
+        if (vc.outstandingBonds == 0) return;
+        _expectSetterRevert(
+            abi.encodeCall(Coffer.changeInterestRate, (vc.interestRate)),
+            Coffer.ValidatorCannotIncreaseInterestRateWhileOutstandingBondExist.selector
+        );
+        if (vc.interestRate < MAX_RATE) {
+            _expectSetterRevert(
+                abi.encodeCall(Coffer.changeInterestRate, (vc.interestRate + 1)),
+                Coffer.ValidatorCannotIncreaseInterestRateWhileOutstandingBondExist.selector
+            );
+        }
+        if (vc.maximumDuration < MAX_DURATION) {
+            _expectSetterRevert(
+                abi.encodeCall(Coffer.changeMinimumAndMaximumDuration, (vc.minimumDuration, vc.maximumDuration + 1)),
+                Coffer.ValidatorCannotIncreaseMaximumDurationWhileOutstandingBondExist.selector
+            );
+        }
+        if (vc.issueSizeBufferBps > 0) {
+            _expectSetterRevert(
+                abi.encodeCall(Coffer.changeIssueSizeBufferBps, (vc.issueSizeBufferBps - 1)),
+                Coffer.ValidatorCannotDecreaseIssueSizeBufferWhileOutstandingBondExist.selector
+            );
+        }
+        _expectSetterRevert(
+            abi.encodeCall(Coffer.changeIssueSize, (vc.issueSize)),
+            Coffer.ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist.selector
+        );
+        if (vc.issueSize < type(uint128).max) {
+            _expectSetterRevert(
+                abi.encodeCall(Coffer.changeIssueSize, (vc.issueSize + 1)),
+                Coffer.ValidatorCannotIncreaseIssueSizeWhileOutstandingBondExist.selector
+            );
+        }
+        // The seed only keeps the action an ordinary one-argument target for the fuzzer
+        (seed);
+    }
+
+    function _expectSetterRevert(bytes memory data, bytes4 expected) private {
+        vm.prank(validator);
+        (bool ok, bytes memory ret) = address(coffer).call(data);
+        if (ok || bytes4(ret) != expected) ghostParamViolation = true;
+    }
+
+    /// @dev Called after every successful call of a version-bumping function, and nowhere else.
+    function _recordVersionBump() private {
+        ++ghostVersionBumps;
+        Vc memory v = _readVc();
+        ghostTermsRate = v.interestRate;
+        ghostTermsMinDur = v.minimumDuration;
+        ghostTermsMaxDur = v.maximumDuration;
+        ghostTermsBuffer = v.issueSizeBufferBps;
+    }
+
     function _recordDefaultFlip(bool coveredBeforeCall) private {
         if (coveredBeforeCall) ghostDefaultViolation = true;
         ghostValidatorDefaulted = true;
@@ -755,8 +1096,12 @@ contract CofferHandlerExt is Test {
         address caller = holders[seed % holders.length];
         if (caller.balance < fee) return;
 
+        uint256 msgValue = fee;
+        uint256 cofferBalanceBefore = address(coffer).balance;
         vm.prank(caller);
-        coffer.exitValidator{value: fee}();
+        coffer.exitValidator{value: msgValue}();
+        ghostBalanceInflows += msgValue - fee;
+        if (address(coffer).balance != cofferBalanceBefore + msgValue - fee) ghostBalanceViolation = true;
 
         if (!ghostExitSweepQueued && ghostConsensusBalance > 0) {
             ghostPendingWithdrawals.push(
@@ -782,6 +1127,7 @@ contract CofferHandlerExt is Test {
 
         vm.prank(validator);
         coffer.clearDefault();
+        _recordVersionBump();
 
         ghostValidatorDefaulted = false;
         ghostExitSweepQueued = false;
@@ -810,5 +1156,17 @@ contract CofferHandlerExt is Test {
 
     function getPendingWithdrawalsLength() external view returns (uint256) {
         return ghostPendingWithdrawals.length;
+    }
+
+    function getAllBondIdsLength() external view returns (uint256) {
+        return ghostAllBondIds.length;
+    }
+
+    function getAllBondIdAt(uint256 index) external view returns (uint256) {
+        return ghostAllBondIds[index];
+    }
+
+    function getHoldersLength() external view returns (uint256) {
+        return holders.length;
     }
 }

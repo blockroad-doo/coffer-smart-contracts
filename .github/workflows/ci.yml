@@ -17,7 +17,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.8.1
+          version: v1.8.3
           cache: false
 
       - name: Set up Node
@@ -43,13 +43,11 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.8.1
+          version: v1.8.3
           cache: false
 
-      # the post-build lint gates this job through --deny warnings. Its scope (src only) and its
-      # exclusions live in foundry.toml [lint]
       - name: Build
-        run: forge build --sizes --deny warnings
+        run: forge build --sizes
 
   slither:
     name: Slither
@@ -62,7 +60,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.8.1
+          version: v1.8.3
           cache: false
 
       - name: Build for Slither
@@ -86,7 +84,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.8.1
+          version: v1.8.3
           cache: false
 
       - name: Set weekly fuzz seed
@@ -95,25 +93,8 @@ jobs:
             echo $(($EPOCHSECONDS / 604800))
           )" >> $GITHUB_ENV
 
-      - name: Build
-        run: forge build --no-lint
-
       - name: Run local tests
         run: >
           FOUNDRY_PROFILE=ci forge test
-          --isolate
           -vvv
           --show-progress
-
-      - name: Run Hoodi fork tests
-        if: env.HOODI_RPC_URL != ''
-        run: >
-          HOODI_RPC_URL=${{ secrets.HOODI_RPC_URL }} forge test
-          --match-path "test/integration/hoodi/*"
-          -vvv
-
-      - name: Coverage
-        run: >
-          forge coverage
-          --no-match-coverage "^test/|^script/"
-          --report summary

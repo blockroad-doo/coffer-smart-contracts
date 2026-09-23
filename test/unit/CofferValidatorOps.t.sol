@@ -11,6 +11,8 @@ import {
 
 import {EXCESS_INHIBITOR} from "../mock/EIP7002Mock.sol";
 import {Coffer} from "../../src/Coffer.sol";
+import {CofferFactory} from "../../src/CofferFactory.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
@@ -176,6 +178,86 @@ contract CofferValidatorOpsTest is BaseTest {
         vm.prank(validator);
         vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
         coffer.validatorRedeemBonds(ids);
+    }
+
+    // Gap row G-07: a batch is all-or-nothing. A duplicated id trips the second iteration's existence check
+    // because the first iteration deleted the record, and a settled id beside a valid one unwinds the valid
+    // one's delete and burn. Nothing moves in either case, msg.value included. The snapshot lives in a struct
+    // to stay clear of the stack limit.
+
+    struct BatchSnapshot {
+        uint128 amt1;
+        uint32 dur1;
+        uint32 start1;
+        uint128 amt2;
+        uint256 cofferBalance;
+        uint256 escrowBalance;
+        uint256 validatorBalance;
+        uint32 outstanding;
+    }
+
+    /// @dev Two bonds, the second settled alone so a mixed batch carries a valid id next to a settled one.
+    ///      Funded for both so no batch can fail on the balance check instead of the id check.
+    function _setupTwoBondsSettleSecond() internal returns (uint256 id1, uint256 id2, BatchSnapshot memory s) {
+        vm.prank(validator);
+        coffer.changeIssueSize(10 ether); // version -> 2
+        id1 = buyBond(cofferAddr, holder1, 1 ether, ONE_MONTH, 2);
+        id2 = buyBond(cofferAddr, holder2, 1 ether, ONE_MONTH, 2);
+        (s.amt1, s.dur1, s.start1) = coffer.sHolderConditions(id1);
+        (s.amt2,,) = coffer.sHolderConditions(id2);
+        vm.deal(cofferAddr, uint256(s.amt1) + s.amt2);
+
+        uint256[] memory single = new uint256[](1);
+        single[0] = id2;
+        vm.prank(validator);
+        coffer.validatorRedeemBonds(single);
+
+        s.cofferBalance = cofferAddr.balance;
+        s.escrowBalance = address(redemptionEscrow).balance;
+        s.validatorBalance = validator.balance;
+        (,,,,,, s.outstanding,,,) = coffer.sValidatorConditions();
+    }
+
+    function _assertBatchUntouched(uint256 id1, BatchSnapshot memory s) internal view {
+        (uint128 amtAfter, uint32 durAfter, uint32 startAfter) = coffer.sHolderConditions(id1);
+        assertEq(amtAfter, s.amt1, "record value untouched");
+        assertEq(durAfter, s.dur1, "record duration untouched");
+        assertEq(startAfter, s.start1, "record start untouched");
+        assertEq(bondNft.ownerOf(id1), holder1, "NFT not burned");
+        assertEq(bondNft.cofferOf(id1), cofferAddr, "cofferOf untouched");
+        (,,,,,, uint32 outstandingAfter,,,) = coffer.sValidatorConditions();
+        assertEq(outstandingAfter, s.outstanding, "outstandingBonds untouched");
+        assertEq(cofferAddr.balance, s.cofferBalance, "coffer balance untouched");
+        assertEq(address(redemptionEscrow).balance, s.escrowBalance, "escrow balance untouched");
+        assertEq(redemptionEscrow.sPendingClaims(holder1), 0, "no escrow credit for holder1");
+        assertEq(redemptionEscrow.sPendingClaims(holder2), s.amt2, "holder2 credit from the earlier settle untouched");
+        assertEq(validator.balance, s.validatorBalance, "msg.value returned on revert");
+    }
+
+    function test_ValidatorRedeemBonds_DuplicateIdInBatch_RevertsAndLeavesStateUntouched() public {
+        (uint256 id1,, BatchSnapshot memory s) = _setupTwoBondsSettleSecond();
+        uint256[] memory duplicate = new uint256[](2);
+        duplicate[0] = id1;
+        duplicate[1] = id1;
+
+        vm.prank(validator);
+        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
+        coffer.validatorRedeemBonds{value: s.amt1}(duplicate);
+
+        _assertBatchUntouched(id1, s);
+    }
+
+    function test_ValidatorRedeemBonds_SettledIdInBatch_RevertsAndLeavesStateUntouched() public {
+        (uint256 id1, uint256 id2, BatchSnapshot memory s) = _setupTwoBondsSettleSecond();
+        uint256[] memory mixed = new uint256[](2);
+        mixed[0] = id1;
+        mixed[1] = id2;
+
+        vm.prank(validator);
+        vm.expectRevert(Coffer.HolderDoesNotExistOrAlreadyWithdrawnValue.selector);
+        coffer.validatorRedeemBonds(mixed);
+
+        _assertBatchUntouched(id1, s);
     }
 
     function test_ValidatorRedeemBonds_RevertsIfInsufficientBalance() public {
@@ -1227,37 +1309,99 @@ contract CofferValidatorOpsTest is BaseTest {
         assertGt(issueSize, maxAllowed, "BUG: changeIssueSize accepts values exceeding buffer-capped maximum");
     }
 
-    function testFuzz_BufferIssueSize_FuzzBufferAndIssueSize(uint16 bufferBps, uint128 issueSizeVal) public {
-        bufferBps = uint16(bound(bufferBps, 0, 5000));
-        uint128 startingBalance = 100 ether;
+    /// @dev Gap row G-09: the creation-time formula under fuzzed inputs. The factory's guard and initialize are
+    ///      two copies of one expression, so the stored issueSize must equal the emitted one and the formula, stay
+    ///      at or below the starting balance, and admit the minimum exactly when it fits. Replaces a fuzz whose only
+    ///      assertion restated its own condition. Each run derives its own pubkey, so the clone address is fresh.
+    ///      The helpers keep the stack shallow (the ten-field struct read alone needs ten slots).
+    function testFuzz_CreateCoffer_IssueSizeFormula_StoredEqualsEmittedAndMinimumGate(
+        uint128 startingBalance,
+        uint16 bps,
+        uint128 minimum,
+        bool wantRevert
+    ) public {
+        // type(uint128).max - 1 keeps expected + 1 inside uint128 for the revert branch
+        // forge-lint: disable-next-line(unsafe-typecast)
+        startingBalance = uint128(bound(startingBalance, 1, type(uint128).max - 1));
+        // forge-lint: disable-next-line(unsafe-typecast)
+        bps = uint16(bound(bps, 0, BUFFER_DENOMINATOR - 1));
+        uint256 expected = uint256(startingBalance) * (BUFFER_DENOMINATOR - bps) / BUFFER_DENOMINATOR;
+        (bytes32 pk1, bytes16 pk2) = _g09Keys(startingBalance, bps, minimum);
 
-        address bsa1CofferAddr = createCoffer(
-            validator,
-            bytes32(uint256(0xB5A1)),
-            bytes16(uint128(0xB5A1)),
-            defaultInterestRate,
-            defaultMinDuration,
-            defaultMaxDuration,
-            defaultMinimumAmount,
-            0,
-            startingBalance
-        );
-        Coffer c = Coffer(payable(bsa1CofferAddr));
-
-        vm.prank(validator);
-        c.changeIssueSizeBufferBps(bufferBps);
-
-        issueSizeVal = uint128(bound(issueSizeVal, 1 ether, 200 ether));
-        vm.prank(validator);
-        c.changeIssueSize(issueSizeVal);
-
-        (uint128 actualIssueSize,,,,,,,,,) = c.sValidatorConditions();
-        (,,,,,,, uint16 actualBuffer,,) = c.sValidatorConditions();
-
-        uint256 maxAllowed = uint256(startingBalance) * (BUFFER_DENOMINATOR - actualBuffer) / BUFFER_DENOMINATOR;
-
-        if (actualIssueSize > maxAllowed) {
-            assertGt(actualIssueSize, maxAllowed, "confirmed: issueSize exceeds buffer cap");
+        if (expected == 0) wantRevert = true; // no minimum of at least one wei can be admitted
+        if (wantRevert) {
+            // forge-lint: disable-next-line(unsafe-typecast)
+            minimum = uint128(bound(minimum, expected + 1, type(uint128).max));
+            _createG09(pk1, pk2, minimum, bps, startingBalance, true);
+            return;
         }
+
+        // forge-lint: disable-next-line(unsafe-typecast)
+        minimum = uint128(bound(minimum, 1, expected));
+        vm.recordLogs();
+        address clone = _createG09(pk1, pk2, minimum, bps, startingBalance, false);
+        _assertG09(clone, pk1, pk2, expected, minimum, startingBalance);
+    }
+
+    function _g09Keys(uint128 startingBalance, uint16 bps, uint128 minimum)
+        private
+        pure
+        returns (bytes32 pk1, bytes16 pk2)
+    {
+        pk1 = keccak256(abi.encode("G-09", startingBalance, bps, minimum));
+        pk2 = bytes16(keccak256(abi.encode(pk1)));
+    }
+
+    /// @dev Creates the coffer as the validator, expecting the minimum gate's revert when asked to
+    function _createG09(bytes32 pk1, bytes16 pk2, uint128 minimum, uint16 bps, uint128 startingBalance, bool wantRevert)
+        private
+        returns (address)
+    {
+        vm.prank(validator);
+        if (wantRevert) vm.expectRevert(CofferFactory.InvalidMinimumValueToAccept.selector);
+        return factory.createCoffer(
+            pk1, pk2, defaultInterestRate, defaultMinDuration, defaultMaxDuration, minimum, bps, startingBalance
+        );
+    }
+
+    function _assertG09(
+        address clone,
+        bytes32 pk1,
+        bytes16 pk2,
+        uint256 expected,
+        uint128 minimum,
+        uint128 startingBalance
+    ) private {
+        uint128 emitted = _cofferIssuedIssueSizeFromLogs();
+        uint128 stored = _issueSizeOf(clone);
+        assertEq(clone, factory.predictCofferAddress(validator, pk1, pk2), "clone must land at the predicted address");
+        assertEq(uint256(stored), expected, "stored issueSize must equal the formula");
+        assertEq(emitted, stored, "CofferIssued.issueSize must equal the stored value");
+        assertLe(stored, startingBalance, "issueSize must not exceed the starting balance");
+        assertEq(_minimumValueOf(clone), minimum, "minimum stored as passed");
+        assertLe(_minimumValueOf(clone), stored, "minimum must not exceed issueSize at creation");
+    }
+
+    function _issueSizeOf(address c) private view returns (uint128 issueSize) {
+        (issueSize,,,,,,,,,) = Coffer(payable(c)).sValidatorConditions();
+    }
+
+    function _minimumValueOf(address c) private view returns (uint128 minimumValueToAccept) {
+        (,,,, minimumValueToAccept,,,,,) = Coffer(payable(c)).sValidatorConditions();
+    }
+
+    /// @dev Returns the issueSize field of the recorded CofferIssued log (its last non-indexed field)
+    function _cofferIssuedIssueSizeFromLogs() private returns (uint128 issueSize) {
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bytes32 sig =
+            keccak256("CofferIssued(address,address,bytes32,bytes16,uint32,uint32,uint32,uint128,uint16,uint128)");
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == sig) {
+                (,,,,,, issueSize) =
+                    abi.decode(entries[i].data, (bytes16, uint32, uint32, uint32, uint128, uint16, uint128));
+                return issueSize;
+            }
+        }
+        revert("CofferIssued not emitted");
     }
 }
