@@ -44,7 +44,7 @@
 
 ## Quick Overview
 
-Coffer is a **permissionless, non-custodial peer-to-peer protocol** that allows validators to issue bonds backed by their stake and ETH holders to earn interest on their ETH. A holder receives a fixed rate from the validator and commits to that rate for an agreed-upon period. At maturity, the holder can claim their bond by calling the contract. Validators raise liquidity against a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted, so the holder can transfer the bond to a third party. Each bond purchase pays a small, time-based protocol fee deducted from the bond's interest (see [Protocol Fees](#protocol-fees)).
+Coffer is a **permissionless, non-custodial peer-to-peer protocol** that allows validators to issue bonds backed by their stake and ETH holders to earn interest on their ETH. A holder receives a fixed rate from the validator and commits to that rate for an agreed-upon period. At maturity, the holder can claim their bond by calling the contract. Validators raise liquidity against a major portion of their locked-up ETH. When a holder buys a bond, an NFT is minted, so the holder can transfer the bond to a third party.
 
 ---
 
