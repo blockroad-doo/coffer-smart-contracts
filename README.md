@@ -184,7 +184,7 @@ issueSize = consensusBalance * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFE
 
 where 1% = 100 and BUFFER_DENOMINATOR = 10000 (basis points).
 
-The buffer creates headroom between what the validator issues and what they hold on the consensus layer. A higher buffer means a smaller issueSize.
+The buffer creates headroom between what the validator issues and what they hold on the consensus layer. A higher buffer means a smaller issueSize at creation. Raising it later scales down only later consensus deposits and leaves the current issueSize as it is.
 
 The validator sets the buffer. The holder evaluates whether the chosen value, combined with the amount of ETH already issued, is adequate for the bond's duration given events the validator may face, such as missing attestations, going offline, or being slashed. A validator that operates several validators, or several Coffers under common control, carries higher correlated-slashing exposure, since a single cause can slash them together. The holder weighs the buffer against that concentration. Network-wide events, such as a non-finalizing period or large-scale correlated slashing, are unbounded and are covered separately under Risk Factors. Unsold `issueSize` is not headroom. The validator can issue it at any time, including to an address it controls. The buffer is the only headroom the holder can count on.
 
@@ -196,7 +196,7 @@ The moment any single matured bond cannot be paid in full from the contract bala
 
 `minimumDuration` is the validator's guaranteed reaction time. `buyBond` forwards the principal to the validator's wallet, so a fresh bond adds a liability with no backing in the contract, and the shortest bond a validator sells is the shortest notice they can get to fund it. The protocol sets no floor on this parameter. The validator chooses it and the validator bears the risk, so it should sit well above the validator's own funding latency.
 
-A default accelerates every outstanding bond to its full maturity value, including a bond bought in the block of the declaration, so unsold `issueSize` at that moment is capacity a stranger can buy and claim at once. A validator that is not selling lowers `issueSize` to zero or sets `isActive` to false, and funds each maturity before it lands.
+A default accelerates every outstanding bond to its full maturity value, including a bond bought in the block of the declaration, so unsold `issueSize` at that moment is capacity a stranger can buy and claim at once. A validator that is not selling sets `isActive` to false and funds each maturity before it lands.
 
 #### Default Economics
 
@@ -303,7 +303,7 @@ send(validator, principal - fee)
 
 The curve is **immutable**. The fee amounts and breakpoints live in code with no setter. The only mutable parameter is the fee **recipient**, changeable by the `FeeCurve` owner, the protocol admin. The fee for a given purchase date is fixed and publicly verifiable in advance.
 
-The fee depends only on the number of whole days elapsed since the `FeeCurve` was deployed, not on the individual transaction. Day boundaries fall at the deployment timestamp plus multiples of 24 hours, not at UTC midnight. A `buyBond` signed before a boundary but included after it realizes the next day's fee, at most ~1.08 bps of interest higher (the steepest segment of the curve, days 0-90, and zero after the day-3650 plateau). Because the fee is taken from interest, never from principal, and is paid to the protocol rather than the validator, the difference is bounded, costs the holder no principal, and is not a value a validator or proposer can manipulate for gain. Holders who want exact terms across a day boundary should price against the next breakpoint's value.
+The fee depends only on the number of whole days elapsed since the `FeeCurve` was deployed, not on the individual transaction. Day boundaries fall at the deployment timestamp plus multiples of 24 hours, not at UTC midnight. A `buyBond` signed before a boundary but included after it realizes the next day's fee, at most 2 bps of interest higher (on the steepest segment of the curve, days 0-90, and zero after the day-3650 plateau). Because the fee is taken from interest, never from principal, and is paid to the protocol rather than the validator, the difference is bounded, costs the holder no principal, and is not a value a validator or proposer can manipulate for gain. Holders who want exact terms across a day boundary should price against the next breakpoint's value.
 
 ### Fee-Related Events
 
@@ -320,7 +320,7 @@ The fee depends only on the number of whole days elapsed since the `FeeCurve` wa
 
 - **issueSize accounting**: `issueSize` moves only through five transitions. `receive()` adds `msg.value`, `validatorAddFundsToConsensus` adds the buffer-adjusted deposit, `buyBond` subtracts the bond's maturity value, `validatorWithdrawFromExecution` subtracts the amount while bonds are outstanding, and `changeIssueSize` sets it outright. Settling a bond, by any path, never moves it, so capacity consumed by a bond comes back only through a new deposit. The protocol fee does not affect this accounting. The fee is paid out of the validator's principal payout in `buyBond`, not from the bond backing, and each `bondMaturityValue` is already net of the fee
 - **receive() issueSize top-up**: `receive()` increases `issueSize` by `msg.value`. Beacon chain withdrawals (EIP-4895) credit balance without code execution and do not trigger `receive()`, so all `receive()` invocations are execution-layer transfers with real ETH backing
-- **Parameter monotonicity**: While `outstandingBonds > 0`, `issueSize`, `interestRate`, and `maximumDuration` can only decrease, and `issueSizeBufferBps` can only increase
+- **Parameter monotonicity**: While `outstandingBonds > 0`, the setters can only lower `issueSize`, `interestRate`, and `maximumDuration`, and can only raise `issueSizeBufferBps`. `receive()` and `validatorAddFundsToConsensus` still add to `issueSize`, as listed under issueSize accounting
 - **Validator execution withdrawal bound**: While `outstandingBonds > 0`, the validator can withdraw from execution up to `issueSize` and never more than the contract balance. Withdrawals are unrestricted when `outstandingBonds == 0`, and frozen while the validator is defaulted
 - **outstandingBonds accuracy**: Equals the number of bonds with `bondMaturityValue > 0`
 - **Bond-NFT bijection**: Each active bond maps 1:1 to a live NFT (mint on buy, burn on full redemption)

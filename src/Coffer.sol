@@ -434,8 +434,10 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// through holderRedeemBondOrDefault. Used to settle bonds that must stop counting as outstanding, including
     /// a matured bond the holder never claims, which would otherwise block every restricted parameter change
     /// @notice If the contract doesn't have enough to repay, the validator can send additional funds via msg.value
-    /// @notice msg.value should equal max(0, totalValue - address(this).balance), where totalValue is the sum of
-    /// bondMaturityValue across the passed bondIds. Unlike the EIP-7002 and EIP-7251 fee-bearing functions, the
+    /// @notice msg.value should equal max(0, totalValue + maturedUnpaid - address(this).balance), where totalValue
+    /// is the sum of bondMaturityValue across the passed bondIds and maturedUnpaid is the sum over matured bonds
+    /// this call leaves unpaid. Sizing it from the balance alone spends the funding of those bonds, and their
+    /// holders can then declare the default. Unlike the EIP-7002 and EIP-7251 fee-bearing functions, the
     /// shortfall here is a pure function of on-chain state at call time, so the validator or their frontend can size
     /// msg.value exactly without oracle or fee drift. Any surplus is NOT refunded and accrues to the contract
     /// balance. It is recoverable via validatorWithdrawFromExecution, bounded by issueSize while outstandingBonds > 0
@@ -895,6 +897,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
     /// @notice Validator can add funds at will
     /// @param _depositDataRoot Validator must create the deposit data root off-chain using JavaScript with the
+    /// for example ChainSafe/ssz library, the validator public signing key, and the intended amount.
     function validatorAddFundsToConsensus(bytes32 _depositDataRoot) external payable onlyOwner {
         ValidatorConditions storage vc = sValidatorConditions;
 
