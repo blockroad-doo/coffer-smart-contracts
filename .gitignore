@@ -1,7 +1,11 @@
 # Compiler files
 cache/
 out/
+bin/
 lcov.info
+
+# Fuzzing output
+.medusa-tests/
 
 # Ignores development broadcast logs
 broadcast/
@@ -13,10 +17,15 @@ snapshots/
 docs/
 TODO
 TODO.md
+todo.md
 answers_for_audit.txt
 changes_since_last_quote.md
-report_responses.pdf
+report_responses.*
 audit/
+coffer-audit/
+AUDIT_REPORT*
+audit_considerations.md
+guideline_for_audit.md
 
 # Node dependencies (solhint lint tooling)
 node_modules/
@@ -27,6 +36,9 @@ node_modules/
 
 # VS Code
 .vscode
+
+# Claude Code
+.claude/
 
 .gitignore
 
