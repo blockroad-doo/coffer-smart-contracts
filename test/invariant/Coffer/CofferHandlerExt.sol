@@ -63,13 +63,13 @@ contract CofferHandlerExt is Test {
     mapping(uint256 => uint128) public ghostBondMaturityValue;
     mapping(uint256 => uint128) public ghostPrincipal;
     mapping(uint256 => uint128) public ghostExecutionWithdrawn;
-    // Promise ledger (gap row G-02). Set or accumulated once and never deleted, so settled ids stay checkable:
+    // Promise ledger. Set or accumulated once and never deleted, so settled ids stay checkable:
     // the value stored at issuance, the wei the two holder paths delivered (measured on the wallet), and the
     // wei validatorRedeemBonds credited to the owner in the escrow (measured on sPendingClaims).
     mapping(uint256 => uint128) public ghostIssuedMaturityValue;
     mapping(uint256 => uint128) public ghostPaidDirect;
     mapping(uint256 => uint128) public ghostEscrowCredited;
-    // Escrow ledger (gap row G-04): every wei validatorRedeemBonds forwarded to the escrow, and every wei claimed
+    // Escrow ledger: every wei validatorRedeemBonds forwarded to the escrow, and every wei claimed
     // back from it.
     uint256 public ghostTotalEscrowedValue;
     uint256 public ghostTotalEscrowClaimed;
@@ -77,7 +77,7 @@ contract CofferHandlerExt is Test {
     // batch total, touches issueSize, or a claim pays other than the pending amount. Asserted false by
     // invariant_escrowCreditsAndClaimsExact.
     bool public ghostEscrowViolation;
-    // Terms frozen at purchase (gap row G-05): the duration as passed and the startTimestamp observed at the buy,
+    // Terms frozen at purchase: the duration as passed and the startTimestamp observed at the buy,
     // never deleted.
     mapping(uint256 => uint32) public ghostBondDuration;
     mapping(uint256 => uint32) public ghostBondStart;
@@ -98,11 +98,11 @@ contract CofferHandlerExt is Test {
     // asserted by invariant_coveredBondNeverDefaulted.
     bool public ghostDefaultViolation;
     // Set when a declaration or an early redeem lands where the predicate forbids it, or the revert carries an
-    // unexpected selector (the probe half of the default predicate, gap table defect 2). Asserted false by
+    // unexpected selector (the probe half of the default predicate). Asserted false by
     // invariant_defaultPredicateRefused.
     bool public ghostDeclareViolation;
     // Set when a setter loosens a protected parameter while bonds are outstanding, or the contract accepts a
-    // loosening move it must refuse (gap table defect 4). Asserted false by
+    // loosening move it must refuse. Asserted false by
     // invariant_parameterMonotonicityWhileBondsOutstanding.
     bool public ghostParamViolation;
     // Epoch snapshots, re-baselined by handlerDeclareDefault at every flip to true. The post-default
@@ -119,7 +119,7 @@ contract CofferHandlerExt is Test {
     // Outflows: holder claim payouts and validatorRedeemBonds net escrow spend.
     uint256 public ghostBalanceInflowsSinceDefault;
     uint256 public ghostBalanceOutflowsSinceDefault;
-    // Whole-run balance ledger (gap row G-03): the balance at construction plus every attributed inflow minus
+    // Whole-run balance ledger: the balance at construction plus every attributed inflow minus
     // every attributed outflow, each booked as the amount the code intends, never re-baselined. Inflows: receive()
     // tops, modeled consensus arrivals, validatorRedeemBonds msg.value, the predeploy surplus msg.value - fee (zero
     // today). Outflows: holder payouts (the record delta), execution withdrawals, the total forwarded to the escrow.
@@ -129,13 +129,13 @@ contract CofferHandlerExt is Test {
     // Set when a permissionless call (receive, buyBond, declareDefault, exitValidator) lowered the balance or a
     // call that transfers nothing moved it. Asserted false by invariant_permissionlessCallsNeverLowerBalance.
     bool public ghostBalanceViolation;
-    // Set when a plain transfer to the coffer fails, the documented cure path closing (gap row G-11). The model
+    // Set when a plain transfer to the coffer fails, the documented cure path closing. The model
     // never reaches the uint128 ceiling of issueSize, so the flag must stay false.
     bool public ghostTopUpReverted;
     // Exit-sweep model: the stake moves into in-transit at most once per default epoch; the latch
     // resets when the default clears so a later epoch can sweep whatever stake the model has accrued since.
     bool public ghostExitSweepQueued;
-    // Version ledger (gap row G-06): version == base + bumps, one bump per successful call of the six bumping
+    // Version ledger: version == base + bumps, one bump per successful call of the six bumping
     // functions. The terms tuple is re-read only at a bump, so any drift without a bump fails
     // invariant_termsBoundToVersion. minimumValueToAccept and isActive are excluded by design: their setters do
     // not bump.
@@ -450,7 +450,7 @@ contract CofferHandlerExt is Test {
     // HANDLER: validatorRedeemBonds
     // ══════════════════════════════════════════════════════════════════════
     /// @dev Settles 1 to 3 distinct active ids in one call, a shared owner allowed, with a bounded msg.value
-    ///      surplus above the shortfall (gap row G-04). Strict-safe: every id comes from the active list, so no
+    ///      surplus above the shortfall. Strict-safe: every id comes from the active list, so no
     ///      record is zero and no id repeats, and msg.value covers the batch total.
     function handlerValidatorRedeemBonds(uint256 idSeed, uint256 countSeed, uint256 surplusSeed) external {
         ++callsValidatorRedeemBonds;
@@ -480,7 +480,7 @@ contract CofferHandlerExt is Test {
 
         for (uint256 j = 0; j < b.bondIds.length; j++) {
             uint256 bondId = b.bondIds[j];
-            // The per-owner delta check verified the credit, so the per-id amount is the intended one (G-02).
+            // The per-owner delta check verified the credit, so the per-id amount is the intended one.
             ghostEscrowCredited[bondId] += b.amounts[j];
             _removeActiveBondId(bondId);
             ghostIsBondActive[bondId] = false;

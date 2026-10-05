@@ -6,7 +6,7 @@ import {FeeCurve} from "../../src/FeeCurve.sol";
 import {Interest} from "../../src/libraries/Interest.sol";
 
 /// @title MaturityMathFuzzTest
-/// @notice Stateless fuzz of the composed conversion math (gap row G-08): the interest floor and the fee floor
+/// @notice Stateless fuzz of the composed conversion math: the interest floor and the fee floor
 ///         composed into the maturity value, the buffer credit, the fee-curve interpolation, and split purchases.
 ///         InterestInvariant.t.sol and FeeCurveMathFuzz.t.sol fuzz each conversion alone and live under
 ///         test/invariant, this file composes them and lives under test/unit so the ci profile runs it.

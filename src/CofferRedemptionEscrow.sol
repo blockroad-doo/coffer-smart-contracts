@@ -34,8 +34,8 @@ contract CofferRedemptionEscrow is ICofferRedemptionEscrow {
     /// @notice Called by Coffer contracts to deposit ETH for bond holders
     /// @notice This function has no access control by design. Any caller can deposit ETH that is credited to the
     /// listed holders at 1:1 face value, which means the caller pays real ETH to inflate claims they do not own. No
-    /// invariant is violated: the contract gains exactly as much ETH as it records in claims. Any AML or sanctions
-    /// filtering is performed off-chain, matching the trust model of Coffer.receive().
+    /// invariant is violated: the contract gains exactly as much ETH as it records in claims. The contract performs
+    /// no AML or sanctions filtering, matching the trust model of Coffer.receive().
     /// @param _holders Array of holder addresses
     /// @param _amounts Array of amounts owed to each holder
     /// #if_succeeds {:msg "msg.value equals sum of amounts"} msg.value == unchecked_sum(_amounts);

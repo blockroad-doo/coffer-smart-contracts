@@ -150,7 +150,7 @@ contract CofferMainOpsTest is BaseTest {
         assertEq(issueSizeAfter, issueSizeBefore + 1 ether);
     }
 
-    /// @dev Gap row G-11: the issueSize credit is checked arithmetic, so at the uint128 ceiling a plain transfer
+    /// @dev The issueSize credit is checked arithmetic, so at the uint128 ceiling a plain transfer
     ///      reverts and so does a consensus top-up, the documented cure path closing. Only the validator's own
     ///      changeIssueSize at zero bonds sets it up, and a lower value undoes it.
     function test_Receive_IssueSizeAtUint128Max_TopUpPathsRevertUntilIssueSizeLowered() public {

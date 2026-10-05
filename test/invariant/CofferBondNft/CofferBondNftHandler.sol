@@ -16,7 +16,7 @@ contract CofferBondNftHandler is Test {
     mapping(uint256 => bool) public ghostIsActive;
     mapping(uint256 => address) public ghostOwner;
     uint256 public ghostLastBurnedId;
-    // Set when mintCofferBond returns an id other than the next dense id (gap row G-10)
+    // Set when mintCofferBond returns an id other than the next dense id
     bool public ghostIdViolation;
 
     constructor(CofferBondNft _nft) {

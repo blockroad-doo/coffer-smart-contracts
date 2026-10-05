@@ -107,7 +107,7 @@ contract CofferInvariantExtTest is BaseTest {
         assertLt(issueSizeBufferBps, 10000, "issueSizeBufferBps < BUFFER_DENOMINATOR");
     }
 
-    /// @dev Gap table defect 4: the ranges above are static. This holds the one-way rule the README states for
+    /// @dev The ranges above are static. This holds the one-way rule the README states for
     /// rate, maximum duration, buffer and issueSize while bonds are outstanding, in both directions: the setter
     /// handlers record a loosening that landed, and handlerParameterLoosenInvalid records a loosening the contract
     /// failed to refuse with its named error.
@@ -163,7 +163,7 @@ contract CofferInvariantExtTest is BaseTest {
     // CofferRedemptionEscrow.balance >= sum(sPendingClaims)
     // ══════════════════════════════════════════════════════════════════════
 
-    /// @dev Gap row G-04: the Ext suite deploys one coffer, so the shared escrow's balance is entirely this
+    /// @dev The Ext suite deploys one coffer, so the shared escrow's balance is entirely this
     /// coffer's. The owner set is the handler's holders plus the validator.
     function invariant_escrowSelfSolvency() public view {
         uint256 sumPending = 0;
@@ -180,7 +180,7 @@ contract CofferInvariantExtTest is BaseTest {
         );
     }
 
-    /// @dev Gap row G-04: batch credits per owner, the batch total, issueSize untouched, and claim payouts exact.
+    /// @dev Batch credits per owner, the batch total, issueSize untouched, and claim payouts exact.
     function invariant_escrowCreditsAndClaimsExact() public view {
         assertFalse(handler.ghostEscrowViolation(), "batch redemption credits and escrow claims must be wei-exact");
     }
@@ -235,7 +235,7 @@ contract CofferInvariantExtTest is BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // INVARIANT 11 (AC-1): issueSize MUST COVER ALL OUTSTANDING BONDS
+    // INVARIANT 11: issueSize MUST COVER ALL OUTSTANDING BONDS
     // Validator cannot decrease issueSize below sum of outstanding bond maturity values
     // ══════════════════════════════════════════════════════════════════════
 
@@ -258,7 +258,7 @@ contract CofferInvariantExtTest is BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // INVARIANT 12 (AC-6): VERSION MONOTONICITY
+    // INVARIANT 12: VERSION MONOTONICITY
     // version must always be >= 2 after setUp
     // ══════════════════════════════════════════════════════════════════════
 
@@ -267,7 +267,7 @@ contract CofferInvariantExtTest is BaseTest {
         assertGe(version, 2, "version must be >= 2 after setUp");
     }
 
-    /// @dev Gap row G-06: the anti-frontrun counter is a count of the six bumping operations.
+    /// @dev The anti-frontrun counter is a count of the six bumping operations.
     function invariant_versionCountsBumps() public view {
         (,,,,, uint32 version,,,,) = coffer.sValidatorConditions();
         assertEq(
@@ -277,7 +277,7 @@ contract CofferInvariantExtTest is BaseTest {
         );
     }
 
-    /// @dev Gap row G-06: the terms a buyer's version pins never move without a bump.
+    /// @dev The terms a buyer's version pins never move without a bump.
     function invariant_termsBoundToVersion() public view {
         (, uint32 interestRate, uint32 minimumDuration, uint32 maximumDuration,,,, uint16 issueSizeBufferBps,,) =
             coffer.sValidatorConditions();
@@ -329,7 +329,7 @@ contract CofferInvariantExtTest is BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // INVARIANT 15b: BOND-NFT BIJECTION OVER EVERY ID EVER MINTED (gap row G-01)
+    // INVARIANT 15b: BOND-NFT BIJECTION OVER EVERY ID EVER MINTED
     // The active-list invariants above pop settled ids, so a settlement that skipped the delete or
     // the burn stays invisible to them. These walk the handler's append-only list of every id.
     // ══════════════════════════════════════════════════════════════════════
@@ -373,7 +373,7 @@ contract CofferInvariantExtTest is BaseTest {
         assertEq(sum, uint256(outstandingBonds), "sum of balanceOf over the owner set must equal outstandingBonds");
     }
 
-    /// @dev Gap row G-02: over every id ever minted, the value promised at issuance is in exactly one of three
+    /// @dev Over every id ever minted, the value promised at issuance is in exactly one of three
     /// places, the live remainder, the holder's wallet, or the escrow credit. Active ids carry a non-zero
     /// remainder, settled ids a zero one, the same equation covers both.
     function invariant_promiseLedgerPerBond() public view {
@@ -408,7 +408,7 @@ contract CofferInvariantExtTest is BaseTest {
         assertFalse(handler.ghostDefaultViolation(), "declareDefault must never succeed against a covered bond");
     }
 
-    /// @dev The negative half of the predicate (gap table defect 2): a covered or unmatured bond, or a standing
+    /// @dev The negative half of the predicate: a covered or unmatured bond, or a standing
     /// default, refuses declareDefault with its named error, and an unmatured bond refuses the holder's redeem.
     /// handlerDeclareDefault skips covered bonds, so this is the only path that asks the contract to refuse.
     function invariant_defaultPredicateRefused() public view {
@@ -443,7 +443,7 @@ contract CofferInvariantExtTest is BaseTest {
         );
     }
 
-    /// @dev Gap row G-03: the balance is fully attributed over the whole run, in both states, never re-baselined.
+    /// @dev The balance is fully attributed over the whole run, in both states, never re-baselined.
     function invariant_balanceLedgerWholeRun() public view {
         assertEq(
             address(coffer).balance,
@@ -452,12 +452,12 @@ contract CofferInvariantExtTest is BaseTest {
         );
     }
 
-    /// @dev Gap row G-03: no third party lowers the balance and the declaring call moves nothing.
+    /// @dev No third party lowers the balance and the declaring call moves nothing.
     function invariant_permissionlessCallsNeverLowerBalance() public view {
         assertFalse(handler.ghostBalanceViolation(), "a permissionless call lowered the balance or a declare moved it");
     }
 
-    /// @dev Gap row G-11: receive() stays open at every state the model reaches (the uint128 ceiling is not one).
+    /// @dev receive() stays open at every state the model reaches (the uint128 ceiling is not one).
     function invariant_receiveNeverRevertedInModel() public view {
         assertFalse(handler.ghostTopUpReverted(), "a plain transfer to the coffer must never revert in the model");
     }
@@ -494,7 +494,7 @@ contract CofferInvariantExtTest is BaseTest {
         }
     }
 
-    /// @dev Gap row G-05: no setter, default, partial claim or transfer touches a bond's duration or startTimestamp.
+    /// @dev No setter, default, partial claim or transfer touches a bond's duration or startTimestamp.
     function invariant_bondTermsFrozen() public view {
         uint256 len = handler.getActiveBondIdsLength();
         for (uint256 i = 0; i < len; i++) {

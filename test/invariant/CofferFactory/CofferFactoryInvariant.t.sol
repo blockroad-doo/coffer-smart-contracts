@@ -68,12 +68,12 @@ contract CofferFactoryInvariantTest is BaseTest {
         }
     }
 
-    /// @dev Gap table defect 9: the clone the factory returns is the one predictCofferAddress named
+    /// @dev The clone the factory returns is the one predictCofferAddress named
     function invariant_CloneMatchesPrediction() public view {
         assertFalse(handler.ghostFactoryViolation(), "createCoffer must return the predicted address");
     }
 
-    /// @dev Gap table defect 9: every deployed clone is registered in the shared NFT and carries the factory's escrow
+    /// @dev Every deployed clone is registered in the shared NFT and carries the factory's escrow
     function invariant_EveryDeployedCofferIsRegisteredAndWired() public view {
         uint256 len = handler.getDeployedCoffersLength();
         for (uint256 i = 0; i < len; i++) {

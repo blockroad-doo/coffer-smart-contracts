@@ -180,7 +180,7 @@ contract CofferValidatorOpsTest is BaseTest {
         coffer.validatorRedeemBonds(ids);
     }
 
-    // Gap row G-07: a batch is all-or-nothing. A duplicated id trips the second iteration's existence check
+    // A batch is all-or-nothing. A duplicated id trips the second iteration's existence check
     // because the first iteration deleted the record, and a settled id beside a valid one unwinds the valid
     // one's delete and burn. Nothing moves in either case, msg.value included. The snapshot lives in a struct
     // to stay clear of the stack limit.
@@ -724,14 +724,14 @@ contract CofferValidatorOpsTest is BaseTest {
     }
 
     function test_ChangeIssueSizeBufferBps_RevertsIfEqualsDenominator() public {
-        // F-10: buffer == BUFFER_DENOMINATOR (100%) is now rejected; valid range is 0..9999.
+        //buffer == BUFFER_DENOMINATOR (100%) is now rejected; valid range is 0..9999.
         vm.prank(validator);
         vm.expectRevert(Coffer.InvalidIssueSizeBufferBps.selector);
         coffer.changeIssueSizeBufferBps(10000); // == BUFFER_DENOMINATOR
     }
 
     function test_ChangeIssueSizeBufferBps_MaxValid_9999_Succeeds() public {
-        // F-10: 9999 (BUFFER_DENOMINATOR - 1) is the maximum valid buffer and must still work.
+        //9999 (BUFFER_DENOMINATOR - 1) is the maximum valid buffer and must still work.
         vm.prank(validator);
         coffer.changeIssueSizeBufferBps(9999);
 
@@ -1309,7 +1309,7 @@ contract CofferValidatorOpsTest is BaseTest {
         assertGt(issueSize, maxAllowed, "BUG: changeIssueSize accepts values exceeding buffer-capped maximum");
     }
 
-    /// @dev Gap row G-09: the creation-time formula under fuzzed inputs. The factory's guard and initialize are
+    /// @dev The creation-time formula under fuzzed inputs. The factory's guard and initialize are
     ///      two copies of one expression, so the stored issueSize must equal the emitted one and the formula, stay
     ///      at or below the starting balance, and admit the minimum exactly when it fits. Replaces a fuzz whose only
     ///      assertion restated its own condition. Each run derives its own pubkey, so the clone address is fresh.
@@ -1348,7 +1348,7 @@ contract CofferValidatorOpsTest is BaseTest {
         pure
         returns (bytes32 pk1, bytes16 pk2)
     {
-        pk1 = keccak256(abi.encode("G-09", startingBalance, bps, minimum));
+        pk1 = keccak256(abi.encode("creation-formula", startingBalance, bps, minimum));
         pk2 = bytes16(keccak256(abi.encode(pk1)));
     }
 

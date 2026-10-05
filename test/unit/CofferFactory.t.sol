@@ -432,7 +432,7 @@ contract CofferFactoryTest is BaseTest {
     }
 
     function test_CreateCoffer_Revert_IssueSizeBufferEqualsDenominator() public {
-        // F-10: buffer == BUFFER_DENOMINATOR (100%) is now rejected; valid range is 0..9999.
+        //buffer == BUFFER_DENOMINATOR (100%) is now rejected; valid range is 0..9999.
         vm.prank(validator);
         vm.expectRevert(CofferFactory.InvalidIssueSizeBufferBps.selector);
         factory.createCoffer(
@@ -448,7 +448,7 @@ contract CofferFactoryTest is BaseTest {
     }
 
     function test_CreateCoffer_IssueSizeBufferMaxValid_9999_Succeeds() public {
-        // F-10: 9999 (BUFFER_DENOMINATOR - 1) is the maximum valid buffer and must still work.
+        //9999 (BUFFER_DENOMINATOR - 1) is the maximum valid buffer and must still work.
         // minimumAmount = 1 keeps it within maxMinimumAmount (startingBalance * 1 / 10000) at a 99.99% buffer.
         vm.prank(validator);
         address clone = factory.createCoffer(

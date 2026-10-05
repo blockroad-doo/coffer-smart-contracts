@@ -60,12 +60,12 @@ contract CofferBondNftInvariantTest is Test {
         assertLe(handler.ghostTotalBurned(), handler.ghostTotalMinted(), "Total burned must never exceed total minted");
     }
 
-    /// @dev Gap row G-10: the returned id is read from the chain, not from a ghost the handler bumps itself
+    /// @dev The returned id is read from the chain, not from a ghost the handler bumps itself
     function invariant_MintedIdsAreDense() public view {
         assertFalse(handler.ghostIdViolation(), "the n-th successful mint must return n");
     }
 
-    /// @dev Gap row G-10: over every id ever minted, a burned id stays burned with cofferOf cleared and a live
+    /// @dev Over every id ever minted, a burned id stays burned with cofferOf cleared and a live
     /// id carries its minter. The handler is the only registered minter, so the minter is the handler.
     function invariant_EveryMintedIdIsLiveOrBurnedConsistently() public {
         uint256 minted = handler.ghostTotalMinted();

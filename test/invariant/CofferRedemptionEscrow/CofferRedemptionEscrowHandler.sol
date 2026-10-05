@@ -49,7 +49,7 @@ contract CofferRedemptionEscrowHandler is Test {
         uint256 total = 0;
 
         for (uint256 i = 0; i < holderCount; ++i) {
-            // Independent draws, so one holder can appear twice in a batch (gap row G-04)
+            // Independent draws, so one holder can appear twice in a batch
             holders[i] = actors[uint256(keccak256(abi.encode(actorSeed, i))) % actors.length];
             amounts[i] = uint128(bound(uint256(keccak256(abi.encode(amountSeed, i))), 1, 10 ether));
             total += amounts[i];
@@ -83,7 +83,7 @@ contract CofferRedemptionEscrowHandler is Test {
 
         uint256 amount = ghostPendingClaims[claimant];
 
-        // Half the calls redirect to another actor, the path the _to parameter exists for (gap row G-04)
+        // Half the calls redirect to another actor, the path the _to parameter exists for
         address to = toSeed % 2 == 0 ? claimant : actors[(toSeed / 2) % actors.length];
         uint256 toBefore = to.balance;
         uint256 claimantBefore = claimant.balance;

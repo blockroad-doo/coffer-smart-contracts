@@ -330,7 +330,7 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// donations or over-cure matches the existing zero-bond staleness class, because withdrawals with no
     /// outstanding bonds never decrement issueSize either.
     /// @notice The contributor set is unrestricted by design. Funds from any sender are added to the contract
-    /// balance and credited to issueSize, and any AML or sanctions filtering is performed off-chain. This is an
+    /// balance and credited to issueSize, and the contract performs no AML or sanctions filtering. This is an
     /// inherent property of every ETH-accepting Ethereum address, including the validator's own 0x01 or 0x02
     /// withdrawal credential, and is not a Coffer-specific weakness.
     /// @notice The issueSize credit is checked arithmetic, so a transfer that would carry issueSize past
@@ -438,8 +438,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// is the sum of bondMaturityValue across the passed bondIds and maturedUnpaid is the sum over matured bonds
     /// this call leaves unpaid. Sizing it from the balance alone spends the funding of those bonds, and their
     /// holders can then declare the default. Unlike the EIP-7002 and EIP-7251 fee-bearing functions, the
-    /// shortfall here is a pure function of on-chain state at call time, so the validator or their frontend can size
-    /// msg.value exactly without oracle or fee drift. Any surplus is NOT refunded and accrues to the contract
+    /// shortfall here is a pure function of on-chain state at call time, so msg.value can be sized exactly
+    /// without oracle or fee drift. Any surplus is NOT refunded and accrues to the contract
     /// balance. It is recoverable via validatorWithdrawFromExecution, bounded by issueSize while outstandingBonds > 0
     /// and freely withdrawable once all bonds settle.
     /// @param _bondIds Bond IDs of the bonds the validator redeems
@@ -896,8 +896,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     }
 
     /// @notice Validator can add funds at will
-    /// @param _depositDataRoot Validator must create the deposit data root off-chain using JavaScript with the
-    /// for example ChainSafe/ssz library, the validator public signing key, and the intended amount.
+    /// @param _depositDataRoot The deposit data root, which the validator computes before the call from the
+    /// validator public signing key and the intended amount.
     function validatorAddFundsToConsensus(bytes32 _depositDataRoot) external payable onlyOwner {
         ValidatorConditions storage vc = sValidatorConditions;
 

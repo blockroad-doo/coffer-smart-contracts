@@ -15,7 +15,7 @@ contract CofferFactoryHandler is Test {
     // Ghost state
     address[] public ghostDeployedCoffers;
     uint256 public ghostDeploymentCount;
-    // Set when createCoffer returns an address other than the prediction (gap table defect 9)
+    // Set when createCoffer returns an address other than the prediction
     bool public ghostFactoryViolation;
 
     constructor(CofferFactory _factory) {
