@@ -13,7 +13,7 @@
   - [Clone Architecture (CWIA)](#clone-architecture-cwia)
   - [Roles](#roles)
   - [Deployment](#deployment)
-- [Validator Considerations](#validator-considerations)
+- [Validator and Holder Considerations](#validator-and-holder-considerations)
   - [Setup Steps](#setup-steps)
   - [Evaluating a Coffer](#evaluating-a-coffer)
     - [Before You Buy](#before-you-buy)
@@ -24,7 +24,7 @@
   - [Validator Redeeming Bonds](#validator-redeeming-bonds)
 - [Risk Factors](#risk-factors)
   - [Extreme Consensus-Layer Events](#extreme-consensus-layer-events)
-    - [Non-Finalization (Inactivity Leak)](#non-finalization-inactivity-leak)
+    - [Non-Finalisation (Inactivity Leak)](#non-finalisation-inactivity-leak)
     - [Correlated Slashing](#correlated-slashing)
   - [Default Declaration Race](#default-declaration-race)
 - [Restrictions](#restrictions)
@@ -39,6 +39,7 @@
   - [Cross-Layer Solvency Condition](#cross-layer-solvency-condition)
     - [The base case and the buffer as a decline budget](#the-base-case-and-the-buffer-as-a-decline-budget)
     - [Preserved by every on-chain transition](#preserved-by-every-on-chain-transition)
+- [Licence](#licence)
 
 ---
 
@@ -97,7 +98,7 @@ Each Coffer is deployed as a minimal proxy clone using Solady's `LibClone`. At c
 
 The shared `FeeCurve` address is **not** a CWIA arg. It is stored as an immutable on the `Coffer` implementation itself, set in the implementation's constructor when `CofferFactory` deploys it. Since every clone delegates to that single implementation, all clones read the same `FEE_CURVE` value, and like the CWIA args it cannot be changed after deployment.
 
-The remaining parameters, `_owner`, `_interestRate`, `_minimumDuration`, `_maximumDuration`, `_minimumValueToAccept`, `_issueSizeBufferBps`, and `_startingBalance`, are set via `initialize()` and stored in regular storage. `_startingBalance` seeds the initial issue size. These are the parameters validators can later modify, subject to the [restrictions](#changing-offer-parameters) documented below.
+The remaining parameters, `_owner`, `_interestRate`, `_minimumDuration`, `_maximumDuration`, `_minimumValueToAccept` and `_issueSizeBufferBps`, are set via `initialize()` and stored in regular storage. `_startingBalance` is not stored. It only seeds the initial `issueSize`. The stored values are the ones validators can later modify, subject to the [restrictions](#changing-offer-parameters) documented below.
 
 ### Roles
 
@@ -113,6 +114,7 @@ Four roles. The Protocol Admin owns the shared `FeeCurve` and can update the pro
 - `Coffer.receive()`, where any ETH transfer credits `issueSize`
 - `Coffer.declareDefault(uint256)` (declares the default when a matured bond cannot be paid from the contract balance, reverts while the bond is covered)
 - `Coffer.exitValidator()` (requests the defaulted validator's full EIP-7002 exit, callable repeatedly while any bond is outstanding, the caller pays the request fee, reverts until a default is declared and again after the last bond settles)
+- `Coffer.multicall(bytes[])` (non-payable batch of calls to the same Coffer, every subcall keeps the caller's own permissions)
 - `CofferFactory.createCoffer(...)` (caller becomes the validator of the new Coffer)
 - `CofferFactory.predictCofferAddress(...)` (view)
 - `CofferRedemptionEscrow.deposit(...)` (no access control, any caller pays real ETH that is credited 1:1 to the listed holders)
@@ -120,9 +122,9 @@ Four roles. The Protocol Admin owns the shared `FeeCurve` and can update the pro
 - `FeeCurve.collectFee()`, no access control, called by Coffer clones during `buyBond` to deposit the fee
 
 **Protocol Admin**, the owner of the shared `FeeCurve`, initially the deployer of `CofferFactory`:
-- `FeeCurve.setFeeRecipient(address)` (redirects where future bond fees are sent, the fee amounts themselves are immutable)
+- `FeeCurve.setFeeRecipient(address)` (sets the address that `claim()` pays, so fees already pooled and not yet claimed go to the new recipient too, the fee amounts themselves are immutable)
 
-**Validator**: every other state-changing function on `Coffer`, e.g. `changeInterestRate`, `changeMinimumAndMaximumDuration`, `changeMinimumValueToAccept`, `changeIssueSize`, `changeIssueSizeBufferBps`, `changeCofferActivity`, `validatorWithdrawFromExecution`, `validatorWithdrawFromConsensus`, `validatorAddFundsToConsensus`, `validatorRedeemBonds`, `clearDefault`, and `convertToCompounding`. Protocol-internal calls between contracts (NFT mint/burn/metadata-update, factory registration) are gated to the issuing/owning contract and are not user-callable.
+**Validator**: every other state-changing function on `Coffer`, e.g. `changeInterestRate`, `changeMinimumAndMaximumDuration`, `changeMinimumValueToAccept`, `changeIssueSize`, `changeIssueSizeBufferBps`, `changeCofferActivity`, `validatorWithdrawFromExecution`, `validatorWithdrawFromConsensus`, `validatorAddFundsToConsensus`, `validatorRedeemBonds`, `clearDefault`, and `convertToCompounding`. The one exception is `acceptOwnership`, which the incoming owner calls to complete the two-step transfer. Protocol-internal calls between contracts (NFT mint/burn/metadata-update, factory registration) are gated to the issuing/owning contract and are not user-callable.
 
 ### Deployment
 
@@ -130,7 +132,7 @@ Coffer must only be deployed on chains where the EIP-7002 withdrawal and EIP-725
 
 ---
 
-## Validator Considerations
+## Validator and Holder Considerations
 
 ### Setup Steps
 
@@ -179,18 +181,18 @@ Every consensus-layer request the Coffer sends needs execution-layer credentials
 `issueSizeBufferBps` scales down the validator's issuable capacity:
 
 ```
-issueSize = consensusBalance * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFER_DENOMINATOR
+issueSize = startingBalance * (BUFFER_DENOMINATOR - issueSizeBufferBps) / BUFFER_DENOMINATOR
 ```
 
 where 1% = 100 and BUFFER_DENOMINATOR = 10000 (basis points).
 
 The buffer creates headroom between what the validator issues and what they hold on the consensus layer. A higher buffer means a smaller issueSize at creation. Raising it later scales down only later consensus deposits and leaves the current issueSize as it is.
 
-The validator sets the buffer. The holder evaluates whether the chosen value, combined with the amount of ETH already issued, is adequate for the bond's duration given events the validator may face, such as missing attestations, going offline, or being slashed. A validator that operates several validators, or several Coffers under common control, carries higher correlated-slashing exposure, since a single cause can slash them together. The holder weighs the buffer against that concentration. Network-wide events, such as a non-finalizing period or large-scale correlated slashing, are unbounded and are covered separately under Risk Factors. Unsold `issueSize` is not headroom. The validator can issue it at any time, including to an address it controls. The buffer is the only headroom the holder can count on.
+The validator sets the buffer. The holder evaluates whether the chosen value, combined with the amount of ETH already issued, is adequate for the bond's duration given events the validator may face, such as missing attestations, going offline, or being slashed. A validator that operates several validators, or several Coffers under common control, carries higher correlated-slashing exposure, since a single cause can slash them together. The holder weighs the buffer against that concentration. Network-wide events, such as a non-finalising period or large-scale correlated slashing, are unbounded and are covered separately under Risk Factors. Unsold `issueSize` is not headroom. The validator can issue it at any time, including to an address it controls. The buffer is the only headroom the holder can count on.
 
 #### Exit Mechanics
 
-Bonds are paid from the contract's execution-layer balance, and the validator's one duty is to keep that balance sufficient. At every moment, the contract must hold at least the sum of maturity values across all matured, unpaid bonds. How the validator sources the ETH is their business. Consensus partials via validatorWithdrawFromConsensus take about 28 hours when the exit queue is empty and longer when it is congested, direct transfers via receive() are instant, and third-party top-ups count too. The holder redeems through `holderRedeemBondOrDefault` while the validator is not in default and through `holderRedeemBondInDefault` once a default stands (see [Redemption behaves differently in defaulted state](#redemption-behaves-differently-in-defaulted-state)).
+Bonds are paid from the contract's execution-layer balance, and the validator's one duty is to keep that balance sufficient. At every moment, the contract must hold at least the sum of maturity values across all matured, unpaid bonds. How the validator sources the ETH is their business. Consensus partials via `validatorWithdrawFromConsensus` take about 28 hours when the exit queue is empty and longer when it is congested, direct transfers via `receive()` are instant, and third-party top-ups count too. The holder redeems through `holderRedeemBondOrDefault` while the validator is not in default and through `holderRedeemBondInDefault` once a default stands (see [Redemption behaves differently in defaulted state](#redemption-behaves-differently-in-defaulted-state)).
 
 The moment any single matured bond cannot be paid in full from the contract balance, `declareDefault(bondId)` becomes callable by anyone. A default stands until every bond is settled. It freezes bond sales and every validator extraction path, accelerates every outstanding bond to claimable at its full maturity value on a first-come-first-served basis, and opens `exitValidator()`, which anyone can call repeatedly while any bond is outstanding to request the validator's full EIP-7002 exit. The exit sweeps the entire remaining stake to the contract, including the `MIN_ACTIVATION_BALANCE` floor (currently 32 ETH), so the floor never caps recovery. Preventing a default requires payment. Top up the contract or settle the bond through `validatorRedeemBonds` before the declaration lands. Clearing a default requires payment in full. `clearDefault()` lifts the flag only once every outstanding bond has received its full maturity value, and it does not recall an exit request that already landed. In practice a default should be treated as the end of the validator and of the Coffer. Requesting the exit is in every holder's immediate interest, so a request usually lands before the validator can settle every bond, and an exited validator can never rejoin the active set.
 
@@ -210,7 +212,7 @@ If a bond matures while the contract balance cannot cover its maturity value, a 
 
 **While the validator is not in default.** `holderRedeemBondOrDefault(bondId)` returns a bool that says whether the bond was paid in full. The function has two outcomes, and it never pays a partial amount. The bond is paid its full maturity value, or the validator is declared in default. The moment the contract balance cannot cover the bond, the default lands in the same transaction as the failed redeem, and every validator extraction path freezes from that moment on. A validator cannot dodge the default by briefly topping up and re-extracting the cure through `validatorWithdrawFromExecution`. Front-running this function averts the default only when the front-run funds the bond in full. When the redeem fails, the transaction still succeeds and moves no ETH. The bond stays alive at its full value and becomes claimable through `holderRedeemBondInDefault`. The function reverts if the bond has not yet matured, and it reverts once a default already stands.
 
-**While the validator is defaulted.** `holderRedeemBondInDefault(bondId)`. This function does not check maturity. A declared default accelerates every bond to claimable at its full maturity value, first come, first served. The function pays the smaller of the contract balance and the bond's remaining maturity value, so it pays whatever the contract holds, up to the bond's remaining value. A full payout settles and burns the bond, so repeated partial claims eventually settle the bond through this same function. It reverts while the validator is not in default, and it reverts when the contract balance is zero. In that case the holder waits for the exit sweep to land, as described under Default Economics.
+**While the validator is defaulted.** `holderRedeemBondInDefault(bondId)`. This function does not check maturity. A declared default accelerates every bond to claimable at its full maturity value, first come, first served. The function pays the smaller of the contract balance and the bond's remaining maturity value, so it pays whatever the contract holds, up to the bond's remaining value. A full payout settles and burns the bond, so repeated partial claims eventually settle the bond through this same function. It reverts while the validator is not in default, and it reverts when the contract balance is zero. In that case the holder waits for the exit sweep to land, as described under [Exit Mechanics](#exit-mechanics).
 
 The rare "declare default and claim what the contract holds" combo is available in one transaction through the contract's non-payable multicall, by batching a redeem that declares the default with an immediate claim. The batch lands only when the contract balance is above zero but below the bond's remaining value. Anything outside that window reverts the second subcall and unwinds the whole batch. With a zero balance the unwind rolls back the default declaration. With a balance that covers the bond it rolls back the holder's own payment, which is the state the validator's cure top-up produces. When unsure what the balance will be at execution time, call `holderRedeemBondOrDefault` alone. A contract caller can branch on the bool the function returns.
 
@@ -232,11 +234,11 @@ This pull-based pattern prevents a griefing attack where a bond NFT is transferr
 
 Some risks are beyond what any buffer can cover. These are network-wide events where all validators, all holders, and all participants are exposed. The correlated-slashing entry below also distinguishes the bounded, smaller-scale case, which the buffer can cover, from the network-wide case, which it cannot. Holders weigh these risks when evaluating a Coffer.
 
-#### Non-Finalization (Inactivity Leak)
+#### Non-Finalisation (Inactivity Leak)
 
-The inactivity leak activates when the chain stops finalizing (requires more than one-third of stake offline from a cross-cutting cause). Penalties in this regime grow quadratically over time. A flat percentage buffer cannot track this growth, so in a sustained leak the validator's balance may fall below what is needed to cover outstanding bonds. Holders of bonds that span such a period may face:
+The inactivity leak activates when the chain stops finalising (requires more than one-third of stake offline from a cross-cutting cause). Penalties in this regime grow quadratically over time. A flat percentage buffer cannot track this growth, so in a sustained leak the validator's balance may fall below what is needed to cover outstanding bonds. Holders of bonds that span such a period may face:
 
-1. **Total loss, validator stake depleted**: if the leak reduces the validator's consensus balance to zero or below outstanding bond obligations, there is nothing to recover.
+1. **Total loss, validator stake depleted**: if the leak reduces the validator's consensus balance to zero, there is nothing to recover.
 2. **Partial recovery with race**: if some stake survives but cannot cover all obligations, the validator eventually cannot fund a matured bond and the Coffer ends in default. Every bond accelerates to claimable at its full maturity value, anyone can trigger the validator's full exit while bonds remain outstanding, and the swept stake lands in the contract, where it backs the holders' claims. Claims are first come, first served, so when the contract balance cannot cover every bond the earliest claimants recover more and the leak losses land on whoever claims last.
 3. **Recovery timing**: the swept stake arrives only after the exit completes on the consensus layer. During a leak the exit queue is typically congested, so the sweep can take much longer than the normal several days, and attestation penalties keep eroding the stake until the validator leaves the active set.
 
@@ -244,7 +246,7 @@ The inactivity leak activates when the chain stops finalizing (requires more tha
 
 The consensus-layer slashing penalty scales with the total stake slashed within the same window, which produces two distinct cases. Small-scale correlated slashing, for example a single operator's validators slashed together by a common cause, remains a bounded fraction of the validator's balance. It is part of what the holder weighs when evaluating the buffer and the validator's concentration before buying (see [Issuance Buffer](#issuance-buffer)), and a buffer can be sized against it. Correlated slashing on Ethereum mainnet has so far been of this scale, with the largest events involving tens of validators.
 
-Large-scale correlated slashing, where a major fraction of total network stake is slashed in the same window, is the catastrophic case. The penalty can approach the entire balance, beyond what any buffer can cover. Like a non-finalizing period, it is a network-wide event. Validators lose stake, holders lose bond coverage, and all participants are exposed together. The protocol does not attempt to model or bound it on-chain. Such events are not covered by any on-chain mechanism. A longer bond spans more time in which one can occur.
+Large-scale correlated slashing, where a major fraction of total network stake is slashed in the same window, is the catastrophic case. The penalty can approach the entire balance, beyond what any buffer can cover. Like a non-finalising period, it is a network-wide event. Validators lose stake, holders lose bond coverage, and all participants are exposed together. The protocol does not attempt to model or bound it on-chain. Such events are not covered by any on-chain mechanism. A longer bond spans more time in which one can occur.
 
 ### Default Declaration Race
 
@@ -262,7 +264,7 @@ Queue position normally decides when a holder is paid, not how much. As long as 
 
 Validators cannot **INCREASE** `issueSize` or `interestRate`, **INCREASE** `maximumDuration`, or **DECREASE** `issueSizeBufferBps` while there are outstanding bonds. Any of these changes lets the validator manipulate the amounts the Coffer contract handles and benefit themselves at the expense of holders. Every restricted change is gated on all bonds being settled, and a bond counts as outstanding while its maturity value is non-zero, including matured bonds that have not yet been redeemed.
 
-Decreasing `issueSize`, `interestRate`, and `maximumDuration`, as well as increasing `issueSizeBufferBps`, can only work in the holder's favor.
+Decreasing `issueSize`, `interestRate`, and `maximumDuration`, as well as increasing `issueSizeBufferBps`, can only work in the holder's favour.
 
 ---
 
@@ -274,7 +276,7 @@ The fee schedule lives in a single shared `FeeCurve` contract, deployed once by 
 
 ### Fee Curve
 
-The fee is time-based. It depends only on how long the `FeeCurve` has been deployed, not on the individual bond's duration or size. The curve is sampled from `f(t) = 10% - 9% * e^(-k t)`, with `k` chosen so the curve is ~99% of the way to 10% by year 10. It is stored as a hardcoded, piecewise-linearly interpolated breakpoint table, expressed in basis points (1% = 100 bps):
+The fee is time-based. It depends only on how long the `FeeCurve` has been deployed, not on the individual bond's duration or size. The curve is sampled from `f(t) = 10% - 9% * e^(-k t)`, with `k` chosen so the curve is ~99% of the way to 10% by year 10. The last breakpoint is set to 990 bps, where the formula gives 991. It is stored as a hardcoded, piecewise-linearly interpolated breakpoint table, expressed in basis points (1% = 100 bps):
 
 | Day | 0 | 90 | 180 | 365 | 730 | 1095 | 1460 | 1825 | 2555 | 3650+ |
 |-----|---|-----|-----|-----|-----|------|------|------|------|-------|
@@ -303,7 +305,7 @@ send(validator, principal - fee)
 
 The curve is **immutable**. The fee amounts and breakpoints live in code with no setter. The only mutable parameter is the fee **recipient**, changeable by the `FeeCurve` owner, the protocol admin. The fee for a given purchase date is fixed and publicly verifiable in advance.
 
-The fee depends only on the number of whole days elapsed since the `FeeCurve` was deployed, not on the individual transaction. Day boundaries fall at the deployment timestamp plus multiples of 24 hours, not at UTC midnight. A `buyBond` signed before a boundary but included after it realizes the next day's fee, at most 2 bps of interest higher (on the steepest segment of the curve, days 0-90, and zero after the day-3650 plateau). Because the fee is taken from interest, never from principal, and is paid to the protocol rather than the validator, the difference is bounded, costs the holder no principal, and is not a value a validator or proposer can manipulate for gain. Holders who want exact terms across a day boundary should price against the next breakpoint's value.
+The fee depends only on the number of whole days elapsed since the `FeeCurve` was deployed, not on the individual transaction. Day boundaries fall at the deployment timestamp plus multiples of 24 hours, not at UTC midnight. A `buyBond` signed before a boundary but included after it realises the next day's fee, at most 2 bps of interest higher (on the steepest segment of the curve, days 0-90, and zero after the day-3650 plateau). Because the fee is taken from interest, never from principal, and is paid to the protocol rather than the validator, the difference is bounded, costs the holder no principal, and is not a value a validator or proposer can manipulate for gain. Holders who want exact terms across a day boundary should price against the next day's fee.
 
 ### Fee-Related Events
 
