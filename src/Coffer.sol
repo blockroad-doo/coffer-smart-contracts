@@ -763,11 +763,13 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Callable by anyone, repeatedly, while any bond is outstanding. Once every bond settles there is
     /// nothing left to recover, so the request gate closes. This also shuts the settle-to-clear window: a
     /// griefer cannot slip an exit request in front of the owner's clearDefault transaction. The consensus
-    /// layer silently drops an exit request while a pre-default partial withdrawal is still pending (a pending's
-    /// existence blocks exits, not its size). No new pending can be created during the default epoch, so a retry
-    /// after the pending tail (~28 hours) lands. It also drops one while the validator is within
-    /// SHARD_COMMITTEE_PERIOD (256 epochs, ~27 hours) of activation. A dropped request costs only the predeploy
-    /// fee already paid, and a retry lands once the condition has passed.
+    /// layer silently drops an exit request while a partial withdrawal requested before the default is still
+    /// pending, whatever its amount. No new partial withdrawal can be requested while the default stands, so a
+    /// retry lands once those partial withdrawals have been paid out. A partial withdrawal is paid out about 28
+    /// hours after its request when the exit queue is empty, and later when the queue is congested. The consensus
+    /// layer also drops an exit request while the validator is within SHARD_COMMITTEE_PERIOD (256 epochs, ~27
+    /// hours) of activation. A dropped request costs only the predeploy fee already paid, and a retry lands once
+    /// the condition has passed.
     /// @notice msg.value must cover the EIP-7002 withdrawal fee read from WITHDRAWAL_CONTRACT via staticcall.
     /// Callers should pre-size msg.value off-chain as (fee + small_buffer). Any surplus (msg.value - fee) is NOT
     /// refunded and accrues to the contract balance, which backs the holders' claims while the default stands.
@@ -869,10 +871,11 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// to keep the balance at MIN_ACTIVATION_BALANCE.
     /// @dev This function is called using gwei, not wei, since the beacon chain operates in gwei
     /// @dev Reverts while defaulted, which is the security boundary of the default machine: only this contract
-    /// can create pending partials for this pubkey (EIP-7002 checks the request's source address against the
-    /// withdrawal credential), so the freeze guarantees no new pending is created during a default epoch, and a
-    /// blocked exit request only ever waits out the pre-epoch pending tail (~28 hours) before a retry lands.
-    /// The argument re-applies unchanged to every later epoch after a clearDefault.
+    /// can request partial withdrawals for this pubkey (EIP-7002 checks the request's source address against the
+    /// withdrawal credential), so no new partial withdrawal is requested while the default stands, and a blocked
+    /// exit request waits only until the partial withdrawals requested before the default have been paid out.
+    /// That is about 28 hours after the last such request when the exit queue is empty, and later when the queue
+    /// is congested. The same holds for every later default after a clearDefault.
     /// @dev A codeless predeploy answers (true, ""), which would decode to fee 0 and no-op silently; the length
     /// check turns that chain misconfiguration into a loud failure instead (parity with exitValidator)
     /// @param _amount The amount to withdraw in gwei
