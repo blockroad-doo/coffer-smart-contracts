@@ -60,6 +60,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     error RenounceOwnershipDisabled();
 
     /// @notice When block.timestamp >= startTimestamp + duration, the bond reaches maturity
+    /// @notice startTimestamp is a uint32 and holds times up to 7 February 2106, 06:28:15 UTC. A bond bought after
+    /// that moment stores only the lowest 32 bits of the time and is mature in its purchase block. The validator
+    /// must stop sales through changeCofferActivity before that moment and keep them stopped
     struct HolderConditions {
         uint128 bondMaturityValue;
         uint32 duration;
@@ -482,6 +485,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
 
     /// @notice Change the Coffer's activity
     /// @notice If the validator wants to stop issuing bonds, it can flip from active to inactive and vice versa
+    /// @notice The Coffer must be inactive from 7 February 2106, 06:28:15 UTC on, because a bond bought after that
+    /// moment is mature at purchase (see HolderConditions)
     function changeCofferActivity() external onlyOwner {
         ValidatorConditions storage vc = sValidatorConditions;
         bool newState = !vc.isActive;

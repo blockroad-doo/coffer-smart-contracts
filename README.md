@@ -29,6 +29,7 @@
   - [Default Declaration Race](#default-declaration-race)
 - [Restrictions](#restrictions)
   - [Changing Offer Parameters](#changing-offer-parameters)
+  - [Purchase Time Limit](#purchase-time-limit)
 - [Protocol Fees](#protocol-fees)
   - [Fee Curve](#fee-curve)
   - [How the Fee Is Applied](#how-the-fee-is-applied)
@@ -265,6 +266,14 @@ Queue position normally decides when a holder is paid, not how much. As long as 
 Validators cannot **INCREASE** `issueSize` or `interestRate`, **INCREASE** `maximumDuration`, or **DECREASE** `issueSizeBufferBps` while there are outstanding bonds. Any of these changes lets the validator manipulate the amounts the Coffer contract handles and benefit themselves at the expense of holders. Every restricted change is gated on all bonds being settled, and a bond counts as outstanding while its maturity value is non-zero, including matured bonds that have not yet been redeemed.
 
 Decreasing `issueSize`, `interestRate`, and `maximumDuration`, as well as increasing `issueSizeBufferBps`, can only work in the holder's favour.
+
+### Purchase Time Limit
+
+`buyBond` stores the purchase time of a bond in `startTimestamp`, a `uint32`. A `uint32` holds times up to 7 February 2106, 06:28:15 UTC. Every bond bought up to that moment matures on time, whatever its duration, because both maturity checks add `duration` to `startTimestamp` as 256-bit numbers. A 50-year bond bought in the last second matures on 26 January 2156.
+
+A bond bought after that moment stores only the lowest 32 bits of the time, which is about 136 years too early, so the bond is mature in the block in which it is bought. Its holder can redeem it at once for the full maturity value, and the validator pays a full term of interest in that block. When the contract balance is smaller than that maturity value, anyone can declare a default on the new bond in the same block.
+
+A validator must stop selling bonds before 7 February 2106, 06:28:15 UTC, and must not start again after it. On an active Coffer, `changeCofferActivity()` sets `isActive` to false, and from then on `buyBond` reverts with `ValidatorIsNotActive`. Bonds bought before the limit keep their terms and are redeemed as usual. A clone keeps its implementation for its whole life, so no existing Coffer can move this limit.
 
 ---
 
