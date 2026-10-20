@@ -441,8 +441,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// is the sum of bondMaturityValue across the passed bondIds and maturedUnpaid is the sum over matured bonds
     /// this call leaves unpaid. Sizing it from the balance alone spends the funding of those bonds, and their
     /// holders can then declare the default. Unlike the EIP-7002 and EIP-7251 fee-bearing functions, the
-    /// shortfall here is a pure function of on-chain state at call time, so msg.value can be sized exactly
-    /// without oracle or fee drift. Any surplus is NOT refunded and accrues to the contract
+    /// shortfall here is a pure function of on-chain state at call time, without oracle or fee drift. maturedUnpaid
+    /// is taken when the call lands, so it includes a bond that matures while the call waits. Any surplus is NOT
+    /// refunded and accrues to the contract
     /// balance. It is recoverable via validatorWithdrawFromExecution, bounded by issueSize while outstandingBonds > 0
     /// and freely withdrawable once all bonds settle.
     /// @param _bondIds Bond IDs of the bonds the validator redeems
