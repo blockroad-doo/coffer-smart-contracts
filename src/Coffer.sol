@@ -746,13 +746,16 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
         emit ValidatorDefaulted(_bondId, msg.sender);
     }
 
-    /// @notice Declares the validator in default: a matured bond exists that the contract balance cannot pay
-    /// @notice Callable by anyone. The holder's own atomic path is holderRedeemBondOrDefault, which declares the
-    /// default through the same predicate in the same transaction as the failed redeem. The only way to
-    /// prevent the declaration is to pay: top up the balance via receive() or settle the bond via
-    /// validatorRedeemBonds before this call lands, so the only useful front-run of this function is paying the
-    /// holder. The only way out of a declared default is also to pay: once every outstanding bond is settled
-    /// at its full maturity value, the owner can clear the flag via clearDefault.
+    /// @notice Declares the validator in default when the named matured bond cannot be paid from the balance
+    /// @notice Callable by anyone. The check compares the balance with the named bond only. While the balance pays
+    /// the largest matured bond, this call reverts for every bond, and each matured holder is paid in full or
+    /// declares the default through holderRedeemBondOrDefault, which pays or declares in one transaction.
+    /// @notice A call that waits in the public mempool can be voided without payment. A receive() top-up just
+    /// before it raises issueSize, and validatorWithdrawFromExecution takes the same amount back just after it.
+    /// A third party should send this call through a private transaction channel. holderRedeemBondOrDefault
+    /// cannot be voided this way.
+    /// @notice The only way out of a declared default is to pay. Once every outstanding bond is settled at its
+    /// full maturity value, the owner can clear the flag via clearDefault.
     /// @notice While defaulted: bond sales and every validator extraction path revert with ValidatorInDefault,
     /// all bonds accelerate to claimable at full maturity value (first come first served, via
     /// holderRedeemBondInDefault), and anyone can repeatedly request the validator's full exit via exitValidator
@@ -830,6 +833,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Validator withdraws from execution layer
     /// @notice When outstanding bonds exist, withdrawal is bounded: the validator can only withdraw up to issueSize
     /// (unbonded capacity). When no bonds exist, the validator can withdraw freely.
+    /// @notice receive() raises issueSize by the amount it receives, so a top-up can be withdrawn again while no
+    /// default stands
     /// @notice Version of validator conditions must be updated to avoid the validator front-running the holder
     /// @notice Reverts while defaulted: post-default the contract balance backs the holders' claims
     /// @param _amount The amount to withdraw

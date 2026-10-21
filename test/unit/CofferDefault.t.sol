@@ -121,7 +121,7 @@ contract CofferDefaultTest is BaseTest {
     }
 
     // ========================================
-    // Cure at the door: the only useful front-run is paying
+    // Cure at the door: a top-up that stays in the contract pays the holder in full
     // ========================================
 
     function test_DeclareDefault_CureByTopUp_ThenHolderClaimsInFull() public {
@@ -534,16 +534,16 @@ contract CofferDefaultTest is BaseTest {
     // Scenario walkthroughs
     // ========================================
 
-    /// @dev The top-up/re-extract yo-yo is dead. The holder's holderRedeemBondOrDefault
-    ///      declares the default in the same transaction as a failed redeem, so the validator can
-    ///      no longer dodge declareDefault with a top-up and re-extract it: the moment the balance
-    ///      fails to cover the bond, the default lands and every extraction path freezes. A top-up
-    ///      can still buy the validator a paid-out bond, but that is paying, not a dodge.
+    /// @dev The top-up/re-extract yo-yo voids a third-party declareDefault without payment, and only the
+    ///      holder's own redeem ends it. A receive() top-up raises issueSize, so the validator takes the
+    ///      top-up back after the declaration reverted. holderRedeemBondOrDefault declares the default in
+    ///      the same transaction as a failed redeem, so the moment the balance fails to cover the bond, the
+    ///      default lands and every extraction path freezes.
     function test_Scenario_TopUpReExtractYoYo_AtomicDefaultEndsIt() public {
         (uint256 bondId, uint128 bmv) = _maturedUnpaidBond();
 
-        // The permissionless declareDefault can still be dodged by paying: a top-up covers
-        // the bond, so the declaration reverts...
+        // The permissionless declareDefault is voided without paying: a top-up covers the bond, so the
+        // declaration reverts...
         vm.prank(validator);
         (bool ok,) = cofferAddr.call{value: bmv}("");
         require(ok, "top-up");
