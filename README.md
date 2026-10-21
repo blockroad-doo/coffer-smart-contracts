@@ -28,6 +28,7 @@
     - [Non-Finalisation (Inactivity Leak)](#non-finalisation-inactivity-leak)
     - [Correlated Slashing](#correlated-slashing)
   - [Default Declaration Race](#default-declaration-race)
+  - [Selling a Bond During a Default](#selling-a-bond-during-a-default)
 - [Restrictions](#restrictions)
   - [Changing Offer Parameters](#changing-offer-parameters)
   - [Purchase Time Limit](#purchase-time-limit)
@@ -222,7 +223,7 @@ If a bond matures while the contract balance cannot cover its maturity value, a 
 
 **While the validator is not in default.** `holderRedeemBondOrDefault(bondId)` returns a bool that says whether the bond was paid in full. The function has two outcomes, and it never pays a partial amount. The bond is paid its full maturity value, or the validator is declared in default. The moment the contract balance cannot cover the bond, the default lands in the same transaction as the failed redeem, and every validator extraction path freezes from that moment on. A validator cannot dodge the default by briefly topping up and re-extracting the cure through `validatorWithdrawFromExecution`. Front-running this function averts the default only when the front-run funds the bond in full. When the redeem fails, the transaction still succeeds and moves no ETH. The bond stays alive at its full value and becomes claimable through `holderRedeemBondInDefault`. The function reverts if the bond has not yet matured, and it reverts once a default already stands.
 
-**While the validator is defaulted.** `holderRedeemBondInDefault(bondId)`. This function does not check maturity. A declared default accelerates every bond to claimable at its full maturity value, first come, first served. The function pays the smaller of the contract balance and the bond's remaining maturity value, so it pays whatever the contract holds, up to the bond's remaining value. A full payout settles and burns the bond, so repeated partial claims eventually settle the bond through this same function. It reverts while the validator is not in default, and it reverts when the contract balance is zero. In that case the holder waits for the exit sweep to land, as described under [Exit Mechanics](#exit-mechanics).
+**While the validator is defaulted.** `holderRedeemBondInDefault(bondId)`. This function does not check maturity. A declared default accelerates every bond to claimable at its full maturity value, first come, first served. The function pays the smaller of the contract balance and the bond's remaining maturity value, so it pays whatever the contract holds, up to the bond's remaining value. A full payout settles and burns the bond, so repeated partial claims eventually settle the bond through this same function. It reverts while the validator is not in default, and it reverts when the contract balance is zero. In that case the holder waits for the exit sweep to land, as described under [Exit Mechanics](#exit-mechanics). A partial claim keeps the bond's token id, which matters to anyone who buys the bond afterwards, see [Selling a Bond During a Default](#selling-a-bond-during-a-default).
 
 The rare "declare default and claim what the contract holds" combo is available in one transaction through the contract's non-payable multicall, by batching a redeem that declares the default with an immediate claim. The batch lands only when the contract balance is above zero but below the bond's remaining value. Anything outside that window reverts the second subcall and unwinds the whole batch. With a zero balance the unwind rolls back the default declaration. With a balance that covers the bond it rolls back the holder's own payment, which is the state the validator's cure top-up produces. When unsure what the balance will be at execution time, call `holderRedeemBondOrDefault` alone. A contract caller can branch on the bool the function returns.
 
@@ -267,6 +268,20 @@ Large-scale correlated slashing, where a major fraction of total network stake i
 A contract holder can close the race by branching in a single transaction. Call `holderRedeemBondOrDefault` first, and when it returns false or reverts with `ValidatorInDefault`, claim through `holderRedeemBondInDefault`. A holder sending plain transactions from a wallet has no equivalent protection and carries the race whenever the Coffer sits near the default boundary.
 
 Queue position normally decides when a holder is paid, not how much. As long as the contract balance together with the swept stake covers every outstanding bond, each claim ends in full settlement. Losing the race turns into losing money only when the recovery falls short, which is the situation described under [Extreme Consensus-Layer Events](#extreme-consensus-layer-events).
+
+### Selling a Bond During a Default
+
+While a default stands, `holderRedeemBondInDefault` pays the smaller of the contract balance and the bond's remaining value. When the balance is smaller, the claim lowers the bond's remaining value, and the bond keeps its token id and stays transferable. A sale that is agreed on the token id and the price stays fillable after such a claim. The seller keeps both the claimed ETH and the sale price, and the buyer receives a bond that holds less than the buyer paid for.
+
+For example, a bond with 10.50 ETH remaining is listed for 10.29 ETH while the contract holds 6 ETH. The seller claims the 6 ETH through the bond, and the listing still fills at 10.29 ETH. The bond now holds 4.50 ETH, so the buyer loses 5.79 ETH. If the seller first tops up the contract to just below the bond's remaining value, the claim returns the top-up and can leave as little as 1 wei in the bond.
+
+A marketplace, an escrow or any other contract that sells, buys or values a bond must check the bond inside the transaction that moves it.
+
+1. Record the remaining value that the buyer agrees to. It is the first value that `sHolderConditions(bondId)` returns on the Coffer at `CofferBondNft.cofferOf(bondId)`.
+2. In that transaction, read the live remaining value and revert unless it equals the recorded value.
+3. Make the check part of every listing and every offer. A seller who acts against the buyer creates a listing without it, so a buyer accepts only listings that carry the check.
+
+A check outside that transaction does not protect the buyer. An app, a simulation or the token metadata can show the old value, because the seller can claim in the same block just before the sale, or during the sale on a venue that runs the seller's code. A claim that pays the bond in full burns the token, so a sale of that bond fails and the buyer loses nothing. The risk exists only while a default stands and the contract balance is smaller than the bond's remaining value.
 
 ---
 

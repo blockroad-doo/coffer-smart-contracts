@@ -670,6 +670,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// contract holds, up to the bond's remaining value. A full payout burns the bond and decrements
     /// outstandingBonds, so a sequence of partial claims converges to settlement through this one function and
     /// clearDefault's outstandingBonds == 0 gate stays reachable.
+    /// @notice A partial claim lowers bondMaturityValue and keeps the token id, and the bond stays transferable.
+    /// A sale agreed on the token id and the price stays fillable after it, so anything that sells or values a
+    /// bond must compare its remaining value with the agreed value inside the transaction that moves it.
     /// @notice Reverts while the validator is serving (ValidatorNotInDefault) and when the contract balance is
     /// zero (NothingToRedeem). In an all-or-nothing batch the zero-balance revert unwinds every earlier
     /// subcall, a default freshly declared by holderRedeemBondOrDefault included; see holderRedeemBondOrDefault's

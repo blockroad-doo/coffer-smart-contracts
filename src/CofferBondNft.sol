@@ -15,6 +15,9 @@ import {ICoffer} from "./interfaces/ICoffer.sol";
  * @author Blockroad d.o.o.
  * @notice ERC-721 contract representing transferable ownership of Coffer Accepted Offer
  * @notice When a holder accepts Coffer offer, they receive an NFT representing a bond
+ * @notice During a default a partial claim lowers a bond's remaining value and keeps its token id. Anything that
+ * sells or values a bond must read sHolderConditions(bondId) on cofferOf(bondId) inside the transaction that
+ * moves the bond, and compare it with the agreed value.
  */
 contract CofferBondNft is ERC721, IERC4906, ICofferBondNft {
     error OnlyCofferCanBurn();
