@@ -179,6 +179,10 @@ The holder must verify this on the execution and consensus layers before any int
 
 Every consensus-layer request the Coffer sends needs execution-layer credentials, 0x01 or 0x02, whose address is the Coffer. A full exit works with either type, so `exitValidator()` in a default and `validatorWithdrawFromConsensus(0)` recover the stake of a 0x01 validator as well. Partial withdrawals need 0x02, and a 0x01 validator cannot hold more than 32 ETH on the consensus layer, because the beacon chain sweeps the excess to the Coffer on its own. `convertToCompounding()` is the step from 0x01 to 0x02, so it needs 0x01. The predeploys accept and charge for every request. One the consensus layer rejects is dropped silently, so a call that succeeded on the execution layer proves nothing about the credentials. The holder verifies the credential type and address on the consensus layer.
 
+**Capacity added before the deposit is credited**
+
+`validatorAddFundsToConsensus` raises `issueSize` by the buffer-adjusted amount in the same transaction, while the deposit waits in the beacon chain's deposit queue. Count that capacity as backed only once the validator's beacon balance or its pending deposits show the amount. The deposit carries no signature, so the beacon chain credits it only to a validator that exists when it processes the deposit and drops it otherwise. The function is for a registered key, or for one whose valid first deposit is earlier in the queue.
+
 #### Issuance Buffer
 
 `issueSizeBufferBps` scales down the validator's issuable capacity:
@@ -355,7 +359,7 @@ The fee depends only on the number of whole days elapsed since the `FeeCurve` wa
 
 ### Contract Invariants
 
-- **issueSize accounting**: `issueSize` moves only through five transitions. `receive()` adds `msg.value`, `validatorAddFundsToConsensus` adds the buffer-adjusted deposit, `buyBond` subtracts the bond's maturity value, `validatorWithdrawFromExecution` subtracts the amount while bonds are outstanding, and `changeIssueSize` sets it outright. Settling a bond, by any path, never moves it, so capacity consumed by a bond comes back only through a new deposit. The protocol fee does not affect this accounting. The fee is paid out of the validator's principal payout in `buyBond`, not from the bond backing, and each `bondMaturityValue` is already net of the fee
+- **issueSize accounting**: `issueSize` moves only through five transitions. `receive()` adds `msg.value`, `validatorAddFundsToConsensus` adds the buffer-adjusted deposit before the beacon chain has credited it, `buyBond` subtracts the bond's maturity value, `validatorWithdrawFromExecution` subtracts the amount while bonds are outstanding, and `changeIssueSize` sets it outright. Settling a bond, by any path, never moves it, so capacity consumed by a bond comes back only through a new deposit. The protocol fee does not affect this accounting. The fee is paid out of the validator's principal payout in `buyBond`, not from the bond backing, and each `bondMaturityValue` is already net of the fee
 - **receive() issueSize top-up**: `receive()` increases `issueSize` by `msg.value`. Beacon chain withdrawals (EIP-4895) credit balance without code execution and do not trigger `receive()`, so all `receive()` invocations are execution-layer transfers with real ETH backing
 - **Parameter monotonicity**: While `outstandingBonds > 0`, the setters can only lower `issueSize`, `interestRate`, and `maximumDuration`, and can only raise `issueSizeBufferBps`. `receive()` and `validatorAddFundsToConsensus` still add to `issueSize`, as listed under issueSize accounting
 - **Validator execution withdrawal bound**: While `outstandingBonds > 0`, the validator can withdraw from execution up to `issueSize` and never more than the contract balance. Withdrawals are unrestricted when `outstandingBonds == 0`, and frozen while the validator is defaulted

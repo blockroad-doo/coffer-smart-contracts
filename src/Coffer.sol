@@ -917,6 +917,10 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     }
 
     /// @notice Validator can add funds at will
+    /// @notice issueSize rises by the buffer-adjusted amount in this call, while the deposit waits in the beacon
+    /// chain's deposit queue. The deposit carries no signature, so the beacon chain credits it only to a validator
+    /// that exists when it processes the deposit and drops it otherwise. Call it for a registered key, or for
+    /// one whose valid first deposit is earlier in the queue.
     /// @param _depositDataRoot The deposit data root, which the validator computes before the call from the
     /// validator public signing key and the intended amount.
     function validatorAddFundsToConsensus(bytes32 _depositDataRoot) external payable onlyOwner {
