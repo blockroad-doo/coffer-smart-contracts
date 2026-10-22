@@ -461,7 +461,7 @@ contract CofferHolderOpsTest is BaseTest {
         assertEq(remaining, amtOwed, "bond alive at full value");
         assertEq(bondNft.ownerOf(bondId), holder1, "NFT still held by holder");
 
-        // The validator's extraction paths are frozen from this moment on
+        // The validator's extraction paths, validatorRedeemBonds excepted, are frozen from this moment on
         vm.prank(validator);
         vm.expectRevert(Coffer.ValidatorInDefault.selector);
         coffer.validatorWithdrawFromExecution(1);

@@ -538,7 +538,7 @@ contract CofferDefaultTest is BaseTest {
     ///      holder's own redeem ends it. A receive() top-up raises issueSize, so the validator takes the
     ///      top-up back after the declaration reverted. holderRedeemBondOrDefault declares the default in
     ///      the same transaction as a failed redeem, so the moment the balance fails to cover the bond, the
-    ///      default lands and every extraction path freezes.
+    ///      default lands and every extraction path except validatorRedeemBonds freezes.
     function test_Scenario_TopUpReExtractYoYo_AtomicDefaultEndsIt() public {
         (uint256 bondId, uint128 bmv) = _maturedUnpaidBond();
 

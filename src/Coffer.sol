@@ -82,9 +82,11 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @param isActive - Represents if validator is willing to issue a bond or not. Can switch on/off at own will.
     /// @param validatorDefaulted - Set by declareDefault (or atomically by the holder's holderRedeemBondOrDefault)
     /// when a matured bond cannot be paid from the contract balance. Cleared only by clearDefault, by the owner,
-    /// once outstandingBonds == 0. While set, bond sales and every validator extraction path revert with
-    /// ValidatorInDefault, all bonds accelerate to claimable at full maturity value via holderRedeemBondInDefault,
-    /// and anyone can request the validator's full exit via exitValidator while any bond is outstanding.
+    /// once outstandingBonds == 0. While set, bond sales and every validator extraction path except
+    /// validatorRedeemBonds revert with ValidatorInDefault, all bonds accelerate to claimable at full maturity
+    /// value via holderRedeemBondInDefault, and anyone can request the validator's full exit via exitValidator
+    /// while any bond is outstanding. validatorRedeemBonds stays open as the settlement path, it pays holders
+    /// through CofferRedemptionEscrow and never the validator.
 
     struct ValidatorConditions {
         uint128 issueSize;
@@ -442,6 +444,11 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Never needed to serve a matured bond: a funded contract is enough and the holder pulls the payment
     /// through holderRedeemBondOrDefault. Used to settle bonds that must stop counting as outstanding, including
     /// a matured bond the holder never claims, which would otherwise block every restricted parameter change
+    /// @notice Stays open while the validator is defaulted, as the settlement path, because it pays holders and
+    /// never the validator. Paid from the contract balance, it takes a place in the same first-come-first-served
+    /// queue as holderRedeemBondInDefault, and the validator chooses which bonds that balance settles first. This
+    /// gives the validator no amount its own holder address could not take through holderRedeemBondInDefault.
+    /// Settling every remaining bond this way brings outstandingBonds to zero, which opens clearDefault
     /// @notice If the contract doesn't have enough to repay, the validator can send additional funds via msg.value
     /// @notice msg.value should equal max(0, totalValue + maturedUnpaid - address(this).balance), where totalValue
     /// is the sum of bondMaturityValue across the passed bondIds and maturedUnpaid is the sum over matured bonds
@@ -623,7 +630,8 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Holder redeems a matured bond while the validator is serving (not defaulted)
     /// @notice Two outcomes, never a partial: pays the full bondMaturityValue, or declares the validator in
     /// default. The shortfall path is atomic with the default declaration. Once defaulted, every validator
-    /// extraction path is frozen. The only useful validator front-run of this function is paying the bond.
+    /// extraction path except validatorRedeemBonds is frozen, and that one pays holders only. The only useful
+    /// validator front-run of this function is paying the bond.
     /// @notice A successful call does not mean the holder was paid. When the contract cannot cover the
     /// bond, it returns false and declares the validator in default without transferring anything; the
     /// bond stays alive and is then claimed through holderRedeemBondInDefault. Check the return value rather
@@ -761,10 +769,12 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// cannot be voided this way.
     /// @notice The only way out of a declared default is to pay. Once every outstanding bond is settled at its
     /// full maturity value, the owner can clear the flag via clearDefault.
-    /// @notice While defaulted: bond sales and every validator extraction path revert with ValidatorInDefault,
-    /// all bonds accelerate to claimable at full maturity value (first come first served, via
-    /// holderRedeemBondInDefault), and anyone can repeatedly request the validator's full exit via exitValidator
-    /// while any bond is outstanding, sweeping the remaining stake into this contract.
+    /// @notice While defaulted: bond sales and every validator extraction path except validatorRedeemBonds revert
+    /// with ValidatorInDefault, all bonds accelerate to claimable at full maturity value (first come first served,
+    /// via holderRedeemBondInDefault), and anyone can repeatedly request the validator's full exit via
+    /// exitValidator while any bond is outstanding, sweeping the remaining stake into this contract.
+    /// validatorRedeemBonds stays open as the settlement path and pays holders through CofferRedemptionEscrow,
+    /// never the validator.
     /// @param _bondId A bond satisfying the default predicate: it exists, it is matured, and it cannot be paid
     function declareDefault(uint256 _bondId) external {
         _declareDefault(_bondId);
