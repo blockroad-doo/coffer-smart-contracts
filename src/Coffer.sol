@@ -361,7 +361,9 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice The fee is the FeeCurve rate of the day the transaction lands, not of the day it was signed, and
     /// version does not cover it. Each day boundary that a pending purchase crosses raises the fee by at most 2
     /// bps of interest, and the rise over the whole curve is at most 890 bps. A late purchase therefore stores a
-    /// lower maturity value than its quote, never below the principal. The call has no deadline
+    /// lower maturity value than its quote, never below the principal. The call has no deadline, and the
+    /// principal goes to whoever owns the Coffer when the call lands, because an ownership transfer does not
+    /// change version either
     /// @param _duration Holder defines the duration, which must be within the validator's offered interval
     /// @param _version Version must match the current validator's version to prevent front-runs
     /// @return bondId The ID of the newly minted bond NFT
