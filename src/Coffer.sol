@@ -176,9 +176,12 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @notice Emitted when validator withdraws from execution layer
     /// @param amount The amount withdrawn
     event ValidatorWithdrawFromExecution(uint128 indexed amount);
-    /// @notice Emitted when validator withdraws from consensus layer
-    /// @dev Emitted in wei for consistency with all other events, even though the function accepts gwei
-    /// @param amount The amount withdrawn in wei
+    /// @notice Emitted when the validator sends a withdrawal request to the beacon chain, not when ETH moves
+    /// @dev The value is the amount requested, converted to wei for consistency with all other events, even though
+    /// the function accepts gwei. The beacon chain handles the request later and pays the amount, pays less when
+    /// the full amount would take the balance under MIN_ACTIVATION_BALANCE, or drops the request. A value of 0 is
+    /// a full exit request. Read the real movement from the beacon chain and from this contract's balance
+    /// @param amount The amount requested in wei, 0 for a full exit
     event ValidatorWithdrawFromConsensus(uint128 indexed amount);
     /// @notice Emitted when validator adds funds to consensus layer
     /// @param amount The amount of funds added
@@ -893,6 +896,10 @@ contract Coffer is Ownable2Step, Multicall, Initializable {
     /// @dev If we try to partially withdraw an amount that would lower the consensus balance below
     /// MIN_ACTIVATION_BALANCE, WITHDRAWAL_CONTRACT won't revert; the beacon chain would withdraw a smaller amount
     /// to keep the balance at MIN_ACTIVATION_BALANCE.
+    /// @dev The ValidatorWithdrawFromConsensus event carries the requested amount in wei, 0 for a full exit, and it
+    /// is emitted when the request is sent, before the beacon chain pays, clamps or drops it. It is not a record of
+    /// ETH that moved. The predeploy call that follows reverts the whole transaction when it fails, so the event
+    /// never stands without a request
     /// @dev This function is called using gwei, not wei, since the beacon chain operates in gwei
     /// @dev Reverts while defaulted, which is the security boundary of the default machine: only this contract
     /// can request partial withdrawals for this pubkey (EIP-7002 checks the request's source address against the
